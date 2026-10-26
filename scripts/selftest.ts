@@ -131,6 +131,8 @@ async function plannerChecks() {
 {
   const gh = " Copy and paste this code into the security code field on your application: O2YJR3FJ After you enter the code, resubmit your application. © 2026 Greenhouse 18 West 18th Street, 11th Floor, New York, NY 10011, USA ";
   ok(extractCode(gh) === "O2YJR3FJ", "reads Greenhouse alphanumeric security codes");
+  ok(extractCode("Copy and paste this code into the security code field on your application:\n\n\n 4djckW6H \n \n After you enter the code, resubmit your application.") === "4djckW6H", "keeps mixed-case codes exactly as sent");
+  ok(extractCode("Copy and paste this code into the field: After that, Resubmit") === null, "never mistakes words for codes");
   ok(extractCode("Your verification code is 482913. It expires in 10 minutes.") === "482913" && extractCode("Use code: 7741 to sign in") === "7741", "reads numeric codes");
   ok(extractCode("2-Step Verification turned on. Your Google Account is now protected") === null, "ignores emails without a code");
 }

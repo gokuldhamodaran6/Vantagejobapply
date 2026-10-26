@@ -352,7 +352,7 @@ function CodeCard({ t, hasMailbox, head, onDone }: { t: AgentTask; hasMailbox: b
   }, []);
   const left = sc ? Math.max(0, Date.parse(sc.expiresAt) - now) : 0;
   const mmss = `${Math.floor(left / 60000)}:${String(Math.floor((left % 60000) / 1000)).padStart(2, "0")}`;
-  const clean = (v: string) => v.replace(/[^A-Za-z0-9]/g, "").toUpperCase().slice(0, sc ? len : 10);
+  const clean = (v: string) => v.replace(/[^A-Za-z0-9]/g, "").slice(0, sc ? len : 10); // codes can be case-sensitive (e.g. 4djckW6H)
   const ready = sc ? code.length === len : code.length >= 4;
   async function send() {
     setBusy(true);
