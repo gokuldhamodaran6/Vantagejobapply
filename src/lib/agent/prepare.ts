@@ -5,6 +5,7 @@ import { pickArm, STYLE_ARMS, styleStats, TONE_ARMS } from "@/lib/resume/learn";
 import { applyTarget } from "./jobs";
 import { rpc, rpcExt } from "./svc";
 import { bestName } from "./fields";
+import { fullDescription } from "@/lib/jobs/fulltext";
 import type { Job, LetterTone, ResumeContent, ResumeStyle } from "@/lib/types";
 
 type ResumeRow = { id: string; target_role_id: string | null; is_master: boolean; content: ResumeContent; style: ResumeStyle | null; name: string; updated_at?: string };
@@ -46,7 +47,9 @@ export async function prepareAndQueue(input: {
       style ||= pickArm(st.styles, STYLE_ARMS, (base.style as ResumeStyle) || "classic");
       tone ||= pickArm(st.tones, TONE_ARMS, "confident");
     }
-    const t = await tailorForJob(base.content, { title: job.title, company: job.company, description: job.description, country: job.country, location: job.location }, bestName(input.name, base.content?.name), tone);
+    // Tailor against the full posting, read live from the employer (Vantage only stores a summary).
+    const description = await fullDescription(job).catch(() => job.description);
+    const t = await tailorForJob(base.content, { title: job.title, company: job.company, description, country: job.country, location: job.location }, bestName(input.name, base.content?.name), tone);
     coverLetter = coverLetter || t.coverLetter;
     const report = scoreResume(t.resume, t.keywords);
     const saved = await rpcExt<{ id: string }>("save_resume", {
@@ -98,7 +101,8 @@ export async function ensureFreshTailoring(input: {
   if (!issues.length && age < 14 * 864e5 && !baseNewer) return { refreshed: false };
   const jd = await rpcExt<{ description: string | null; location: string | null; country: string | null } | null>("job", { job_id: input.jobId }).catch(() => null);
   const tone = (input.tone as LetterTone) || "confident";
-  const t = await tailorForJob(base.content, { title: input.job.title, company: input.job.company, description: jd?.description || null, country: input.job.country || jd?.country || "US", location: input.job.location || jd?.location }, input.fullName || input.name, tone);
+  const fullText = await fullDescription({ ...(input.job as unknown as Job), id: input.jobId, description: jd?.description || null, desc_len: (jd as { desc_len?: number } | null)?.desc_len ?? 999999 }).catch(() => jd?.description || null);
+  const t = await tailorForJob(base.content, { title: input.job.title, company: input.job.company, description: fullText || jd?.description || null, country: input.job.country || jd?.country || "US", location: input.job.location || jd?.location }, input.fullName || input.name, tone);
   // The rewrite itself must pass the gate; otherwise keep the clean base resume rather than send something broken.
   const content = resumeIssues(t.resume, input.fullName).length ? base.content : t.resume;
   const report = scoreResume(content, t.keywords);

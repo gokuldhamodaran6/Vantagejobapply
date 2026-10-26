@@ -25,7 +25,7 @@ export type Board = {
 
 const UA = "Mozilla/5.0 (compatible; VantageJobs/1.0; +https://vantage.jobs/bot)";
 
-async function getJson<T>(url: string, init: RequestInit = {}, timeoutMs = 12000): Promise<T | null> {
+export async function getJson<T>(url: string, init: RequestInit = {}, timeoutMs = 12000): Promise<T | null> {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), timeoutMs);
   try {
