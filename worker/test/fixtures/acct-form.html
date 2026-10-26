@@ -1,8 +1,10 @@
 <!doctype html><html><head><meta charset="utf-8"><title>Application · Initech Jobs</title></head><body>
 <h2>Application: Business Operations Manager</h2>
-<form onsubmit="event.preventDefault(); if (document.getElementById('cv').files.length) location.href='/fx/gh-confirmation.html'; else document.getElementById('err').textContent='Resume required';">
+<form onsubmit="event.preventDefault(); if (document.getElementById('cv').files.length && document.getElementById('st').value === 'Illinois') location.href='/fx/gh-confirmation.html'; else document.getElementById('err').textContent='Resume required';">
 <label for="n">Full name*</label><input id="n" required>
 <label for="ph">Phone*</label><input id="ph" type="tel" required>
+<label for="st">State*</label><select id="st" required><option value="">No states/provinces available</option></select>
+<label for="co">Country*</label><select id="co" required onchange="const st=document.getElementById('st'); st.innerHTML = this.value === 'United States' ? '<option value=&quot;&quot;>Select</option><option>California</option><option>Illinois</option><option>Texas</option>' : '<option value=&quot;&quot;>No states/provinces available</option>';"><option value="">Select</option><option>Canada</option><option>United States</option></select>
 <label for="cv">Resume/CV*</label><input id="cv" type="file" required>
 <label for="auth">Are you legally authorized to work in the United States?*</label><select id="auth" required><option value="">Select</option><option>Yes</option><option>No</option></select>
 <button type="submit">Submit application</button><p id="err"></p></form></body></html>

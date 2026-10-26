@@ -237,6 +237,7 @@ async function fillPage(bundle, page, filled, seen, collectMissing = false) {
   const { task, files } = bundle;
   let missingAll = [];
   const failed = [];
+  const retry = [];
   for (let pass = 0; pass < 3; pass++) {
     const fields = (await extractFields(page)).filter((f) => f.type !== "password" && !isCodeField(f));
     // Field ids restart on every new page, so "already handled" is remembered per page, not per id.
@@ -266,10 +267,44 @@ async function fillPage(bundle, page, filled, seen, collectMissing = false) {
       } else if (f.required && f.type === "file") {
         throw new Stop("manual", "This site wouldn't take the resume upload. Open the job link to finish.");
       } else if (f.required) {
-        // The site wouldn't take the answer (e.g. none of its options matched). Ask the user to pick from the site's own options.
-        failed.push({ id: f.id, label: f.label, type: f.type, options: f.options?.length ? f.options : undefined, required: true, tried: String(fill.value || "").slice(0, 80) });
+        retry.push({ f, fill });
       }
       await new Promise((r) => setTimeout(r, 120 + Math.random() * 300));
+    }
+    // Dependent dropdowns (State after Country, City after State) only get their options once the field before
+    // them is set: try the misses again after everything else is filled, with freshly read options.
+    for (const { f, fill } of retry) {
+      await sleep(600);
+      const again = (await extractFields(page)).find((x) => x.id === f.id && x.frame === f.frame) || f;
+      if (again.type === "combobox") again.options = await readComboOptions(page, again);
+      const ok = await fillField(page, again, fill, files);
+      if (ok) {
+        seen.add(key(f));
+        if (fill.value) filled[f.label.slice(0, 120)] = String(fill.value).slice(0, 500);
+      } else {
+        // The site wouldn't take the answer (none of its options matched). Ask the user to pick from the site's own options.
+        failed.push({ id: f.id, label: again.label.replace(/\s*no (states?|provinces?|options|results)[^]*$/i, "").trim() || f.label, type: f.type, options: again.options?.length ? again.options : undefined, required: true, tried: String(fill.value || "").slice(0, 80) });
+      }
+    }
+    retry.length = 0;
+    // Dropdowns that had no options yet (they load after an earlier answer): read them again and plan once more.
+    const empty = (plan.missing || []).filter((m) => {
+      const f = byId.get(m.id);
+      return f && ["select", "combobox"].includes(f.type) && !(f.options || []).some((o) => !/^(select|choose|please select|--|no (states?|provinces?|options|results))/i.test(o.trim()));
+    });
+    if (empty.length) {
+      await sleep(500);
+      const now = (await extractFields(page)).filter((x) => empty.some((m) => m.id === x.id));
+      for (const f of now) if (f.type === "combobox") f.options = await readComboOptions(page, f);
+      const again = now.length ? await planInChunks(task.id, now) : { fills: [], missing: [] };
+      for (const fill of again.fills || []) {
+        const f = now.find((x) => x.id === fill.id);
+        if (f && (await fillField(page, f, fill, files))) {
+          seen.add(key(f));
+          plan.missing = (plan.missing || []).filter((m) => m.id !== f.id);
+          if (fill.value) filled[f.label.slice(0, 120)] = String(fill.value).slice(0, 500);
+        }
+      }
     }
     for (const f of fresh) seen.add(key(f));
     const missing = [...(plan.missing || []).filter((m) => m.required), ...failed.filter((x) => !(plan.missing || []).some((m) => m.id === x.id))];
