@@ -184,6 +184,7 @@ async function settle(page, extra = 1200) {
 async function fillPage(bundle, page, filled, seen, collectMissing = false) {
   const { task, files } = bundle;
   let missingAll = [];
+  const failed = [];
   for (let pass = 0; pass < 3; pass++) {
     const fields = (await extractFields(page)).filter((f) => f.type !== "password");
     const fresh = fields.filter((f) => !seen.has(f.id) || (collectMissing && f.required && !f.value && !f.checked));
@@ -205,11 +206,17 @@ async function fillPage(bundle, page, filled, seen, collectMissing = false) {
       if (ok) {
         seen.add(f.id);
         if (fill.value && f.type !== "file") filled[f.label.slice(0, 120)] = String(fill.value).slice(0, 500);
+      } else if (f.required && f.type === "file") {
+        throw new Stop("manual", "This site wouldn't take the resume upload. Open the job link to finish.");
+      } else if (f.required) {
+        // The site wouldn't take the answer (e.g. none of its options matched). Ask the user to pick from the site's own options.
+        failed.push({ id: f.id, label: f.label, type: f.type, options: f.options?.length ? f.options : undefined, required: true, tried: String(fill.value || "").slice(0, 80) });
       }
       await new Promise((r) => setTimeout(r, 120 + Math.random() * 300));
     }
     for (const f of fresh) seen.add(f.id);
-    const missing = (plan.missing || []).filter((m) => m.required);
+    const missing = [...(plan.missing || []).filter((m) => m.required), ...failed.filter((x) => !(plan.missing || []).some((m) => m.id === x.id))];
+    failed.length = 0;
     if (missing.length) {
       missingAll = missing;
       if (bundle.dry) {

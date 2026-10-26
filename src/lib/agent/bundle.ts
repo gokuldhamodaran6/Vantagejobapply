@@ -21,6 +21,7 @@ type RawBundle = {
   resume: { content: ResumeContent; style: string | null } | null;
   master: { content: ResumeContent; style: string | null } | null;
   mail: { address: string; status: string } | null;
+  prefs: { locations?: { city?: string; state?: string; country?: string }[] | null; remote_ok?: boolean | null } | null;
   vault: { host: string; login: string; secret_enc: string }[];
 };
 
@@ -41,7 +42,7 @@ export async function loadBundle(taskId: string, hostOverride?: string) {
   const resume = b.resume?.content || b.master?.content || null;
   const country = b.task.job.country || "US";
   const identity = b.mail?.status === "active" || b.mail?.status === "pending" ? b.mail.address : b.profile?.email || "";
-  const facts: Facts = buildFacts({ email: identity, name: b.profile?.full_name || resume?.name || "", applicant: b.applicant, resume, auth: b.auth.find((a) => a.country === country), country });
+  const facts: Facts = buildFacts({ email: identity, name: b.profile?.full_name || resume?.name || "", applicant: b.applicant, resume, auth: b.auth.find((a) => a.country === country), country, prefs: b.prefs });
   const cred = b.vault[0];
   let password: string | null = null;
   if (cred) {

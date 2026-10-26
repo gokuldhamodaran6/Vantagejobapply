@@ -1,6 +1,6 @@
 import "server-only";
 import { aiConfigured, claude, extractJson } from "@/lib/ai";
-import { workAuthAnswers } from "@/lib/answers";
+import { authorisedNow, needsSponsorshipLater, workAuthAnswers } from "@/lib/answers";
 import type { ResumeContent, WorkAuth } from "@/lib/types";
 
 /** A form control the worker found on an employer's application page. */
@@ -16,7 +16,7 @@ export type FormField = {
 };
 
 export type Fill = { id: string; value?: string; file?: "resume" | "cover_letter"; check?: boolean };
-export type Missing = { id: string; qkey: string; label: string; type: FormField["type"]; options?: string[]; required: boolean };
+export type Missing = { id: string; qkey: string; label: string; type: FormField["type"]; options?: string[]; required: boolean; kind?: "consent" };
 
 export type Facts = {
   first_name: string; last_name: string; full_name: string; preferred_name: string;
@@ -26,10 +26,12 @@ export type Facts = {
   years_experience: string; salary: string; start: string; notice: string; relocate: string; heard_from: string;
   gender: string; race: string; hispanic: string; veteran: string; disability: string; pronouns: string;
   work_authorized: string; sponsorship: string; sponsorship_detail: string; work_status: string;
+  preferred_locations: string; remote_ok: string;
+  sponsorship_now: string; sponsorship_future: string; eeo_private: string;
 };
 
 export function qkeyOf(label: string) {
-  return label.toLowerCase().replace(/\*|\(required\)|\(optional\)/g, "").replace(/[^a-z0-9 ]/g, " ").replace(/\s+/g, " ").trim().slice(0, 140);
+  return coreLabel(label).toLowerCase().replace(/\*|\(required\)|\(optional\)/g, "").replace(/[^a-z0-9 ]/g, " ").replace(/\s+/g, " ").trim().slice(0, 140);
 }
 
 const DECLINE = "Decline to self-identify";
@@ -42,6 +44,7 @@ export function buildFacts(input: {
   resume: ResumeContent | null;
   auth: WorkAuth | undefined;
   country: string;
+  prefs?: { locations?: { city?: string; state?: string; country?: string }[] | null; remote_ok?: boolean | null } | null;
 }): Facts {
   const a = input.applicant || {};
   const r = input.resume || ({ name: input.name } as ResumeContent);
@@ -96,6 +99,12 @@ export function buildFacts(input: {
     sponsorship: auth.sponsorship || "",
     sponsorship_detail: auth.sponsorship_detail || "",
     work_status: auth.work_status || "",
+    preferred_locations: (input.prefs?.locations || []).map((l) => l.city || l.state || "").filter(Boolean).join(", "),
+    remote_ok: input.prefs?.remote_ok ? "Yes" : "",
+    // Separate, exact answers for "now" and "in the future" — an OPT holder needs no sponsorship now but will later.
+    sponsorship_now: input.auth ? (authorisedNow(input.auth) ? "No" : "Yes") : "",
+    sponsorship_future: input.auth ? (needsSponsorshipLater(input.auth) ? "Yes" : "No") : "",
+    eeo_private: DECLINE,
   };
 }
 
@@ -130,9 +139,13 @@ type Rule = [RegExp, keyof Facts | "resume" | "cover_letter" | "consent" | "sms"
 const RULES: Rule[] = [
   [/\b(resume|cv|curriculum vitae)\b/, "resume"],
   [/\bcover ?letter\b/, "cover_letter"],
+  // Any question about sponsorship is a sponsorship question, even when it also says "work authorization".
+  [/(require|need).{0,60}sponsor|sponsorship/, "sponsorship"],
   [/authori[sz]ed to work|legally (eligible|authori[sz]ed|permitted|able) to work|right to work|eligible to work|work authori[sz]ation/, "work_authorized"],
-  [/(require|need).{0,40}sponsor|sponsorship/, "sponsorship"],
   [/visa status|immigration status|current (work )?status/, "work_status"],
+  [/^location \(city\)|^location$|^current location|city, state|^your location/, "location"],
+  [/transgender|lgbt|sexual orientation|orientation\b/, "eeo_private"],
+  [/(which|what) (cities|city|locations?|offices?)|cities .{0,40}(available|willing|open|work)|(available|willing|open) to work (in|from)|preferred (work )?(location|office)|office location|location preference/, "preferred_locations"],
   [/\bpreferred (first )?name|nick ?name/, "preferred_name"],
   [/\b(legal )?first name|given name|^first$|fname/, "first_name"],
   [/\b(legal )?last name|surname|family name|^last$|lname/, "last_name"],
@@ -172,6 +185,20 @@ const RULES: Rule[] = [
 
 const SHORT_FACTS = new Set(["first_name", "last_name", "full_name", "preferred_name", "email", "phone", "linkedin", "github", "website", "address1", "city", "state", "postal", "country", "location", "current_company", "current_title", "school", "degree", "major", "grad_year", "pronouns", "salary", "notice", "start"]);
 
+/**
+ * "Will you now require sponsorship?" and "Will you in the future…?" get different, exact answers.
+ * A question that asks about both (or doesn't say) is "Yes" if either is yes.
+ */
+export function sponsorshipFor(label: string, facts: Facts): string | null {
+  const now = /\bnow\b|currently|at this time|to (start|begin)|today|immediately/.test(label);
+  const future = /future|later|at any (point|time)|eventually|going forward/.test(label);
+  const n = facts.sponsorship_now, fu = facts.sponsorship_future;
+  if (now && !future) return n || null;
+  if (future && !now) return fu || null;
+  if (!n && !fu) return null;
+  return n === "Yes" || fu === "Yes" ? "Yes" : "No";
+}
+
 /** A field's label without required-markers and without the duplicate that aria-labelledby + <label for> produce. */
 export function coreLabel(label: string) {
   const t = label.replace(/\*|\(required\)/gi, " ").replace(/\s+/g, " ").trim();
@@ -192,7 +219,7 @@ export function bestOption(options: string[], want: string): string | null {
   if (yes) return opts.find((o) => /^yes\b/i.test(o.trim())) || null;
   if (no) return opts.find((o) => /^no\b/i.test(o.trim())) || null;
   if (/decline|don.?t wish|prefer not|not to (say|answer|disclose)/.test(w)) {
-    return opts.find((o) => /decline|don.?t wish|prefer not|not to (say|answer|disclose|self)|choose not/i.test(o)) || null;
+    return opts.find((o) => /decline|don.?t wish|prefer not|not to (say|answer|disclose|self)|choose not|(do not|don.?t) want to (answer|say|disclose|identify)|rather not/i.test(o)) || null;
   }
   const starts = opts.find((o) => n(o).startsWith(w) || w.startsWith(n(o)));
   if (starts) return starts;
@@ -256,7 +283,7 @@ export async function planFields(
       if (ctx.coverLetter) fills.push({ id: f.id, value: ctx.coverLetter });
       continue;
     }
-    const formerly = /(previously|ever|formerly|currently) (been )?(employed|worked|work) (by|for|at)|former employee|worked (here|for us) before/.test(label);
+    const formerly = /(previously|ever|formerly|currently) (been )?(employed|worked|work) (by|for|at)|have you (ever )?(been employed|worked) (at|for|by)|former employee|worked (here|for us) before/.test(label) && !/relative|family|friend|refer/.test(label);
     const based = label.match(/(?:currently |presently )?(?:based|located|living|reside|residing) in (?:the )?([a-z .]+?)\??$/);
     if (saved) value = saved;
     else if (formerly && ctx.resume) {
@@ -277,12 +304,22 @@ export async function planFields(
           continue;
         }
         if (ctx.consent && f.options?.length) value = f.options.find((o) => /agree|accept|yes|acknowledge|confirm/i.test(o)) || null;
+      } else if (key === "preferred_locations") {
+        const mine = ctx.facts.preferred_locations.split(/,\s*/).filter(Boolean);
+        if (f.options?.length) {
+          const n = (x: string) => x.toLowerCase().replace(/[^a-z ]/g, " ").replace(/\s+/g, " ").trim();
+          const hit = f.options.find((o) => mine.some((m) => n(o).includes(n(m)) || n(m).includes(n(o)))) || (ctx.facts.remote_ok ? f.options.find((o) => /remote/i.test(o)) : undefined);
+          if (hit) {
+            fills.push({ id: f.id, value: hit });
+            continue;
+          }
+        } else if (mine.length) value = mine.join(", ") + (ctx.facts.remote_ok ? ", or remote" : "");
       } else if (key === "sms") {
         if (f.type === "checkbox") continue; // never opt in to marketing texts
         value = "No";
       } else if (key !== "resume" && key !== "cover_letter" && key !== "full_or_first") {
         value = ctx.facts[key] || null;
-        if (key === "sponsorship" && f.options?.length && value) value = /^yes/i.test(value) ? "Yes" : "No";
+        if (key === "sponsorship") value = sponsorshipFor(label, ctx.facts);
         if (key === "work_authorized" && f.options?.length && value) value = /^yes/i.test(value) ? "Yes" : "No";
       }
     }
@@ -305,7 +342,10 @@ export async function planFields(
   // Open questions: AI may answer motivation / experience questions from the resume; personal facts are always asked.
   const missing: Missing[] = [];
   let aiAnswers: Record<string, string> = {};
-  const askable = open.filter((f) => !SENSITIVE.test(f.label.toLowerCase()));
+  // Certifications, legal, eligibility and identity questions are never answered by AI: only by the user's own saved answers.
+  const isConsent = (f: FormField) => /privacy|consent|i agree|acknowledge|terms|certify|attest|accurate and complete|true and correct|data (processing|retention)|i understand/.test(f.label.toLowerCase());
+  const NO_AI = /authori[sz]ed to work|eligible to work|right to work|sponsor|visa|citizen|immigration|green card|clearance|export control|itar|us person|veteran|disabilit|gender|\brace\b|ethnic|hispanic|pronoun|salary|compensation/;
+  const askable = open.filter((f) => !SENSITIVE.test(f.label.toLowerCase()) && !NO_AI.test(f.label.toLowerCase()) && !isConsent(f));
   if (aiConfigured() && askable.length) {
     const out = await claude(
       `You fill job-application questions for a candidate, using ONLY the facts provided. For each field return a value or the exact string "ASK".
@@ -317,7 +357,7 @@ Rules:
 Return ONLY JSON {"<id>": "<value or ASK>"}.`,
       [{
         role: "user",
-        content: `JOB: ${ctx.job.title} at ${ctx.job.company}\n${(ctx.job.description || "").slice(0, 3000)}\n\nCANDIDATE FACTS: ${JSON.stringify({ ...ctx.facts, email: undefined, phone: undefined, address1: undefined })}\nRESUME: ${JSON.stringify(ctx.resume || {}).slice(0, 7000)}\nSAVED ANSWERS: ${JSON.stringify(relevantAnswers(ctx.answers, askable))}\n\nFIELDS: ${JSON.stringify(askable.map((f) => ({ id: f.id, label: f.label, type: f.type, options: f.options?.slice(0, 40), required: f.required })))}`,
+        content: `JOB: ${ctx.job.title} at ${ctx.job.company}\n${(ctx.job.description || "").slice(0, 3000)}\n\nCANDIDATE FACTS: ${JSON.stringify(aiFacts(ctx.facts))}\nRESUME: ${JSON.stringify(ctx.resume || {}).slice(0, 7000)}\nSAVED ANSWERS: ${JSON.stringify(relevantAnswers(ctx.answers, askable))}\n\nFIELDS: ${JSON.stringify(askable.map((f) => ({ id: f.id, label: f.label, type: f.type, options: f.options?.slice(0, 40), required: f.required })))}`,
       }],
       2500,
       { model: "fast", temperature: 0.2 },
@@ -338,14 +378,23 @@ Return ONLY JSON {"<id>": "<value or ASK>"}.`,
         continue;
       }
     }
-    if (f.required) missing.push({ id: f.id, qkey: qkeyOf(f.label), label: f.label.replace(/\s*\*\s*$/, ""), type: f.type, options: f.options, required: true });
+    if (f.required) missing.push({ id: f.id, qkey: qkeyOf(f.label), label: coreLabel(f.label), type: f.type, options: f.options, required: true, ...(isConsent(f) ? { kind: "consent" as const } : {}) });
   }
   return { fills, missing };
+}
+
+/** Only professional facts go to the AI — never contact details, demographics or immigration status. */
+function aiFacts(f: Facts) {
+  return {
+    current_company: f.current_company, current_title: f.current_title, school: f.school, degree: f.degree, major: f.major, grad_year: f.grad_year,
+    years_experience: f.years_experience, city: f.city, state: f.state, country: f.country, relocate: f.relocate, start: f.start, notice: f.notice,
+    preferred_locations: f.preferred_locations, remote_ok: f.remote_ok,
+  };
 }
 
 /** Only saved answers that share meaningful words with the fields being asked go to the AI. */
 function relevantAnswers(answers: { qkey: string; question: string; answer: string }[], fields: FormField[]) {
   const stop = new Set(["you", "your", "have", "are", "the", "and", "for", "with", "what", "this", "that", "will", "any", "how", "did", "please", "describe"]);
   const words = new Set(fields.flatMap((f) => qkeyOf(f.label).split(" ")).filter((w) => w.length > 3 && !stop.has(w)));
-  return answers.filter((a) => a.qkey.split(" ").some((w) => words.has(w))).slice(0, 12);
+  return answers.filter((a) => !SENSITIVE.test(a.qkey) && !/sponsor|visa|citizen|veteran|disabilit|gender|race|ethnic|hispanic|salary/.test(a.qkey) && a.qkey.split(" ").some((w) => words.has(w))).slice(0, 12);
 }

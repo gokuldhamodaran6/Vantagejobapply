@@ -40,7 +40,14 @@ function extractInPage() {
     if (el.getAttribute("aria-label") && !parts.length) parts.push(el.getAttribute("aria-label"));
     if (!parts.join("").trim()) parts.push(containerLabel(el));
     if (!parts.join("").trim() && el.placeholder) parts.push(el.placeholder);
-    const t = parts.join(" ").replace(/\s+/g, " ").trim();
+    // aria-labelledby and <label for> usually point at the same text: keep each distinct label once.
+    const key = (x) => x.toLowerCase().replace(/[^a-z0-9]/g, "");
+    const uniq = [];
+    for (const p of parts.map((x) => (x || "").replace(/\s+/g, " ").trim()).filter(Boolean)) {
+      if (!uniq.some((u) => key(u) === key(p) || key(u).includes(key(p)) || key(p).includes(key(u)))) uniq.push(p);
+      else if (uniq.length && key(p).length > key(uniq[uniq.length - 1]).length && key(p).includes(key(uniq[uniq.length - 1]))) uniq[uniq.length - 1] = p;
+    }
+    const t = uniq.join(" ").trim();
     return t.slice(0, 300);
   };
   const required = (el, label) => el.required || el.getAttribute("aria-required") === "true" || /\*\s*$|\*\s|\(required\)/i.test(label);
@@ -78,7 +85,10 @@ function extractInPage() {
       continue;
     }
     if (el.getAttribute("role") === "combobox" || el.getAttribute("aria-haspopup") === "listbox") {
-      const cur = el.tagName === "BUTTON" ? text(el) : el.value;
+      // react-select and similar show the chosen value in a sibling element; the input itself stays empty.
+      const shell = el.closest("[class*='select__control'], [class*='-control'], [class*='Select-control'], [class*='select-shell'], [class*='container']") || el.parentElement?.parentElement;
+      const shown = shell && shell.querySelector("[class*='single-value'], [class*='singleValue'], [class*='multi-value__label'], [class*='Select-value-label']");
+      const cur = el.tagName === "BUTTON" ? text(el) : (shown ? text(shown) : el.value);
       fields.push({ id: tag(el), type: "combobox", label: label || containerLabel(el), name: el.name || el.getAttribute("data-automation-id") || "", required: required(el, label || containerLabel(el)), options: [], value: /select one|^select$|^choose/i.test(cur) ? "" : cur });
       continue;
     }
@@ -123,17 +133,70 @@ function closest(options, want) {
   return options.find((o) => norm(o) === w) || options.find((o) => norm(o).startsWith(w)) || options.find((o) => norm(o).includes(w)) || options.find((o) => w.includes(norm(o)) && norm(o).length > 2) || null;
 }
 
-/** Open a searchable dropdown to read its options (so answers can be matched exactly). */
+/**
+ * The options of the dropdown this field just opened — only its own list (via aria-controls / aria-owns), or the
+ * visible list nearest to it. Other lists on the page (a phone country-code picker, another question) are ignored.
+ */
+async function ownOptions(fr, el) {
+  for (const attr of ["aria-controls", "aria-owns"]) {
+    const id = await el.getAttribute(attr).catch(() => null);
+    if (id) {
+      const lb = fr.locator(`[id="${id.split(/\s+/)[0]}"]`);
+      if (await lb.count().catch(() => 0)) {
+        const inside = lb.locator("[role='option']");
+        if (await inside.count().catch(() => 0)) return inside;
+        return lb.locator("li, [class*='option' i]:not([class*='options' i])");
+      }
+    }
+  }
+  // No link: take visible options, preferring a list that opened right under this field.
+  const box = await el.boundingBox().catch(() => null);
+  const visible = fr.locator("[role='option']:visible, [role='listbox']:visible li, [class*='select__option']:visible, [class*='menu' i]:visible [class*='option' i]:not([class*='options' i])");
+  if (!box) return visible;
+  const near = [];
+  const n = Math.min(await visible.count().catch(() => 0), 400);
+  for (let i = 0; i < n; i++) {
+    const b = await visible.nth(i).boundingBox().catch(() => null);
+    if (b && b.y >= box.y - 400 && b.y <= box.y + box.height + 600) near.push(i);
+  }
+  if (!near.length) return visible;
+  // A Locator for exactly those indices.
+  return { nth: (i) => visible.nth(near[i]), count: async () => near.length, allInnerTexts: async () => Promise.all(near.map((i) => visible.nth(i).innerText().catch(() => ""))), filter: (o) => visible.filter(o) };
+}
+
+const cleanOpt = (o) => o.replace(/\s+/g, " ").trim();
+
+const STATE_NAMES = { AL: "alabama", AK: "alaska", AZ: "arizona", AR: "arkansas", CA: "california", CO: "colorado", CT: "connecticut", DE: "delaware", DC: "district of columbia", FL: "florida", GA: "georgia", HI: "hawaii", ID: "idaho", IL: "illinois", IN: "indiana", IA: "iowa", KS: "kansas", KY: "kentucky", LA: "louisiana", ME: "maine", MD: "maryland", MA: "massachusetts", MI: "michigan", MN: "minnesota", MS: "mississippi", MO: "missouri", MT: "montana", NE: "nebraska", NV: "nevada", NH: "new hampshire", NJ: "new jersey", NM: "new mexico", NY: "new york", NC: "north carolina", ND: "north dakota", OH: "ohio", OK: "oklahoma", OR: "oregon", PA: "pennsylvania", RI: "rhode island", SC: "south carolina", SD: "south dakota", TN: "tennessee", TX: "texas", UT: "utah", VT: "vermont", VA: "virginia", WA: "washington", WV: "west virginia", WI: "wisconsin", WY: "wyoming", ON: "ontario", BC: "british columbia", QC: "quebec", AB: "alberta" };
+
+/** The option that means the same as the answer: exact, then prefix, then "City, ST" → "City, State, Country". */
+export function chooseOption(texts, want) {
+  if (!texts.length || !want) return null;
+  const hit = closest(texts, want);
+  if (hit) return hit;
+  const parts = want.split(",").map((x) => x.trim()).filter(Boolean);
+  if (parts.length >= 2) {
+    const city = norm(parts[0]);
+    const region = STATE_NAMES[parts[1].toUpperCase()] || norm(parts[1]);
+    const sameCity = texts.filter((t) => norm(t.split(",")[0]) === city);
+    return sameCity.find((t) => norm(t).includes(region)) || (sameCity.length === 1 ? sameCity[0] : null);
+  }
+  return null;
+}
+
+/** Open a dropdown to read its options (so answers can be matched exactly). */
 export async function readComboOptions(page, f) {
   const fr = frameFor(page, f);
   const el = fr.locator(`[data-vantage-id="${f.id}"]`).first();
   try {
+    await el.scrollIntoViewIfNeeded({ timeout: 3000 }).catch(() => {});
     await el.click({ timeout: 4000 });
-    await sleep(500);
-    const opts = await fr.locator("[role='option'], [role='listbox'] li, [class*='option' i]:not([class*='options' i])").allInnerTexts();
+    await sleep(600);
+    const opts = await (await ownOptions(fr, el)).allInnerTexts();
     await page.keyboard.press("Escape").catch(() => {});
-    return [...new Set(opts.map((o) => o.replace(/\s+/g, " ").trim()).filter((o) => o && o.length < 120))].slice(0, 80);
+    await sleep(150);
+    return [...new Set(opts.map(cleanOpt).filter((o) => o && o.length < 160 && !/^(no (options|results)|loading)/i.test(o)))].slice(0, 400);
   } catch {
+    await page.keyboard.press("Escape").catch(() => {});
     return [];
   }
 }
@@ -188,29 +251,44 @@ export async function fillField(page, f, fill, files) {
       return true;
     }
     if (f.type === "combobox") {
-      await el.click({ timeout: 5000 });
-      await sleep(300);
+      const want = String(fill.value || "");
+      await el.scrollIntoViewIfNeeded({ timeout: 3000 }).catch(() => {});
       const isButton = (await el.evaluate((n) => n.tagName)) === "BUTTON";
-      if (!isButton) {
-        await el.fill("").catch(() => {});
-        await el.pressSequentially(String(fill.value).slice(0, 60), { delay: 35 });
-        await sleep(900);
-      } else {
-        await sleep(500);
+      // Type the full answer first; for searchable lists (cities, schools) fall back to shorter search terms.
+      const queries = isButton ? [""] : [...new Set([want, want.split(",")[0].trim(), want.split(/\s+/)[0]].filter((q) => q && q.length >= 2))].slice(0, 3);
+      let picked = null;
+      for (const q of queries) {
+        await el.click({ timeout: 5000 });
+        await sleep(300);
+        if (!isButton) {
+          await el.fill("").catch(() => {});
+          await el.pressSequentially(q.slice(0, 60), { delay: 30 });
+          await sleep(1100); // async lists (Greenhouse locations) load after typing
+        } else await sleep(500);
+        const options = await ownOptions(fr, el);
+        const texts = (await options.allInnerTexts().catch(() => [])).map(cleanOpt).filter((t) => t && !/^(no (options|results)|loading|type to search|start typing)/i.test(t));
+        const pick = chooseOption(texts, want);
+        if (pick) {
+          const idx = texts.indexOf(pick);
+          await (idx >= 0 ? options.nth(idx) : options.filter({ hasText: pick }).first()).click({ timeout: 4000 });
+          picked = pick;
+          break;
+        }
       }
-      const options = fr.locator("[role='option']");
-      const texts = (await options.allInnerTexts().catch(() => [])).map((t) => t.replace(/\s+/g, " ").trim());
-      const pick = closest(texts, fill.value) || (!isButton && texts.length && texts[0] && !/no (options|results)/i.test(texts[0]) ? texts[0] : null);
-      if (pick) {
-        await options.filter({ hasText: pick }).first().click({ timeout: 4000 });
-      } else if (!isButton) {
-        await page.keyboard.press("Enter");
-      } else {
-        await page.keyboard.press("Escape");
+      if (!picked) {
+        // Never press Enter on a guess: that would pick whatever is highlighted. Leave it for the user instead.
+        if (!isButton) await el.fill("").catch(() => {});
+        await page.keyboard.press("Escape").catch(() => {});
         return false;
       }
-      await sleep(250);
-      return true;
+      await sleep(300);
+      // Check the page now shows the choice.
+      const shown = await el.evaluate((n) => {
+        const shell = n.closest("[class*='select__control'], [class*='-control'], [class*='Select-control'], [class*='container']") || n.parentElement?.parentElement;
+        const sv = shell && shell.querySelector("[class*='single-value'], [class*='singleValue'], [class*='multi-value__label']");
+        return (sv ? sv.textContent : n.tagName === "BUTTON" ? n.textContent : n.value) || "";
+      }).catch(() => "");
+      return !shown || norm(shown).includes(norm(picked).slice(0, 20)) || norm(picked).includes(norm(shown));
     }
     // Text-like inputs
     let v = String(fill.value ?? "");

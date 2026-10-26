@@ -40,8 +40,10 @@ export async function handleLive(req, res, url) {
   }
   const s = sessions.get(taskId);
   if (!action) {
-    res.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" });
-    return res.end(PAGE(taskId, token, Boolean(s)));
+    // Only Vantage itself may show this page inside a window.
+    const app = (process.env.APP_URL || "").replace(/\/$/, "");
+    res.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "content-security-policy": `frame-ancestors ${app || "'none'"}`, "referrer-policy": "no-referrer" });
+    return res.end(PAGE(taskId, token, Boolean(s), url.searchParams.get("embed") === "1"));
   }
   if (!s) {
     res.writeHead(410, { "content-type": "application/json" });
@@ -95,7 +97,7 @@ export async function handleLive(req, res, url) {
   res.end();
 }
 
-const PAGE = (taskId, token, active) => `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+const PAGE = (taskId, token, active, embed) => `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Live view · Vantage agent</title>
 <style>
 :root{--ink:#0e1525;--brand:#2f5beb;--line:#e3e6ee;--bg:#f5f6f9}
@@ -110,7 +112,7 @@ img{display:block;width:100%;height:auto;cursor:pointer;user-select:none}
 input{width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:10px;font:inherit;margin-top:10px}
 .off{padding:40px;text-align:center;color:#5b6475}
 </style></head><body>
-<header><b>Your agent's browser</b><span id="st">${active ? "Live" : "Not active"}</span><button class="btn" id="done">I'm done — continue</button></header>
+<header${embed ? ' style="display:none"' : ""}><b>Your agent's browser</b><span id="st">${active ? "Live" : "Not active"}</span><button class="btn" id="done">I'm done — continue</button></header>
 <main>
 <p class="tip">Do only the “I'm human” check (tick the box or pick the images), then press <b>I'm done</b>. Click on the picture to click on the page; type in the box below to type into the page.</p>
 ${active ? `<div class="screen"><img id="v" alt="Live view of the application page"></div><input id="kb" placeholder="Type here to send text to the page, Enter to send" aria-label="Type into the page">` : `<div class="off">The agent isn't on this application right now. You can close this tab.</div>`}

@@ -21,6 +21,7 @@ const tasks: T[] = [
   { id: "t-ashby", ats: "ashby", url: `${BASE}/fx/ashby.html`, job: { title: "Growth Marketing Manager", company: "Initech", country: "US" }, status: "queued", log: [], userInput: {}, attempts: 0 },
   { id: "t-wd", ats: "workday", url: `${BASE}/fx/workday.html`, job: { title: "Brand Marketing Specialist", company: "Globex", country: "US" }, status: "queued", log: [], userInput: {}, attempts: 0 },
   { id: "t-ghnew", ats: "greenhouse", url: `${BASE}/fx/gh-new.html`, job: { title: "Senior Analyst", company: "Umbrella", country: "US" }, status: "queued", log: [], userInput: {}, attempts: 0 },
+  { id: "t-react", ats: "greenhouse", url: `${BASE}/fx/gh-react.html`, job: { title: "Senior Analyst", company: "Umbrella", country: "US" }, status: "queued", log: [], userInput: {}, attempts: 0 },
   { id: "t-cap", ats: "generic", url: `${BASE}/fx/captcha.html`, job: { title: "Data Analyst", company: "Hooli", country: "US" }, status: "queued", log: [], userInput: {}, attempts: 0 },
 ];
 const vault: Record<string, { login: string; password: string }> = {};
@@ -32,7 +33,7 @@ async function files() {
     cover: { name: "Priya_Raman_Cover_Letter.pdf", mimeType: "application/pdf", base64: Buffer.from(await coverLetterPdf("Dear team,\n\nHello.\n\nSincerely,\nPriya Raman", resume)).toString("base64") },
   };
 }
-const facts = () => buildFacts({ email: "priya.careers@gmail.com", name: "Priya Raman", applicant, resume, auth, country: "US" });
+const facts = () => buildFacts({ email: "priya.careers@gmail.com", name: "Priya Raman", applicant, resume, auth, country: "US", prefs: { locations: [{ city: "Chicago", state: "IL", country: "US" }], remote_ok: true } });
 
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url!, BASE);

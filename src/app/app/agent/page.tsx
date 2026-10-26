@@ -173,7 +173,7 @@ export default function AgentPage() {
             <AnimatePresence initial={false}>
               {needs.map((t) => (
                 <motion.div key={t.id} layout initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, height: 0 }}>
-                  <NeedCard t={t} hasMailbox={Boolean(setup?.mailbox)} onDone={(m) => { setToast(m); load(); }} />
+                  <NeedCard t={t} hasMailbox={Boolean(setup?.mailbox)} consent={Boolean(setup?.consent)} onDone={(m) => { setToast(m); load(); }} />
                 </motion.div>
               ))}
             </AnimatePresence>
@@ -210,10 +210,18 @@ async function patch(id: string, body: Record<string, unknown>) {
   return { ok: Boolean(r?.ok), error: (d as { error?: string }).error };
 }
 
-function NeedCard({ t, hasMailbox, onDone }: { t: AgentTask; hasMailbox: boolean; onDone: (msg: string) => void }) {
+/** The site's own wording for "I agree" when it offers options (so the answer matches exactly next time), else "Yes". */
+const agreeValue = (n: AgentTask["needs"][number]) => n.options?.find((o) => /agree|accept|acknowledge|confirm|^yes\b|understand|consent/i.test(o)) || "Yes";
+
+const isConsentNeed = (n: AgentTask["needs"][number]) =>
+  n.kind === "consent" || (n.type === "checkbox" && /certify|acknowledge|agree|consent|privacy|terms|true and correct|i understand/i.test(n.label));
+
+function NeedCard({ t, hasMailbox, consent, onDone }: { t: AgentTask; hasMailbox: boolean; consent: boolean; onDone: (msg: string) => void }) {
   const [vals, setVals] = useState<Record<string, string>>({});
   const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
+  const [always, setAlways] = useState(true);
+  const [liveUrl, setLiveUrl] = useState<string | null>(null);
   const head = (
     <div className="flex flex-wrap items-start gap-2">
       <div className="min-w-0 flex-1">
@@ -235,19 +243,53 @@ function NeedCard({ t, hasMailbox, onDone }: { t: AgentTask; hasMailbox: boolean
     const r = await fetch("/api/agent/live", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ taskId: t.id }) });
     const d = await r.json();
     if (!r.ok) return onDone(d.error || "Live view isn't available.");
-    window.open(`${d.url}?t=${encodeURIComponent(d.token)}`, "_blank", "noopener");
+    setLiveUrl(`${d.url}?t=${encodeURIComponent(d.token)}&embed=1`);
   }
 
   if (t.status === "needs_user" && t.needs?.length) {
+    const consents = t.needs.filter(isConsentNeed);
+    const questions = t.needs.filter((n) => !isConsentNeed(n));
+    const ready = questions.every((n) => vals[n.id]?.trim()) && consents.every((n) => Boolean(vals[n.id]));
     return (
       <div className="card border-orange/30 p-5">
         {head}
         <p className="mt-2 text-sm text-muted">Answer once — your agent saves it and reuses it on every future application.</p>
-        <form className="mt-4 space-y-4" onSubmit={(e) => { e.preventDefault(); act({ action: "answers", answers: vals }, "Saved. Your agent is applying now."); }}>
-          {t.needs.map((n) => (
+        <form className="mt-4 space-y-4" onSubmit={(e) => {
+          e.preventDefault();
+          act({ action: "answers", answers: vals, alwaysConsent: consents.length > 0 && always && !consent }, "Saved. Your agent is applying now.");
+        }}>
+          {consents.length > 0 && (
+            <div className="rounded-xl border border-line bg-canvas p-4">
+              <p className="text-sm font-semibold">{t.job.company} asks you to confirm</p>
+              <div className="mt-3 space-y-3">
+                {consents.map((n) => (
+                  <label key={n.id} className="flex cursor-pointer items-start gap-3 text-sm">
+                    <input type="checkbox" className="mt-0.5 size-4 shrink-0 accent-[var(--color-brand)]" checked={Boolean(vals[n.id])}
+                      onChange={(e) => setVals({ ...vals, [n.id]: e.target.checked ? agreeValue(n) : "" })} />
+                    <span>{n.label}</span>
+                  </label>
+                ))}
+              </div>
+              {!consent && (
+                <label className="mt-4 flex cursor-pointer items-start gap-3 border-t border-line pt-3 text-sm text-muted">
+                  <input type="checkbox" className="mt-0.5 size-4 shrink-0" checked={always} onChange={(e) => setAlways(e.target.checked)} />
+                  <span>Confirm these standard statements (accuracy, privacy notice, terms) for me on future applications. You can turn this off in Settings.</span>
+                </label>
+              )}
+            </div>
+          )}
+          {questions.map((n) => (
             <label key={n.id} className="block text-sm font-semibold">
               {n.label}
-              {n.options?.length ? (
+              {n.tried && <span className="mt-0.5 block text-xs font-normal text-muted">The site didn&apos;t accept “{n.tried}”. Pick the option that fits.</span>}
+              {n.type === "checkbox" && !n.options?.length ? (
+                <span className="mt-2 flex gap-2">
+                  {["Yes", "No"].map((o) => (
+                    <button type="button" key={o} onClick={() => setVals({ ...vals, [n.id]: o })} aria-pressed={vals[n.id] === o}
+                      className={`min-h-9 rounded-lg border px-3 text-sm font-medium ${vals[n.id] === o ? "border-brand bg-brand text-white" : "border-line hover:bg-canvas"}`}>{o}</button>
+                  ))}
+                </span>
+              ) : n.options?.length ? (
                 n.options.length <= 4 ? (
                   <div className="mt-2 flex flex-wrap gap-2">
                     {n.options.map((o) => (
@@ -269,7 +311,7 @@ function NeedCard({ t, hasMailbox, onDone }: { t: AgentTask; hasMailbox: boolean
             </label>
           ))}
           <div className="flex flex-wrap gap-2">
-            <button className="btn-primary" disabled={busy || t.needs.some((n) => !vals[n.id]?.trim())}>{busy ? <Loader2 size={16} className="animate-spin" /> : <Check size={16} />} Save answers and apply</button>
+            <button className="btn-primary" disabled={busy || !ready}>{busy ? <Loader2 size={16} className="animate-spin" /> : <Check size={16} />} Save answers and apply</button>
             <button type="button" className="btn-ghost" onClick={() => act({ action: "cancel" }, "Skipped this job.")}>Skip this job</button>
           </div>
         </form>
@@ -280,11 +322,27 @@ function NeedCard({ t, hasMailbox, onDone }: { t: AgentTask; hasMailbox: boolean
     return (
       <div className="card border-orange/30 p-5">
         {head}
-        <p className="mt-2 text-sm">{t.job.company}&apos;s site wants a quick “I&apos;m human” check. Everything else is filled in. Open the live view, tick the check, then press <b>I&apos;m done</b>.</p>
+        <p className="mt-2 text-sm">{t.job.company}&apos;s site wants a quick “I&apos;m human” check. Everything else is filled in. Open the check, complete it, and your agent carries on by itself — this window closes when it&apos;s done.</p>
         <div className="mt-4 flex flex-wrap gap-2">
-          <button className="btn-pink" onClick={openLive}><MonitorPlay size={16} /> Open live view</button>
-          <button className="btn-secondary" disabled={busy} onClick={() => act({ action: "human_done" }, "Thanks — continuing.")}>I&apos;ve done it</button>
+          <button className="btn-pink" onClick={openLive}><MonitorPlay size={16} /> Do the human check</button>
+          <a className="btn-ghost" href={t.apply_url} target="_blank" rel="noopener noreferrer"><ExternalLink size={16} /> Open the job page instead</a>
         </div>
+        {liveUrl && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/60 p-3 sm:p-6" role="dialog" aria-modal="true" aria-label={`Human check for ${t.job.company}`}>
+            <div className="flex h-full max-h-[920px] w-full max-w-[1100px] flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
+              <div className="flex items-center gap-3 border-b border-line px-4 py-3">
+                <MonitorPlay size={18} className="text-brand" />
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-semibold">{t.job.company} · human check</p>
+                  <p className="text-xs text-muted">Only tick the box or pick the images. Your agent sees when it&apos;s done and continues.</p>
+                </div>
+                <button className="btn-secondary" disabled={busy} onClick={async () => { await act({ action: "human_done" }, "Thanks — your agent is continuing."); setLiveUrl(null); }}>I&apos;m done</button>
+                <button className="rounded-lg p-2 hover:bg-canvas" aria-label="Close" onClick={() => setLiveUrl(null)}><X size={18} /></button>
+              </div>
+              <iframe src={liveUrl} title="Your agent's browser" className="w-full flex-1 border-0 bg-canvas" />
+            </div>
+          </div>
+        )}
       </div>
     );
   }
