@@ -1,0 +1,64 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Senior Analyst - Umbrella</title>
+<style>
+ body{font-family:sans-serif;max-width:860px;margin:20px auto}
+ .menu{border:1px solid #ccc;background:#fff;position:absolute;z-index:5;width:300px}
+ .menu div{padding:6px;cursor:pointer}
+ .field{margin:14px 0;position:relative}
+ #badge{position:fixed;right:0;bottom:14px;width:256px;height:60px;border:0}
+</style></head>
+<body>
+<!-- New Greenhouse job board: an "Apply" button at the top only scrolls to the form below. -->
+<header><h1>Senior Analyst</h1><button type="button" id="top-apply" onclick="document.getElementById('application-form').scrollIntoView()">Apply</button></header>
+<p>Job description text. We are looking for an analyst.</p>
+
+<form id="application-form" onsubmit="return send(event)">
+ <div class="field"><label id="first_name-label" for="first_name">First Name<span>*</span></label><input id="first_name" aria-labelledby="first_name-label" aria-required="true" type="text"></div>
+ <div class="field"><label id="last_name-label" for="last_name">Last Name<span>*</span></label><input id="last_name" aria-labelledby="last_name-label" aria-required="true" type="text"></div>
+ <div class="field"><label id="email-label" for="email">Email<span>*</span></label><input id="email" aria-labelledby="email-label" aria-required="true" type="text"></div>
+ <div class="field"><label id="phone-label" for="phone">Phone</label><input id="phone" aria-labelledby="phone-label" type="tel"></div>
+ <div class="field"><label id="country-label" for="country">Country<span>*</span></label>
+  <div class="select__control"><input id="country" role="combobox" aria-labelledby="country-label" aria-required="true" aria-haspopup="true" aria-expanded="false" autocomplete="off" data-options="United States|Canada|India|United Kingdom"></div></div>
+ <div class="field"><label id="resume-label" for="resume">Resume/CV<span>*</span></label><input id="resume" type="file" aria-required="true"></div>
+ <div class="field"><label id="q1-label" for="q1">Are you legally authorised to work full-time in the country where this job is based?<span>*</span></label>
+  <div class="select__control"><input id="q1" role="combobox" aria-labelledby="q1-label" aria-required="true" aria-haspopup="true" aria-expanded="false" autocomplete="off" data-options="Yes|No"></div></div>
+ <div class="field"><label id="q2-label" for="q2">How did you hear about this opportunity?<span>*</span></label>
+  <div class="select__control"><input id="q2" role="combobox" aria-labelledby="q2-label" aria-required="true" aria-haspopup="true" aria-expanded="false" autocomplete="off" data-options="LinkedIn|Indeed|Glassdoor|Umbrella Careers Page|Employee Referral|Other"></div></div>
+ <div class="field"><input type="checkbox" id="cert" aria-required="true"><label for="cert">I certify that the information provided in this application is true and correct.*</label></div>
+ <button type="submit">Submit application</button>
+ <p id="err" role="alert"></p>
+</form>
+
+<!-- Invisible reCAPTCHA: a corner badge plus a challenge frame parked off-screen. Neither is a challenge. -->
+<iframe id="badge" title="reCAPTCHA" src="/recaptcha/api2/anchor?ar=1&k=test&size=invisible"></iframe>
+<div style="visibility:hidden;position:absolute;top:-10000px;left:0"><iframe title="recaptcha challenge" width="400" height="580" src="/recaptcha/api2/bframe?k=test"></iframe></div>
+
+<script>
+// Minimal react-select stand-in: options appear on click/typing as role=option; picking one sets the value.
+let menu=null;
+function close(){ if(menu){menu.remove();menu=null;} }
+function open(input){
+  close();
+  const all=input.dataset.options.split('|');
+  const q=(input.value||'').toLowerCase();
+  menu=document.createElement('div'); menu.className='menu'; menu.setAttribute('role','listbox');
+  all.filter(o=>!q||o.toLowerCase().includes(q)).forEach(o=>{const d=document.createElement('div');d.setAttribute('role','option');d.className='select__option';d.textContent=o;d.onmousedown=(e)=>{e.preventDefault();input.value=o;input.dataset.chosen=o;close();};menu.appendChild(d);});
+  input.parentElement.appendChild(menu);
+}
+document.querySelectorAll('[role=combobox]').forEach(i=>{i.addEventListener('click',()=>open(i));i.addEventListener('input',()=>{delete i.dataset.chosen;open(i);});i.addEventListener('keydown',e=>{if(e.key==='Escape')close();});});
+document.addEventListener('keydown',e=>{if(e.key==='Escape')close();});
+function send(e){
+  e.preventDefault();
+  const v=(id)=>document.getElementById(id).value.trim();
+  const chosen=(id)=>document.getElementById(id).dataset.chosen||'';
+  const miss=[];
+  for(const id of ['first_name','last_name','email']) if(!v(id)) miss.push(id);
+  for(const id of ['country','q1','q2']) if(!chosen(id)) miss.push(id);
+  if(!document.getElementById('resume').files.length) miss.push('resume');
+  if(!document.getElementById('cert').checked) miss.push('cert');
+  if(miss.length){document.getElementById('err').textContent='Please complete: '+miss.join(', ');return false;}
+  document.body.innerHTML='<h2>Thank you for applying to Umbrella!</h2><p>'+[v('first_name'),v('last_name'),chosen('country'),chosen('q1'),chosen('q2')].join(' | ')+'</p>';
+  return false;
+}
+</script>
+</body></html>

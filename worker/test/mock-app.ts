@@ -20,6 +20,7 @@ const tasks: T[] = [
   { id: "t-gh", ats: "greenhouse", url: `${BASE}/fx/greenhouse.html`, job: { title: "Product Marketing Specialist", company: "Acme", country: "US" }, status: "queued", log: [], userInput: {}, attempts: 0 },
   { id: "t-ashby", ats: "ashby", url: `${BASE}/fx/ashby.html`, job: { title: "Growth Marketing Manager", company: "Initech", country: "US" }, status: "queued", log: [], userInput: {}, attempts: 0 },
   { id: "t-wd", ats: "workday", url: `${BASE}/fx/workday.html`, job: { title: "Brand Marketing Specialist", company: "Globex", country: "US" }, status: "queued", log: [], userInput: {}, attempts: 0 },
+  { id: "t-ghnew", ats: "greenhouse", url: `${BASE}/fx/gh-new.html`, job: { title: "Senior Analyst", company: "Umbrella", country: "US" }, status: "queued", log: [], userInput: {}, attempts: 0 },
   { id: "t-cap", ats: "generic", url: `${BASE}/fx/captcha.html`, job: { title: "Data Analyst", company: "Hooli", country: "US" }, status: "queued", log: [], userInput: {}, attempts: 0 },
 ];
 const vault: Record<string, { login: string; password: string }> = {};
@@ -40,6 +41,10 @@ const server = http.createServer(async (req, res) => {
     if (!existsSync(p)) return res.writeHead(404).end();
     res.writeHead(200, { "content-type": "text/html" });
     return res.end(readFileSync(p));
+  }
+  if (url.pathname.startsWith("/recaptcha/")) {
+    res.writeHead(200, { "content-type": "text/html" });
+    return res.end("<html><body style='margin:0;background:#eee'>recaptcha stand-in</body></html>");
   }
   if (url.pathname === "/control/state") {
     res.writeHead(200, { "content-type": "application/json" });

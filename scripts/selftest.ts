@@ -6,7 +6,7 @@ import { parseResumeText, scoreResume, extractKeywords } from "../src/lib/ats";
 import { readFileSync } from "fs";
 import { workAuthAnswers } from "../src/lib/answers";
 import { roleSimilarity } from "../src/lib/jobs/roles";
-import { bestOption } from "../src/lib/agent/fields";
+import { bestOption, bestName, buildFacts, coreLabel, placeFromResume, planFields } from "../src/lib/agent/fields";
 import { isPrivateIp } from "../src/lib/net";
 import { lintLetter } from "../src/lib/tailor";
 import type { Job, TargetRole, WorkAuth } from "../src/lib/types";
@@ -75,11 +75,28 @@ ok(analyzeText("Product Manager", "").level === null && analyzeText("Senior Prod
 ok(bestOption(["Select...", "Yes", "No"], "Yes") === "Yes" && bestOption(["Male", "Female", "Decline To Self Identify"], "Decline to self-identify") === "Decline To Self Identify", "picks Yes/No and decline options");
 ok(bestOption(["Illinois", "Texas"], "IL") === "Illinois", "maps state codes to names");
 
+ok(bestName("Gokul", "GOKUL DHAMODARAN") === "Gokul Dhamodaran" && bestName("Priya Raman", "P. Raman") === "Priya Raman", "uses the fuller name and fixes ALL CAPS");
+ok(placeFromResume("Bloomington, IL").country === "United States" && placeFromResume("Toronto, ON").country === "Canada" && placeFromResume("Remote").country === "", "reads city/state/country from the resume line");
+ok(coreLabel("Country* Country") === "Country", "removes duplicated labels");
+async function plannerChecks() {
+  const facts = buildFacts({ email: "a@b.co", name: "Gokul", applicant: null, resume: { name: "GOKUL DHAMODARAN", location: "Bloomington, IL", experience: [], skills: [] } as never, auth: { country: "US", status: "post_study_work", needs_sponsorship_now: true, needs_sponsorship_future: true, apply_scope: "sponsor_or_silent", details: {} } as never, country: "US" });
+  const plan = await planFields([
+    { id: "a", label: "Are you legally authorised to work full-time in the country where this job is based?* Are you legally authorised to work full-time in the country where this job is based?", type: "combobox", options: ["Yes", "No"], required: true },
+    { id: "b", label: "Country* Country", type: "combobox", options: ["Canada", "United States"], required: true },
+    { id: "c", label: "How did you hear about this opportunity?*", type: "select", options: ["LinkedIn", "Datadog Careers Page", "Other"], required: true },
+    { id: "d", label: "Last Name*", type: "text", required: true },
+  ], { facts, answers: [], job: { title: "PM", company: "Datadog" }, resume: null, coverLetter: null, consent: false });
+  const v = Object.fromEntries(plan.fills.map((x) => [x.id, x.value]));
+  ok(v.a === "Yes" && v.b === "United States" && v.c === "Datadog Careers Page" && v.d === "Dhamodaran" && plan.missing.length === 0, "real Greenhouse questions answered (work auth, country, source, last name)");
+}
+
 // Network guard.
 ok(isPrivateIp("10.1.2.3") && isPrivateIp("169.254.169.254") && isPrivateIp("::1") && !isPrivateIp("8.8.8.8"), "blocks private and metadata addresses");
 
 // Cover letter quality checks.
 ok(lintLetter("I am writing to express my interest. I am passionate!", "Acme").length >= 3, "letter lint catches clichés and length");
 
-console.log(fail ? `\n${fail} failed` : "\nAll checks passed");
-process.exit(fail ? 1 : 0);
+plannerChecks().then(() => {
+  console.log(fail ? `\n${fail} failed` : "\nAll checks passed");
+  process.exit(fail ? 1 : 0);
+});

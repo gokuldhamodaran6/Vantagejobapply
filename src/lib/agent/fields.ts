@@ -45,7 +45,7 @@ export function buildFacts(input: {
 }): Facts {
   const a = input.applicant || {};
   const r = input.resume || ({ name: input.name } as ResumeContent);
-  const [first, ...rest] = (input.name || r.name || "").trim().split(/\s+/);
+  const [first, ...rest] = bestName(input.name, r.name).split(/\s+/);
   const latest = r.experience?.[0];
   const edu = r.education?.[0];
   const years = (() => {
@@ -54,8 +54,10 @@ export function buildFacts(input: {
   })();
   const auth = Object.fromEntries(workAuthAnswers(input.country, input.auth).map((x) => [x.key, x.a]));
   const s = (k: string) => (typeof a[k] === "string" ? (a[k] as string) : "") || "";
-  const city = s("city");
-  const state = s("state");
+  // Fall back to the resume's "City, ST" line when the application profile hasn't been filled in yet.
+  const fromResume = placeFromResume(r.location || "");
+  const city = s("city") || fromResume.city;
+  const state = s("state") || fromResume.state;
   return {
     first_name: s("first_name") || first || "",
     last_name: s("last_name") || rest.join(" "),
@@ -70,7 +72,7 @@ export function buildFacts(input: {
     city,
     state,
     postal: s("postal_code"),
-    country: s("country") || "",
+    country: s("country") || fromResume.country,
     location: [city, state].filter(Boolean).join(", ") || r.location || "",
     current_company: latest && /present/i.test(latest.end || "") ? latest.company : latest?.company || "",
     current_title: latest?.title || "",
@@ -97,10 +99,40 @@ export function buildFacts(input: {
   };
 }
 
+const titleCase = (n: string) => (n === n.toUpperCase() ? n.toLowerCase().replace(/(^|[\s'-])([a-z])/g, (_, p, c) => p + c.toUpperCase()) : n);
+
+/** The fullest version of the person's name: a one-word profile name ("Gokul") yields to the resume's "Gokul Dhamodaran". */
+export function bestName(profileName: string | null | undefined, resumeName: string | null | undefined) {
+  const p = (profileName || "").trim().replace(/\s+/g, " ");
+  const r = (resumeName || "").trim().replace(/\s+/g, " ");
+  const pick = p.split(" ").length >= 2 ? p : r && (!p || r.toLowerCase().startsWith(p.toLowerCase())) && r.split(" ").length >= 2 ? r : p || r;
+  return titleCase(pick);
+}
+
+const US_STATE_CODES = new Set("AL AK AZ AR CA CO CT DE DC FL GA HI ID IL IN IA KS KY LA ME MD MA MI MN MS MO MT NE NV NH NJ NM NY NC ND OH OK OR PA RI SC SD TN TX UT VT VA WA WV WI WY".split(" "));
+const CA_PROVINCES = new Set("AB BC MB NB NL NS NT NU ON PE QC SK YT".split(" "));
+
+/** "Bloomington, IL" → city, state and country; anything unclear is left empty (the agent asks instead of guessing). */
+export function placeFromResume(loc: string): { city: string; state: string; country: string } {
+  const parts = loc.split(/[,|]/).map((x) => x.trim()).filter(Boolean);
+  if (parts.length < 2) return { city: "", state: "", country: "" };
+  const code = parts[1].toUpperCase();
+  const tail = parts[parts.length - 1].toLowerCase();
+  if (US_STATE_CODES.has(code)) return { city: parts[0], state: code, country: "United States" };
+  if (CA_PROVINCES.has(code)) return { city: parts[0], state: code, country: "Canada" };
+  if (/^(usa|us|united states)$/.test(tail)) return { city: parts[0], state: parts.length > 2 ? parts[1] : "", country: "United States" };
+  if (/^(uk|united kingdom|england|scotland|wales)$/.test(tail)) return { city: parts[0], state: "", country: "United Kingdom" };
+  if (/^(canada|australia|india)$/.test(tail)) return { city: parts[0], state: parts.length > 2 ? parts[1] : "", country: tail.charAt(0).toUpperCase() + tail.slice(1) };
+  return { city: "", state: "", country: "" };
+}
+
 type Rule = [RegExp, keyof Facts | "resume" | "cover_letter" | "consent" | "sms" | "full_or_first"];
 const RULES: Rule[] = [
   [/\b(resume|cv|curriculum vitae)\b/, "resume"],
   [/\bcover ?letter\b/, "cover_letter"],
+  [/authori[sz]ed to work|legally (eligible|authori[sz]ed|permitted|able) to work|right to work|eligible to work|work authori[sz]ation/, "work_authorized"],
+  [/(require|need).{0,40}sponsor|sponsorship/, "sponsorship"],
+  [/visa status|immigration status|current (work )?status/, "work_status"],
   [/\bpreferred (first )?name|nick ?name/, "preferred_name"],
   [/\b(legal )?first name|given name|^first$|fname/, "first_name"],
   [/\b(legal )?last name|surname|family name|^last$|lname/, "last_name"],
@@ -116,9 +148,6 @@ const RULES: Rule[] = [
   [/zip|postal|post ?code/, "postal"],
   [/\bcountry\b(?! code)/, "country"],
   [/(current )?location|where (are you|do you) (currently )?(based|live|located)/, "location"],
-  [/authori[sz]ed to work|legally (eligible|authori[sz]ed|permitted|able) to work|right to work|eligible to work|work authori[sz]ation/, "work_authorized"],
-  [/(require|need).{0,40}sponsor|sponsorship/, "sponsorship"],
-  [/visa status|immigration status|current (work )?status/, "work_status"],
   [/salary|compensation|pay (expectation|requirement)|desired pay/, "salary"],
   [/notice period/, "notice"],
   [/start date|when can you start|available to start|earliest (start|availability)/, "start"],
@@ -140,6 +169,15 @@ const RULES: Rule[] = [
   [/text message|sms|whatsapp/, "sms"],
   [/privacy|consent|i agree|acknowledge|terms|certify|attest|accurate and complete|true and correct|data (processing|retention)/, "consent"],
 ];
+
+const SHORT_FACTS = new Set(["first_name", "last_name", "full_name", "preferred_name", "email", "phone", "linkedin", "github", "website", "address1", "city", "state", "postal", "country", "location", "current_company", "current_title", "school", "degree", "major", "grad_year", "pronouns", "salary", "notice", "start"]);
+
+/** A field's label without required-markers and without the duplicate that aria-labelledby + <label for> produce. */
+export function coreLabel(label: string) {
+  const t = label.replace(/\*|\(required\)/gi, " ").replace(/\s+/g, " ").trim();
+  const m = t.match(/^(.{3,}?)\s+\1$/i);
+  return (m ? m[1] : t).trim();
+}
 
 /** Pick the option that best matches a desired value (handles Yes/No, decline-to-answer wording, countries, US states). */
 export function bestOption(options: string[], want: string): string | null {
@@ -201,7 +239,11 @@ export async function planFields(
     const label = `${f.label} ${f.name || ""} ${f.placeholder || ""}`.toLowerCase().replace(/[*_]/g, " ").trim();
     if (f.type === "password") continue; // credentials are handled by the worker, never by this planner or the AI
     const saved = fromBank(f.label);
-    const rule = RULES.find(([re]) => re.test(label));
+    const core = coreLabel(f.label);
+    const yesNo = (f.options || []).filter((o) => !/^(select|choose|please select|--)/i.test(o.trim())).every((o) => /^(yes|no)\b/i.test(o.trim())) && (f.options || []).length > 0;
+    // Short personal facts (name, city, country, school…) only answer short labels — never a question that merely mentions them,
+    // and never a Yes/No question.
+    const rule = RULES.find(([re, key]) => re.test(label) && !(SHORT_FACTS.has(key) && (core.length > 60 || yesNo)));
     let value: string | null = null;
 
     if (f.type === "file") {
@@ -247,7 +289,9 @@ export async function planFields(
 
     if (value) {
       if (f.options?.length) {
-        const opt = bestOption(f.options, value);
+        let opt = bestOption(f.options, value);
+        // "How did you hear about us?" lists differ per company: prefer their careers page, then "Other".
+        if (!opt && rule?.[1] === "heard_from" && !saved) opt = f.options.find((o) => /career|company (web)?site|website|job site|direct/i.test(o)) || f.options.find((o) => /^other\b/i.test(o.trim())) || null;
         if (opt) fills.push({ id: f.id, value: opt });
         else open.push(f);
       } else if (f.type === "checkbox") {

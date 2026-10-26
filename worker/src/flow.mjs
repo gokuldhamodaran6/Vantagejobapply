@@ -41,6 +41,9 @@ export async function runTask(bundle, browser) {
   const seen = new Set();
   const clock = { started, waited: 0 };
   bundle.clock = clock;
+  // Test mode: fill everything, never create accounts, never submit. Used to check real careers sites safely.
+  bundle.dry = task.mode === "dry_run";
+  bundle.dryMissing = [];
   const goto = async (url) => {
     if (!(await allowedUrl(url))) throw new Stop("failed", "This link isn't a public web page, so your agent won't open it.");
     await page.goto(url, { waitUntil: "domcontentloaded", timeout: 45_000 });
@@ -57,7 +60,10 @@ export async function runTask(bundle, browser) {
       const text = await pageText(page);
       if (isConfirmation(page.url(), text)) break;
 
-      if (await humanCheckVisible(page)) await waitForHuman(task, page, clock);
+      if (await humanCheckVisible(page)) {
+        if (bundle.dry) throw new Stop("manual", "Dry run: the site showed a human check");
+        await waitForHuman(task, page, clock);
+      }
 
       const fields = await extractFields(page);
       const formish = fields.filter((f) => !["password"].includes(f.type));
@@ -65,6 +71,7 @@ export async function runTask(bundle, browser) {
 
       // 1) Account wall: sign in or create an account with the job email and a vault password.
       if (passwords.length) {
+        if (bundle.dry) throw new Stop("manual", "Dry run: stopped at the careers-site account page", { needs: await diagnose(page, bundle) });
         await handleAccount(bundle, page, fields, passwords);
         continue;
       }
@@ -101,6 +108,12 @@ export async function runTask(bundle, browser) {
         continue;
       }
       const before = page.url();
+      if (submit && bundle.dry) {
+        const shotFull = await page.screenshot({ type: "jpeg", quality: 50, fullPage: true }).catch(() => null);
+        const diag = await diagnose(page, bundle);
+        await update(task.id, { status: "manual", step: `Dry run: ready to submit (${bundle.dryMissing.length} unanswered)`, needs: diag, proof: shotFull ? shotFull.toString("base64") : undefined, log: `Dry run finished on ${page.url().slice(0, 120)}` });
+        return "manual";
+      }
       if (submit) {
         await log(task.id, "Submitting the application", "Submitting");
         await human(600, 1400);
@@ -123,6 +136,7 @@ export async function runTask(bundle, browser) {
           if (/captcha|robot|human|verification failed/i.test(errs.join(" "))) await waitForHuman(task, page, clock);
           // Errors usually mean a required field we couldn't fill; the next pass asks the user for it.
           const missing = await fillPage(bundle, page, filled, seen, true);
+          if (bundle.dry && (missing.length || bundle.dryMissing.length)) throw new Stop("manual", `Dry run: the form needs answers before the next step (${errs.slice(0, 2).join(" · ").slice(0, 120)})`, { needs: await diagnose(page, bundle) });
           if (missing.length) throw new Stop("needs_user", "A few questions only you can answer", { needs: missing });
         }
       }
@@ -146,6 +160,17 @@ export async function runTask(bundle, browser) {
     live.detach(task.id);
     await context.close().catch(() => {});
   }
+}
+
+/** What the agent sees on the page right now: every field, its type, options and current value (dry runs only). */
+async function diagnose(page, bundle) {
+  const fields = await extractFields(page).catch(() => []);
+  const missing = new Set((bundle.dryMissing || []).map((m) => m.label));
+  return fields.slice(0, 80).map((f) => ({
+    id: f.id, label: (f.label || "").slice(0, 160), type: f.type, required: Boolean(f.required),
+    value: f.type === "checkbox" ? String(Boolean(f.checked)) : String(f.value ?? "").slice(0, 80),
+    options: (f.options || []).slice(0, 8), unanswered: missing.has(f.label),
+  }));
 }
 
 async function settle(page, extra = 1200) {
@@ -186,7 +211,9 @@ async function fillPage(bundle, page, filled, seen, collectMissing = false) {
     const missing = (plan.missing || []).filter((m) => m.required);
     if (missing.length) {
       missingAll = missing;
-      if (!collectMissing) throw new Stop("needs_user", `${missing.length} question${missing.length > 1 ? "s" : ""} only you can answer — answer once and your agent will remember`, { needs: missing });
+      if (bundle.dry) {
+        for (const m of missing) if (!bundle.dryMissing.some((x) => x.label === m.label)) bundle.dryMissing.push(m);
+      } else if (!collectMissing) throw new Stop("needs_user", `${missing.length} question${missing.length > 1 ? "s" : ""} only you can answer — answer once and your agent will remember`, { needs: missing });
     }
     await new Promise((r) => setTimeout(r, 700));
   }

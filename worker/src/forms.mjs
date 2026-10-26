@@ -228,7 +228,9 @@ export async function fillField(page, f, fill, files) {
   }
 }
 
-const SUBMIT = /^(submit( my)?( application)?|submit & finish|send( application)?|apply( now)?|finish|complete( application)?)$/i;
+const SUBMIT = /^(submit( my| your)?( application| job application)?|submit & finish|send( my)?( application)?|finish( application)?|complete( application)?)$/i;
+// "Apply" is often just the button that opens or scrolls to the form; it only counts as submit when it is a form's submit button.
+const APPLY_SUBMIT = /^(apply( now)?|apply for (this|the) (job|position|role)|submit)$/i;
 const NEXT = /^(next|continue|save (and|&) continue|save and next|proceed|next step|review)$/i;
 const ENTRY = /^(apply( now| for this (job|position|role)| manually| to this job)?|i'?m interested|start (your )?application|apply with resume)$/i;
 
@@ -245,7 +247,23 @@ async function buttonByText(page, re) {
   return null;
 }
 
-export const findSubmit = (page) => buttonByText(page, SUBMIT);
+export async function findSubmit(page) {
+  const strict = await buttonByText(page, SUBMIT);
+  if (strict) return strict;
+  // Fallback: an "Apply" button that submits a form with real fields in it.
+  for (const frame of page.frames()) {
+    const cands = frame.locator("form button[type='submit'], form input[type='submit'], form button:not([type])");
+    const n = Math.min(await cands.count().catch(() => 0), 20);
+    for (let i = 0; i < n; i++) {
+      const c = cands.nth(i);
+      const t = ((await c.innerText().catch(() => "")) || (await c.getAttribute("value").catch(() => "")) || "").replace(/\s+/g, " ").trim();
+      if (!APPLY_SUBMIT.test(t) || !(await c.isVisible().catch(() => false))) continue;
+      const fieldsInForm = await c.evaluate((b) => b.form ? b.form.querySelectorAll("input:not([type='hidden']), textarea, select").length : 0).catch(() => 0);
+      if (fieldsInForm >= 3) return c;
+    }
+  }
+  return null;
+}
 export const findNext = (page) => buttonByText(page, NEXT);
 export const findEntry = (page) => buttonByText(page, ENTRY);
 
@@ -260,19 +278,37 @@ export function isConfirmation(url, text) {
 }
 
 /** A visible "prove you're human" challenge. The agent never tries to solve these. */
+/**
+ * Whether a frame's element is really on screen. Invisible reCAPTCHA keeps its challenge frame in the page
+ * all the time (hidden, or parked off-screen) and shows a small badge in the corner — neither is a challenge.
+ */
+async function frameShown(f, minW, minH) {
+  const el = await f.frameElement().catch(() => null);
+  if (!el) return false;
+  return el
+    .evaluate((node, [minW, minH]) => {
+      const r = node.getBoundingClientRect();
+      if (r.width < minW || r.height < minH) return false;
+      if (r.bottom < 0 || r.right < 0 || r.top > window.innerHeight + 2000 || r.left > window.innerWidth) return false;
+      for (let n = node; n && n.nodeType === 1; n = n.parentElement) {
+        const s = getComputedStyle(n);
+        if (s.display === "none" || s.visibility === "hidden" || Number(s.opacity) < 0.1) return false;
+      }
+      return true;
+    }, [minW, minH])
+    .catch(() => false);
+}
+
 export async function humanCheckVisible(page) {
   for (const f of page.frames()) {
     const u = f.url();
     if (/recaptcha\/(api2|enterprise)\/bframe|hcaptcha\.com\/.*frame=challenge|challenges\.cloudflare\.com/.test(u)) {
-      const el = await f.frameElement().catch(() => null);
-      const box = el ? await el.boundingBox().catch(() => null) : null;
-      if (box && box.width > 80 && box.height > 80) return true;
+      if (await frameShown(f, 120, 120)) return true;
     }
-    if (/recaptcha\/(api2|enterprise)\/anchor/.test(u)) {
+    // A visible "I'm not a robot" checkbox (not the invisible-reCAPTCHA corner badge, whose anchor URL has size=invisible).
+    if (/recaptcha\/(api2|enterprise)\/anchor/.test(u) && !/size=invisible/.test(u)) {
       const checked = await f.locator("#recaptcha-anchor[aria-checked='true']").count().catch(() => 0);
-      const el = await f.frameElement().catch(() => null);
-      const box = el ? await el.boundingBox().catch(() => null) : null;
-      if (!checked && box && box.width > 60) return true;
+      if (!checked && (await frameShown(f, 200, 60))) return true;
     }
   }
   const t = (await page.evaluate(() => document.body?.innerText?.slice(0, 4000) || "").catch(() => "")).toLowerCase();

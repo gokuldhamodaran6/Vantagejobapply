@@ -34,7 +34,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ op: str
       }
       const files = await filesFor(b);
       return j({
-        task: { id: b.task.id, ats: b.target.ats, url: b.target.url, host: b.host, job: b.task.job, attempts: b.task.attempts, userInput: b.task.user_input },
+        task: { id: b.task.id, ats: b.target.ats, url: b.target.url, host: b.host, job: b.task.job, attempts: b.task.attempts, userInput: b.task.user_input, mode: b.task.mode },
         identity: { email: b.identity, name: b.facts.full_name, firstName: b.facts.first_name, lastName: b.facts.last_name, phone: b.facts.phone },
         credential: b.credential,
         hasMailbox: b.hasMailbox,
