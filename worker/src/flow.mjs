@@ -85,7 +85,7 @@ export async function runTask(bundle, browser) {
       const passwords = fields.filter((f) => f.type === "password");
 
       // 0) "Enter your password" with a box we can't read (built inside a closed web component).
-      if (!passwords.length && !formish.length && /enter (your )?password/i.test(text) && !bundle.dry && (await blindPassword(bundle, page, text))) continue;
+      if (!passwords.length && !formish.length && !bundle.dry && (await blindPassword(bundle, page, text))) continue;
 
       // 1) Account wall: sign in or create an account with the job email and a vault password.
       if (passwords.length) {
@@ -546,7 +546,10 @@ async function passCode(bundle, page, ch, purpose = "application") {
  */
 async function blindPassword(bundle, page, text) {
   const { task } = bundle;
-  if (!/enter (your )?password|^password\b/i.test(text) || (bundle.blindPw || 0) >= 2) return false;
+  if ((bundle.blindPw || 0) >= 2 || (await findEntry(page))) return false;
+  // Some sign-in pages render their text late (or inside closed components); a "Forgot password" link gives it away.
+  const looksLikePassword = /enter (your )?password|^password\b/i.test(text) || (await page.getByText(/forgot (your )?password/i).first().isVisible().catch(() => false));
+  if (!looksLikePassword) return false;
   const host = new URL(page.url()).hostname.toLowerCase().replace(/^www\./, "");
   const cred = await call("credential", { taskId: task.id, host, getOnly: true }).catch(() => null);
   if (!cred?.password) return false;
