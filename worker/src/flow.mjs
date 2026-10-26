@@ -58,6 +58,11 @@ export async function runTask(bundle, browser) {
 
     for (let step = 0; step < 14; step++) {
       if (Date.now() - started - clock.waited > TASK_BUDGET_MS || Date.now() - started > HARD_CAP_MS) throw new Stop("failed", "Took too long on this site. You can finish it yourself from the job link.");
+      // A new visit to a page (even one seen earlier in this run, like a sign-in page) is filled afresh.
+      if (page.url() !== bundle.lastUrl) {
+        bundle.visit = (bundle.visit || 0) + 1;
+        bundle.lastUrl = page.url();
+      }
       const text = await pageText(page);
       if (isConfirmation(page.url(), text)) break;
 
@@ -225,7 +230,7 @@ async function fillPage(bundle, page, filled, seen, collectMissing = false) {
   for (let pass = 0; pass < 3; pass++) {
     const fields = (await extractFields(page)).filter((f) => f.type !== "password" && !isCodeField(f));
     // Field ids restart on every new page, so "already handled" is remembered per page, not per id.
-    const doc = page.url().split("#")[0];
+    const doc = `${bundle.visit || 0}|${page.url().split("#")[0]}`;
     const key = (f) => `${doc}|${f.frame || ""}|${f.id}`;
     const fresh = fields.filter((f) => !seen.has(key(f)) || (collectMissing && f.required && !f.value && !f.checked));
     if (!fresh.length) break;

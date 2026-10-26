@@ -15,5 +15,5 @@ function go(e){ e.preventDefault();
   const pw = document.getElementById('pw').value, pw2 = document.getElementById('pw2').value;
   if (pw.length < 12 || pw !== pw2) { document.getElementById('err').textContent = 'Passwords must match and be 12+ characters'; return false; }
   if (!document.getElementById('fn').value || !document.getElementById('tos').checked) { document.getElementById('err').textContent = 'Fill all fields'; return false; }
-  location.href = '/fx/acct-verify.html'; return false; }
+  localStorage.pw = pw; location.href = '/fx/acct-verify.html'; return false; }
 </script></body></html>
