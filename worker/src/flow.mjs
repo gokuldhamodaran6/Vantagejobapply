@@ -108,10 +108,11 @@ export async function runTask(bundle, browser) {
         continue;
       }
       const before = page.url();
-      if (submit && bundle.dry) {
+      // Dry runs never press a final or intermediate button (an intermediate one can occasionally submit).
+      if ((submit || next) && bundle.dry) {
         const shotFull = await page.screenshot({ type: "jpeg", quality: 50, fullPage: true }).catch(() => null);
         const diag = await diagnose(page, bundle);
-        await update(task.id, { status: "manual", step: `Dry run: ready to submit (${bundle.dryMissing.length} unanswered)`, needs: diag, proof: shotFull ? shotFull.toString("base64") : undefined, log: `Dry run finished on ${page.url().slice(0, 120)}` });
+        await update(task.id, { status: "manual", step: `Dry run: stopped before ${submit ? "submitting" : "the next step"} (${bundle.dryMissing.length} unanswered)`, needs: diag, proof: shotFull ? shotFull.toString("base64") : undefined, log: `Dry run finished on ${page.url().slice(0, 120)}` });
         return "manual";
       }
       if (submit) {
