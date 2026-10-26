@@ -18,7 +18,7 @@ type RawBundle = {
   applicant: Record<string, string | boolean | null> | null;
   answers: { qkey: string; question: string; answer: string; kind: string }[];
   auth: WorkAuth[];
-  resume: { content: ResumeContent; style: string | null } | null;
+  resume: { content: ResumeContent; style: string | null; updated_at?: string } | null;
   master: { content: ResumeContent; style: string | null } | null;
   mail: { address: string; status: string } | null;
   prefs: { locations?: { city?: string; state?: string; country?: string }[] | null; remote_ok?: boolean | null } | null;
@@ -59,9 +59,10 @@ export async function filesFor(b: NonNullable<Awaited<ReturnType<typeof loadBund
   if (!b.resume) return { resume: null, cover: null };
   const style = (b.task.resume_style || b.raw.resume?.style || "classic") as ResumeStyle;
   const country = b.task.job.country || "US";
-  const person = (b.resume.name || "Resume").replace(/[^A-Za-z0-9]+/g, "_");
-  const resume = Buffer.from(await resumePdf(b.resume, { style, country })).toString("base64");
-  const cover = b.task.cover_letter ? Buffer.from(await coverLetterPdf(b.task.cover_letter, b.resume, { style, country })).toString("base64") : null;
+  const name = b.facts.full_name || b.resume.name;
+  const person = (name || "Resume").replace(/[^A-Za-z0-9]+/g, "_");
+  const resume = Buffer.from(await resumePdf(b.resume, { style, country, name })).toString("base64");
+  const cover = b.task.cover_letter ? Buffer.from(await coverLetterPdf(b.task.cover_letter, b.resume, { style, country, name })).toString("base64") : null;
   return {
     resume: { name: `${person}_Resume.pdf`, mimeType: "application/pdf", base64: resume },
     cover: cover ? { name: `${person}_Cover_Letter.pdf`, mimeType: "application/pdf", base64: cover } : null,

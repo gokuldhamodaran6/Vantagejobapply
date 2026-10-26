@@ -23,8 +23,10 @@ const tasks: T[] = [
   { id: "t-ghnew", ats: "greenhouse", url: `${BASE}/fx/gh-new.html`, job: { title: "Senior Analyst", company: "Umbrella", country: "US" }, status: "queued", log: [], userInput: {}, attempts: 0 },
   { id: "t-react", ats: "greenhouse", url: `${BASE}/fx/gh-react.html`, job: { title: "Senior Analyst", company: "Umbrella", country: "US" }, status: "queued", log: [], userInput: {}, attempts: 0 },
   { id: "t-lever", ats: "lever", url: `${BASE}/fx/lever.html`, job: { title: "Account Executive", company: "Initrode", country: "US" }, status: "queued", log: [], userInput: {}, attempts: 0 },
+  { id: "t-code", ats: "greenhouse", url: `${BASE}/fx/gh-code.html`, job: { title: "Senior Analyst", company: "Umbrella", country: "US" }, status: "queued", log: [], userInput: {}, attempts: 0 },
   { id: "t-cap", ats: "generic", url: `${BASE}/fx/captcha.html`, job: { title: "Data Analyst", company: "Hooli", country: "US" }, status: "queued", log: [], userInput: {}, attempts: 0 },
 ];
+let codePolls = 0;
 const vault: Record<string, { login: string; password: string }> = {};
 export const events: string[] = [];
 
@@ -86,6 +88,8 @@ const server = http.createServer(async (req, res) => {
     console.log(`[app] ${t!.id} ${body.status || "·"} ${body.log || body.step || ""}`);
   } else if (op === "poll") {
     if (t!.id === "t-wd") out = { code: "482913", link: null, userInput: {} };
+    // The Greenhouse security code "arrives" in the inbox a few polls after Submit; first a stale wrong one.
+    else if (t!.id === "t-code") out = { code: (codePolls++ < 2 ? null : codePolls < 4 ? "ZZZZ1111" : "O2YJR3FJ"), link: null, userInput: {} };
     else out = { userInput: t!.userInput };
   } else if (op === "credential") {
     vault[t!.id] = { login: "priya.careers@gmail.com", password: generatePassword() };

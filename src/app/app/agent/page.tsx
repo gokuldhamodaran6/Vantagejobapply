@@ -1,6 +1,6 @@
 "use client";
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { ArrowRight, Check, ChevronDown, ExternalLink, FileText, Link2, Loader2, Mail, MonitorPlay, RotateCcw, ShieldCheck, Sparkles, UserRound, X } from "lucide-react";
 import { PageHeader } from "@/components/app-shell";
@@ -88,7 +88,7 @@ export default function AgentPage() {
   }
 
   const all = useMemo(() => tasks || [], [tasks]);
-  const needs = all.filter((t) => NEEDS_YOU.includes(t.status) || (t.status === "waiting_code" && !setup?.mailbox));
+  const needs = all.filter((t) => NEEDS_YOU.includes(t.status) || (t.status === "waiting_code" && codeNeedsYou(t, Boolean(setup?.mailbox), now)));
   const today = new Date(new Date(now).setHours(0, 0, 0, 0)).getTime();
   const appliedToday = all.filter((t) => t.status === "submitted" && Date.parse(t.finished_at || t.updated_at) >= today).length;
   const week = all.filter((t) => t.status === "submitted" && Date.parse(t.finished_at || t.updated_at) >= now - 7 * 864e5).length;
@@ -208,14 +208,18 @@ export default function AgentPage() {
                   ))}
                 </div>
                 <p className="mt-4 rounded-lg bg-canvas px-3 py-2 text-sm"><span className="font-semibold">Now:</span> {statusLine(t)} <span className="text-xs text-muted">· {timeAgo(t.updated_at)}</span></p>
+                {t.status === "waiting_code" && siteCode(t) && !codeNeedsYou(t, Boolean(setup?.mailbox), now) && (
+                  <p className="mt-2 flex items-start gap-2 rounded-lg border border-brand/20 bg-brand-tint px-3 py-2 text-[13px] text-ink-2"><Mail size={15} className="mt-0.5 shrink-0 text-brand" /> {siteCode(t)!.system} emailed a security code to {siteCode(t)!.sentTo}. Your agent is reading it from your inbox and will submit in a few seconds — nothing to do.</p>
+                )}
                 {liveNow.length > 1 && <p className="mt-2 text-xs text-muted">+{liveNow.length - 1} more in progress</p>}
               </div>
             );
           })() : (
             <div className="p-5">
               <p className="text-xs font-bold uppercase tracking-wider text-muted">Right now</p>
-              <p className="mt-2 text-lg font-bold">{upNext.length ? `${upNext.length} job${upNext.length > 1 ? "s" : ""} waiting — starting shortly` : profile?.agent_enabled ? "Looking for your next best matches" : "Your agent is ready"}</p>
-              <p className="mt-1 text-sm text-muted">{upNext.length ? "Applications run one at a time, at a human pace." : profile?.agent_enabled ? "Auto-apply checks for new matching jobs every few minutes and applies to the best ones." : "Paste a job link above, or switch on Auto-apply."}</p>
+              <p className="mt-2 text-lg font-bold">{needs.length && !upNext.length ? `${needs.length} application${needs.length > 1 ? "s are" : " is"} paused for you` : upNext.length ? `${upNext.length} job${upNext.length > 1 ? "s" : ""} waiting — starting shortly` : profile?.agent_enabled ? "Looking for your next best matches" : "Your agent is ready"}</p>
+              <p className="mt-1 text-sm text-muted">{needs.length && !upNext.length ? "Everything else is filled in. Answer below and your agent finishes and submits them right away." : upNext.length ? "Applications run one at a time, at a human pace." : profile?.agent_enabled ? "Auto-apply checks for new matching jobs every few minutes and applies to the best ones." : "Paste a job link above, or switch on Auto-apply."}</p>
+              {needs.length > 0 && <a href="#needs-you" className="btn-pink mt-3 min-h-9 text-[13px]">Answer now</a>}
             </div>
           )}
           {upNext.length > 0 && (
@@ -265,7 +269,7 @@ export default function AgentPage() {
 
       {needs.length > 0 && (
         <section className="mt-6">
-          <h2 className="mb-3 flex items-center gap-2 font-bold"><span className="live-dot" /> Needs you ({needs.length})</h2>
+          <h2 id="needs-you" className="mb-3 flex scroll-mt-20 items-center gap-2 font-bold"><span className="live-dot" /> Needs you ({needs.length})</h2>
           <div className="space-y-3">
             <AnimatePresence initial={false}>
               {needs.map((t) => (
@@ -325,9 +329,83 @@ function tidy(n: AgentTask["needs"][number]): AgentTask["needs"][number] {
   return { ...n, label, options: foreign ? undefined : n.options };
 }
 
+type SiteCode = { kind: "site_code"; system: string; company: string; sentTo: string; length: number | null; auto: boolean; startedAt: string; expiresAt: string; error?: string };
+const siteCode = (t: AgentTask) => ((t.needs as unknown as SiteCode[] | null)?.[0]?.kind === "site_code" ? (t.needs as unknown as SiteCode[])[0] : null);
+/** With a connected inbox the agent reads codes itself; only ask the user when that hasn't worked within ~45s or a code was rejected. */
+function codeNeedsYou(t: AgentTask, hasMailbox: boolean, now: number) {
+  const sc = siteCode(t);
+  if (!hasMailbox) return true;
+  if (!sc) return false;
+  return Boolean(sc.error) || now - Date.parse(sc.startedAt) > 45_000;
+}
+
+/** One clean code box (not one question per character): paste or type, and the agent submits immediately. */
+function CodeCard({ t, hasMailbox, head, onDone }: { t: AgentTask; hasMailbox: boolean; head: ReactNode; onDone: (msg: string) => void }) {
+  const sc = siteCode(t);
+  const len = sc?.length || 8;
+  const [code, setCode] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const i = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(i);
+  }, []);
+  const left = sc ? Math.max(0, Date.parse(sc.expiresAt) - now) : 0;
+  const mmss = `${Math.floor(left / 60000)}:${String(Math.floor((left % 60000) / 1000)).padStart(2, "0")}`;
+  const clean = (v: string) => v.replace(/[^A-Za-z0-9]/g, "").toUpperCase().slice(0, sc ? len : 10);
+  const ready = sc ? code.length === len : code.length >= 4;
+  async function send() {
+    setBusy(true);
+    const r = await patch(t.id, { action: "code", code });
+    setBusy(false);
+    onDone(r.ok ? "Code sent — your agent is entering it and submitting now." : r.error || "Couldn't send the code.");
+  }
+  const sentTo = sc?.sentTo || "your job email";
+  return (
+    <div className="card border-brand/30 p-5">
+      {head}
+      <div className="mt-3 rounded-xl bg-brand-tint/60 p-4">
+        <p className="flex items-center gap-2 text-sm font-semibold"><ShieldCheck size={16} className="text-brand" /> {sc ? `One last step: ${sc.company}'s security code` : "Verify your email"}</p>
+        <p className="mt-1 text-[13px] leading-relaxed text-ink-2">
+          {sc
+            ? <>Your application is filled in. {sc.company} receives applications through <b>{sc.system}</b>, and {sc.system} just emailed an {len}-character code to <b>{sentTo}</b> to confirm a real person is applying. {hasMailbox ? "Your agent checks your inbox every few seconds and enters it itself — or paste it here." : "Paste it here and your agent submits right away."}</>
+            : <>{t.job.company} emailed a verification code to <b>{sentTo}</b>. Enter it and your agent carries on. Tip: connect your job email in Settings and your agent reads these codes itself.</>}
+        </p>
+        {sc?.error && <p className="mt-2 text-[13px] font-semibold text-red-ink">{sc.error}. Use the newest email from {sc.system}.</p>}
+      </div>
+      <form className="mt-4" onSubmit={(e) => { e.preventDefault(); if (ready) void send(); }}>
+        <label className="text-xs font-semibold text-muted" htmlFor={`code-${t.id}`}>Security code</label>
+        <div className="relative mt-1.5 max-w-md">
+          <input
+            id={`code-${t.id}`}
+            autoFocus
+            autoComplete="one-time-code"
+            spellCheck={false}
+            value={code}
+            onChange={(e) => setCode(clean(e.target.value))}
+            onPaste={(e) => { e.preventDefault(); setCode(clean(e.clipboardData.getData("text"))); }}
+            className="absolute inset-0 h-full w-full cursor-text opacity-0"
+            aria-label={`${len}-character security code`}
+          />
+          <div className="pointer-events-none grid gap-1.5" style={{ gridTemplateColumns: `repeat(${sc ? len : 6}, minmax(0, 1fr))` }} aria-hidden>
+            {Array.from({ length: sc ? len : Math.max(6, code.length) }).map((_, i) => (
+              <span key={i} className={`flex h-12 items-center justify-center rounded-lg border bg-surface font-mono text-lg font-bold ${i === code.length ? "border-brand ring-2 ring-brand/20" : code[i] ? "border-ink-2/30" : "border-line"}`}>{code[i] || ""}</span>
+            ))}
+          </div>
+        </div>
+        <div className="mt-4 flex flex-wrap items-center gap-2">
+          <button className="btn-primary" disabled={busy || !ready}>{busy ? <Loader2 size={16} className="animate-spin" /> : <Check size={16} />} Submit application</button>
+          <button type="button" className="btn-ghost" onClick={async () => { try { setCode(clean(await navigator.clipboard.readText())); } catch { /* clipboard blocked */ } }}>Paste</button>
+          <a className="btn-ghost" href={`https://mail.google.com/mail/u/${encodeURIComponent(sentTo)}/#search/${encodeURIComponent(sc ? `from:${sc.system.toLowerCase()} ${sc.company}` : "code")}`} target="_blank" rel="noopener noreferrer"><ExternalLink size={15} /> Open Gmail</a>
+          {sc && <span className="ml-auto text-xs text-muted">{left > 0 ? <>Page held open for you · {mmss}</> : "Time's up — retry to get a new code"}</span>}
+        </div>
+      </form>
+    </div>
+  );
+}
+
 function NeedCard({ t, hasMailbox, consent, onDone }: { t: AgentTask; hasMailbox: boolean; consent: boolean; onDone: (msg: string) => void }) {
   const [vals, setVals] = useState<Record<string, string>>({});
-  const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
   const [always, setAlways] = useState(true);
   const [liveUrl, setLiveUrl] = useState<string | null>(null);
@@ -457,18 +535,7 @@ function NeedCard({ t, hasMailbox, consent, onDone }: { t: AgentTask; hasMailbox
       </div>
     );
   }
-  if (t.status === "waiting_code" && !hasMailbox) {
-    return (
-      <div className="card border-orange/30 p-5">
-        {head}
-        <p className="mt-2 text-sm">Enter the verification code {t.job.company} just emailed you. Tip: connect a job email in Settings and your agent will read these codes itself.</p>
-        <form className="mt-3 flex gap-2" onSubmit={(e) => { e.preventDefault(); act({ action: "code", code }, "Code sent to your agent."); }}>
-          <input className="input max-w-[200px] tracking-[0.3em]" inputMode="numeric" value={code} onChange={(e) => setCode(e.target.value)} aria-label="Verification code" placeholder="123456" />
-          <button className="btn-primary" disabled={busy || code.trim().length < 4}>Send code</button>
-        </form>
-      </div>
-    );
-  }
+  if (t.status === "waiting_code") return <CodeCard t={t} hasMailbox={hasMailbox} head={head} onDone={onDone} />;
   if (t.status === "awaiting_approval") {
     return (
       <div className="card border-pink/30 p-5">

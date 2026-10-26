@@ -113,7 +113,7 @@ function extractInPage() {
       continue;
     }
     const t = el.tagName === "TEXTAREA" ? "textarea" : ["email", "tel", "url", "number", "date", "password", "file"].includes(type) ? type : "text";
-    fields.push({ id: tag(el), type: t, label, name: el.name || el.getAttribute("data-automation-id") || "", required: required(el, label), placeholder: el.placeholder || "", value: t === "file" ? "" : el.value, accept: el.getAttribute("accept") || "" });
+    fields.push({ id: tag(el), type: t, label, name: el.name || el.getAttribute("data-automation-id") || "", required: required(el, label), placeholder: el.placeholder || "", value: t === "file" ? "" : el.value, accept: el.getAttribute("accept") || "", maxlen: el.maxLength > 0 ? el.maxLength : undefined, otp: el.autocomplete === "one-time-code" || undefined });
   }
 
   // Yes/No button groups (Ashby and others) — buttons inside a labelled container.
@@ -495,4 +495,42 @@ export async function visibleErrors(page) {
     out.push(...errs);
   }
   return [...new Set(out)].slice(0, 8);
+}
+
+/** Boxes for a one-time code the site emailed (e.g. Greenhouse's 8-character "security code"). Never a question for the user's profile. */
+export const CODE_LABEL = /security code|verification code|confirmation code|one[- ]time (pass)?code|passcode|\botp\b|enter the \d+[- ](character|digit) code|code (was|has been) sent/i;
+export const isCodeField = (f) => ["text", "number", "tel"].includes(f.type) && (f.otp || CODE_LABEL.test(`${f.label} ${f.name} ${f.placeholder || ""}`) || (f.maxlen === 1 && /code|verif/i.test(`${f.label} ${f.name}`)));
+
+/** If the page is asking for an emailed code: the boxes (in order), how long the code is and where it was sent. */
+export async function codeChallenge(page, fields) {
+  const boxes = (fields || (await extractFields(page))).filter(isCodeField);
+  if (!boxes.length) return null;
+  const text = await pageText(page);
+  const sentTo = (text.match(/sent to\s+([^\s@]+@[^\s,;]+?)[.,;]?\s/i) || [])[1] || null;
+  const len = Number((text.match(/(\d+)[- ](?:character|digit) code/i) || [])[1]) || (boxes.length > 1 ? boxes.length : null);
+  return { boxes, sentTo, length: len };
+}
+
+/** Type a code into one box or a row of single-character boxes, then confirm what the site shows. */
+export async function enterCode(page, boxes, code) {
+  const chars = [...String(code).trim()];
+  const loc = (f) => frameFor(page, f).locator(`[data-vantage-id="${f.id}"]`);
+  if (boxes.length > 1 && boxes.every((b) => !b.maxlen || b.maxlen <= 2)) {
+    // Many OTP widgets spread a paste across the boxes; try that first, then fall back to one character per box.
+    await loc(boxes[0]).click().catch(() => {});
+    await page.keyboard.type(chars.join(""), { delay: 60 }).catch(() => {});
+    let shown = "";
+    for (const b of boxes) shown += await loc(b).inputValue().catch(() => "");
+    if (shown.toUpperCase() !== chars.join("").toUpperCase()) {
+      for (let i = 0; i < boxes.length && i < chars.length; i++) {
+        await loc(boxes[i]).fill(chars[i]).catch(() => {});
+        await sleep(40);
+      }
+      shown = "";
+      for (const b of boxes) shown += await loc(b).inputValue().catch(() => "");
+    }
+    return shown.toUpperCase() === chars.join("").toUpperCase();
+  }
+  await loc(boxes[0]).fill(chars.join("")).catch(() => {});
+  return (await loc(boxes[0]).inputValue().catch(() => "")).toUpperCase() === chars.join("").toUpperCase();
 }

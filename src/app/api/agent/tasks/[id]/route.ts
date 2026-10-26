@@ -50,6 +50,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       return json({ ok: true, saved: rows.length });
     }
     case "code":
+      if (task.status !== "waiting_code") return json({ error: "Your agent is no longer waiting for this code. Tap Retry and it will request a fresh one." }, 409);
       await set({ user_input: { ...(task.user_input || {}), code: String(body.code || "").trim() } });
       return json({ ok: true });
     case "human_done":

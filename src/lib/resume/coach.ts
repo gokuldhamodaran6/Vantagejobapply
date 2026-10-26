@@ -57,7 +57,11 @@ Return ONLY JSON: [{"key":"short_id","q":"question","hint":"one short example of
     { model: "fast", temperature: 0.4 },
   );
   const qs = extractJson<CoachQuestion[]>(out);
-  return Array.isArray(qs) && qs.length >= 3 ? qs.slice(0, 5).map((x, i) => ({ key: String(x.key || `q${i}`).slice(0, 30), q: String(x.q).slice(0, 300), hint: x.hint ? String(x.hint).slice(0, 200) : undefined })) : base;
+  if (!Array.isArray(qs) || qs.length < 3) return base;
+  const list: CoachQuestion[] = qs.slice(0, 5).map((x, i) => ({ key: String(x.key || `q${i}`).slice(0, 30), q: String(x.q).slice(0, 300), hint: x.hint ? String(x.hint).slice(0, 200) : undefined }));
+  // Always understand the motivation: it frames the summary and cover letters when role-specific facts are thin.
+  if (!list.some((x) => /\bwhy\b|interest|motivat|draws? you|excite/i.test(x.q))) list.push(base.find((b) => b.key === "why")!);
+  return list;
 }
 
 /** The candidate's own statements, formatted as facts the resume writer may use (and the truth guard accepts). */

@@ -1,6 +1,7 @@
 import "server-only";
 import { ImapFlow } from "imapflow";
 import { simpleParser } from "mailparser";
+import { extractCode } from "./mail-code";
 import { parseEventText, parseIcs, type MailEvent } from "@/lib/mail-event";
 
 export const MAIL_PROVIDERS: Record<string, { label: string; host: string; port: number; help: string }> = {
@@ -120,6 +121,8 @@ const ATS_SENDERS = /(greenhouse|lever|ashbyhq|myworkday|workday|icims|taleo|suc
 /** Decide what an email is and pull out any verification code or link. */
 export function classify(fromAddr: string, fromName: string, subject: string, text: string, html: string): { kind: string; code: string | null; link: string | null; company: string | null } {
   const s = `${subject}\n${text}`.toLowerCase();
+  // Google's own account notices (security alerts, 2-Step Verification) are not job mail and carry no code for us.
+  if (/@accounts\.google\.com$|@google\.com$/i.test(fromAddr.trim())) return { kind: "other", code: null, link: null, company: guessCompany(fromAddr, fromName, subject) };
   let kind = "other";
   if (/verif|confirm your (email|account)|activate your account|one[- ]time|passcode|security code|sign[- ]in code|login code|otp|validate your email/.test(s)) kind = "verification";
   else if (/interview|schedule (a|your) (call|chat|time)|availability|calendly|goodtime|book a time|phone screen|next steps/.test(s) && !/unfortunately/.test(s)) kind = "interview";
@@ -128,14 +131,7 @@ export function classify(fromAddr: string, fromName: string, subject: string, te
   else if (/offer letter|pleased to offer|extend (you )?an offer/.test(s)) kind = "offer";
   else if (/thank you for (applying|your application|your interest)|application (has been )?(received|submitted)|we('ve| have) received your application/.test(s)) kind = "received";
 
-  let code: string | null = null;
-  if (kind === "verification") {
-    const m =
-      text.match(/(?:code|passcode|otp|pin|verification)[^0-9A-Z]{0,40}\b([0-9]{4,8})\b/i) ||
-      text.match(/\b([0-9]{6})\b/) ||
-      text.match(/(?:code|passcode)[^A-Z0-9]{0,20}\b([A-Z0-9]{6,8})\b/);
-    if (m && !/^(19|20)\d{2}$/.test(m[1])) code = m[1];
-  }
+  const code = kind === "verification" ? extractCode(text || html.replace(/<[^>]+>/g, " ")) : null;
   let link: string | null = null;
   if (kind === "verification") {
     const hrefs = [...html.matchAll(/href=["']([^"']+)["']/gi)].map((x) => x[1].replace(/&amp;/g, "&"));

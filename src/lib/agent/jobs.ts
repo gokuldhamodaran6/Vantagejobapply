@@ -96,7 +96,7 @@ export async function jobFromLink(raw: string): Promise<{ job: Job; board: (Omit
     source: "company_site",
     country: detectCountry(loc || "", "US") || "US",
     title: decodeEntities(title).trim(),
-    company: decodeEntities(String(company)).trim(),
+    company: cleanCompany(decodeEntities(String(company)).trim()),
     location: loc,
     remote: s.remote || posting?.jobLocationType === "TELECOMMUTE",
     description,
@@ -139,4 +139,10 @@ function findJobPosting(html: string): Posting | null {
 
 function decodeEntities(s: string) {
   return s.replace(/&amp;/g, "&").replace(/&#39;|&apos;/g, "'").replace(/&quot;/g, '"').replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/\s+[|–-]\s+.*careers.*$/i, "");
+}
+
+/** "Datadog Careers | Datadog" → "Datadog"; "Careers at Acme" → "Acme". */
+export function cleanCompany(name: string) {
+  const parts = name.split(/\s[|·–—-]\s/).map((x) => x.replace(/\b(careers?|jobs?|job board|work with us|join us)\b/gi, "").replace(/^\s*(at|@)\s+/i, "").trim()).filter(Boolean);
+  return (parts.sort((a, b) => a.length - b.length)[0] || name).trim();
 }

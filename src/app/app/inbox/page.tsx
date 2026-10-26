@@ -40,8 +40,22 @@ export default function InboxPage() {
     setMail((m.data as typeof mail) || null);
     setMsgs((i.data as Msg[]) || []);
   }, []);
+  // Fresh on open and every 30 seconds while the page is visible — codes and replies show up without pressing anything.
   useEffect(() => {
-    if (userId) load();
+    if (!userId) return;
+    load();
+    let stop = false;
+    const tick = async () => {
+      if (stop || document.visibilityState !== "visible") return;
+      await fetch("/api/mail", { method: "PUT" }).catch(() => null);
+      if (!stop) load();
+    };
+    void tick();
+    const i = setInterval(tick, 30_000);
+    return () => {
+      stop = true;
+      clearInterval(i);
+    };
   }, [userId, load]);
 
   async function sync() {

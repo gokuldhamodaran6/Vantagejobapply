@@ -1,7 +1,7 @@
 "use client";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
-import { ArrowLeft, Check } from "lucide-react";
+import { ArrowLeft, Check, FileText, Loader2, Plus, Sparkles, UploadCloud } from "lucide-react";
 import { Logo } from "@/components/brand";
 import { ChoiceCard, Segmented, TagInput, Toggle } from "@/components/ui";
 import { FormError } from "@/components/auth-shell";
@@ -11,7 +11,10 @@ import { supabaseBrowser } from "@/lib/supabase/client";
 import type { ApplyScope, WorkStatus } from "@/lib/types";
 import { hardNavigate } from "@/lib/nav";
 
-const STEPS = ["About you", "Where to work", "Work authorization", "Target roles", "Preferences", "Resume & autonomy"];
+const STEPS = ["Your resume", "About you", "Where to work", "Work authorization", "Target roles", "Preferences", "Your agent"];
+const S = { resume: 0, about: 1, where: 2, auth: 3, roles: 4, prefs: 5, mode: 6 } as const;
+type Suggestion = { title: string; fit: "strong" | "adjacent" | "switch"; why: string };
+const FIT_LABEL = { strong: { t: "Strong fit", c: "bg-green-tint text-green-ink" }, adjacent: { t: "Close fit", c: "bg-brand-tint text-brand-ink" }, switch: { t: "Career move", c: "bg-pink-tint text-pink-ink" } } as const;
 
 const NATION_TO_CODE: Record<string, string> = {
   "United States": "US", "United Kingdom": "GB", Canada: "CA", Australia: "AU", Germany: "DE", Ireland: "IE",
@@ -35,7 +38,7 @@ const ROLE_SUGGESTIONS = [
 ];
 
 type AuthDraft = { status: WorkStatus; now: boolean; later: boolean; scope: ApplyScope; optEnd?: string; stem?: boolean };
-type RoleDraft = { title: string; levels: string[] };
+type RoleDraft = { title: string; levels: string[]; fit?: Suggestion["fit"]; why?: string; know?: string; motive?: string };
 
 export default function OnboardingPage() {
   const { profile, userId, loading, refresh } = useMe();
@@ -65,6 +68,11 @@ export default function OnboardingPage() {
   const [jobTypes, setJobTypes] = useState<string[]>(["full_time"]);
 
   const [resumeText, setResumeText] = useState("");
+  const [resumeState, setResumeState] = useState<"none" | "reading" | "done">("none");
+  const [resumeInfo, setResumeInfo] = useState<{ name: string; headline: string; location: string } | null>(null);
+  const [suggested, setSuggested] = useState<Suggestion[]>([]);
+  const [showPaste, setShowPaste] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
   const [autonomy, setAutonomy] = useState<"approve_all" | "approve_important" | "fully_automatic">("approve_important");
 
   useEffect(() => {
@@ -91,21 +99,56 @@ export default function OnboardingPage() {
   }, [countries, citizenship]);
 
   const canNext = useMemo(() => {
-    if (step === 0) return fullName.trim().length > 1;
-    if (step === 1) return countries.length > 0;
-    if (step === 3) return roles.length > 0;
+    if (step === S.resume) return resumeState !== "reading";
+    if (step === S.about) return fullName.trim().length > 1;
+    if (step === S.where) return countries.length > 0;
+    if (step === S.roles) return roles.length > 0;
     return true;
-  }, [step, fullName, countries, roles]);
+  }, [step, fullName, countries, roles, resumeState]);
 
   function updateAuth(c: string, patch: Partial<AuthDraft>) {
     setAuth((a) => ({ ...a, [c]: { ...a[c], ...patch } }));
   }
 
-  function addRole(title: string) {
+  function addRole(title: string, s?: Suggestion) {
     const t = title.trim();
     if (!t || roles.some((r) => r.title.toLowerCase() === t.toLowerCase())) return;
-    setRoles((r) => [...r, { title: t, levels: ["entry", "mid"] }]);
+    setRoles((r) => [...r, { title: t, levels: ["entry", "mid"], fit: s?.fit, why: s?.why }]);
     setRoleDraft("");
+  }
+
+  /** Read the resume first: it prefills the profile and suggests the roles worth targeting. */
+  async function readResume(input: { file?: File; text?: string }) {
+    setResumeState("reading");
+    setError(null);
+    try {
+      let r: Response;
+      if (input.file) {
+        const fd = new FormData();
+        fd.append("file", input.file);
+        r = await fetch("/api/resume/import", { method: "POST", body: fd });
+      } else {
+        r = await fetch("/api/resume/import", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: input.text }) });
+      }
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(d.error || "We couldn't read that resume. Try a PDF or Word file, or paste the text.");
+      const sr = await fetch("/api/resume/suggest-roles", { method: "POST" });
+      const sd = await sr.json().catch(() => ({}));
+      if (sr.ok) {
+        setSuggested(sd.roles || []);
+        const pf = sd.profile || {};
+        setResumeInfo({ name: pf.name || "", headline: pf.headline || "", location: pf.location || "" });
+        const nice = (n: string) => (n === n.toUpperCase() ? n.toLowerCase().replace(/(^|\s)([a-z])/g, (_: string, a: string, b: string) => a + b.toUpperCase()) : n);
+        if (pf.name && !fullName) setFullName(nice(pf.name));
+        if (pf.phone && !phone) setPhone(pf.phone);
+        if (pf.linkedin && !linkedin) setLinkedin(pf.linkedin);
+      }
+      setResumeState("done");
+      setStep(S.about);
+    } catch (e) {
+      setResumeState("none");
+      setError(e instanceof Error ? e.message : "We couldn't read that resume.");
+    }
   }
 
   async function finish() {
@@ -140,17 +183,18 @@ export default function OnboardingPage() {
 
       await supabase.from("target_roles").delete().eq("user_id", userId);
       const p4 = await supabase.from("target_roles").insert(
-        roles.map((r, i) => ({ user_id: userId, title: r.title, levels: r.levels, priority: i === 0 ? 1 : 2 })),
+        roles.map((r, i) => {
+          const answers = [
+            r.know?.trim() ? { key: "know", q: `What do you already know or have done that's related to ${r.title}?`, a: r.know.trim() } : null,
+            r.motive?.trim() ? { key: "why", q: `Why ${r.title}, and why now?`, a: r.motive.trim() } : null,
+          ].filter(Boolean);
+          return { user_id: userId, title: r.title, levels: r.levels, priority: i === 0 ? 1 : 2, coach: answers.length ? { answers, answeredAt: new Date().toISOString() } : {} };
+        }),
       ).select();
       if (p4.error) throw p4.error;
 
-      if (resumeText.trim().length > 40) {
-        await fetch("/api/resume/import", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ text: resumeText }),
-        });
-      }
+      // A resume per role, written from the master resume plus what they told us about each role.
+      if (resumeState === "done") await fetch("/api/resume/write-all", { method: "POST" }).catch(() => null);
 
       const p5 = await supabase.from("profiles").update({ onboarding_complete: true }).eq("id", userId);
       if (p5.error) throw p5.error;
@@ -191,7 +235,46 @@ export default function OnboardingPage() {
             transition={{ duration: 0.22 }}
             className="card p-6 sm:p-8"
           >
-            {step === 0 && (
+            {step === S.resume && (
+              <div className="space-y-5">
+                <Heading title="Start with your resume" sub="We read it like a recruiter: it fills in your profile, suggests the roles you can win, and becomes the master copy every tailored resume is built from. Nothing is ever invented." />
+                {resumeState === "reading" ? (
+                  <div className="flex flex-col items-center rounded-2xl border border-line bg-canvas px-6 py-12 text-center">
+                    <Loader2 className="animate-spin text-brand" size={28} />
+                    <p className="mt-3 font-semibold">Reading your resume…</p>
+                    <p className="mt-1 text-sm text-muted">Keeping every fact, and finding the roles that fit you best.</p>
+                  </div>
+                ) : resumeState === "done" && resumeInfo ? (
+                  <div className="flex items-center gap-3 rounded-2xl border border-green/30 bg-green-tint/40 p-4">
+                    <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-green text-white"><Check size={18} /></span>
+                    <div className="min-w-0 flex-1"><p className="font-semibold">Resume read{resumeInfo.name ? ` — ${resumeInfo.name}` : ""}</p><p className="truncate text-sm text-muted">{[resumeInfo.headline, resumeInfo.location].filter(Boolean).join(" · ")}</p></div>
+                    <button className="btn-ghost min-h-9 text-[13px]" onClick={() => setResumeState("none")}>Replace</button>
+                  </div>
+                ) : (
+                  <>
+                    <button type="button" onClick={() => fileRef.current?.click()} className="flex w-full flex-col items-center rounded-2xl border-2 border-dashed border-line px-6 py-12 text-center transition hover:border-brand hover:bg-brand-soft">
+                      <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-brand-tint text-brand"><UploadCloud size={26} /></span>
+                      <span className="mt-3 font-semibold">Upload your resume</span>
+                      <span className="mt-1 text-sm text-muted">PDF or Word · takes about 20 seconds</span>
+                    </button>
+                    <input ref={fileRef} type="file" accept=".pdf,.docx,.txt,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) readResume({ file: f }); e.target.value = ""; }} />
+                    <div className="flex flex-wrap items-center justify-center gap-3 text-sm">
+                      <button type="button" className="font-semibold text-brand-ink" onClick={() => setShowPaste(!showPaste)}><FileText size={14} className="mr-1 inline" />Paste the text instead</button>
+                      <span className="text-subtle">·</span>
+                      <button type="button" className="font-medium text-muted hover:text-ink" onClick={() => setStep(S.about)}>I&apos;ll add it later</button>
+                    </div>
+                    {showPaste && (
+                      <div>
+                        <textarea rows={8} className="input py-3 text-sm" value={resumeText} onChange={(e) => setResumeText(e.target.value)} placeholder="Paste your whole resume here" aria-label="Resume text" />
+                        <button className="btn-primary mt-2" disabled={resumeText.trim().length < 80} onClick={() => readResume({ text: resumeText })}>Read my resume</button>
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+            )}
+
+            {step === S.about && (
               <div className="space-y-5">
                 <Heading title="Tell us about you" sub="This is used on your applications. You can change it later." />
                 <div>
@@ -226,7 +309,7 @@ export default function OnboardingPage() {
               </div>
             )}
 
-            {step === 1 && (
+            {step === S.where && (
               <div className="space-y-6">
                 <Heading title="Where do you want to work?" sub="Pick one or more countries. Add cities for each, or leave empty to search the whole country." />
                 <div className="grid gap-2.5 sm:grid-cols-2">
@@ -266,7 +349,7 @@ export default function OnboardingPage() {
               </div>
             )}
 
-            {step === 2 && (
+            {step === S.auth && (
               <div className="space-y-8">
                 <Heading title="Your right to work in each country" sub="Be exact. Vantage uses this to filter jobs and answers truthfully on every application." />
                 {countries.map((c) => {
@@ -347,9 +430,29 @@ export default function OnboardingPage() {
               </div>
             )}
 
-            {step === 3 && (
+            {step === S.roles && (
               <div className="space-y-5">
-                <Heading title="Which roles are you targeting?" sub="Add every role you'd take. Each gets its own resume and its own list of applications." />
+                <Heading title="Which roles are you targeting?" sub="Each role gets its own resume, written for it, and its own list of applications." />
+                {suggested.length > 0 && (
+                  <div>
+                    <p className="mb-2 flex items-center gap-1.5 text-sm font-semibold"><Sparkles size={15} className="text-brand" /> Suggested from your resume</p>
+                    <div className="grid gap-2 sm:grid-cols-2">
+                      {suggested.map((sg) => {
+                        const on = roles.some((r) => r.title.toLowerCase() === sg.title.toLowerCase());
+                        return (
+                          <button key={sg.title} type="button" disabled={on} onClick={() => addRole(sg.title, sg)}
+                            className={`flex items-start gap-3 rounded-xl border p-3 text-left transition ${on ? "border-brand bg-brand-soft" : "border-line hover:border-brand"}`}>
+                            <span className={`mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-md ${on ? "bg-brand text-white" : "bg-canvas text-ink-2"}`}>{on ? <Check size={14} /> : <Plus size={14} />}</span>
+                            <span className="min-w-0">
+                              <span className="flex flex-wrap items-center gap-1.5"><span className="font-semibold">{sg.title}</span><span className={`chip ${FIT_LABEL[sg.fit].c}`}>{FIT_LABEL[sg.fit].t}</span></span>
+                              <span className="mt-0.5 block text-xs text-muted">{sg.why}</span>
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
                 <div className="flex gap-2">
                   <input className="input" aria-label="Role title" placeholder="e.g. Software Engineer, Registered Nurse, HGV Driver"
                     value={roleDraft} onChange={(e) => setRoleDraft(e.target.value)}
@@ -357,7 +460,7 @@ export default function OnboardingPage() {
                   <button type="button" className="btn-primary shrink-0" onClick={() => addRole(roleDraft)}>Add role</button>
                 </div>
                 <div className="flex flex-wrap gap-1.5">
-                  {ROLE_SUGGESTIONS.filter((s) => !roles.some((r) => r.title === s)).map((s) => (
+                  {(suggested.length ? [] : ROLE_SUGGESTIONS).filter((s) => !roles.some((r) => r.title === s)).map((s) => (
                     <button key={s} type="button" onClick={() => addRole(s)} className="rounded-full border border-[#f8cfdd] bg-[#fdf3f7] px-2.5 py-1 text-xs font-semibold text-pink-ink">+ {s}</button>
                   ))}
                 </div>
@@ -380,13 +483,26 @@ export default function OnboardingPage() {
                           );
                         })}
                       </div>
+                      {r.fit !== "strong" && (
+                        <div className="mt-4 space-y-3 rounded-xl bg-canvas p-3">
+                          <p className="flex items-center gap-1.5 text-xs font-semibold text-ink-2"><Sparkles size={13} className="text-pink" /> {r.fit === "switch" || r.fit === "adjacent" ? "A career move — help us position you like a recruiter would" : "Tell us a little about this role (optional, makes your resume much stronger)"}</p>
+                          <label className="block text-xs font-semibold">What do you already know or have done that&apos;s related to {r.title}?
+                            <textarea rows={2} className="input mt-1 py-2 text-sm font-normal" placeholder="Courses, projects, parts of your current job that overlap, tools you've used…"
+                              value={r.know || ""} onChange={(e) => setRoles((rs) => rs.map((x) => (x.title === r.title ? { ...x, know: e.target.value } : x)))} />
+                          </label>
+                          <label className="block text-xs font-semibold">Why {r.title}, and why now?
+                            <textarea rows={2} className="input mt-1 py-2 text-sm font-normal" placeholder="One or two lines — we use this to frame your summary and cover letters."
+                              value={r.motive || ""} onChange={(e) => setRoles((rs) => rs.map((x) => (x.title === r.title ? { ...x, motive: e.target.value } : x)))} />
+                          </label>
+                        </div>
+                      )}
                     </li>
                   ))}
                 </ul>
               </div>
             )}
 
-            {step === 4 && (
+            {step === S.prefs && (
               <div className="space-y-6">
                 <Heading title="Industries, companies and pay" sub="All optional. Leave empty to consider everything." />
                 <div>
@@ -432,14 +548,9 @@ export default function OnboardingPage() {
               </div>
             )}
 
-            {step === 5 && (
+            {step === S.mode && (
               <div className="space-y-6">
-                <Heading title="Your resume and how independent your agent is" sub="Paste your current resume. We'll turn it into a clean master resume you can edit." />
-                <div>
-                  <label className="label" htmlFor="cv">Paste your resume <span className="font-normal text-muted">(optional — you can do this later)</span></label>
-                  <textarea id="cv" rows={9} className="input py-3 leading-relaxed" value={resumeText} onChange={(e) => setResumeText(e.target.value)}
-                    placeholder="Copy everything from your current resume and paste it here." />
-                </div>
+                <Heading title="How independent should your agent be?" sub="You can change this any time in Settings." />
                 <div className="space-y-2">
                   <p className="label">How should the agent apply?</p>
                   <ChoiceCard selected={autonomy === "approve_all"} onClick={() => setAutonomy("approve_all")} title="Approve every application" body="Nothing is sent until you approve." />

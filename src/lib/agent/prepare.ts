@@ -6,7 +6,7 @@ import { applyTarget } from "./jobs";
 import { rpc, rpcExt } from "./svc";
 import type { Job, LetterTone, ResumeContent, ResumeStyle } from "@/lib/types";
 
-type ResumeRow = { id: string; target_role_id: string | null; is_master: boolean; content: ResumeContent; style: ResumeStyle | null; name: string };
+type ResumeRow = { id: string; target_role_id: string | null; is_master: boolean; content: ResumeContent; style: ResumeStyle | null; name: string; updated_at?: string };
 
 /**
  * Prepare one application end to end: choose the best base resume, pick style/tone (learning from interviews),
@@ -70,4 +70,32 @@ export async function prepareAndQueue(input: {
     }],
   });
   return { taskCreated: res.inserted > 0, resumeId };
+}
+
+/**
+ * Right before applying: make sure the resume going out is current and professional. If the tailored copy is
+ * broken, built from an older master, or more than 12 hours old, it's rewritten now from the role resume/master.
+ */
+export async function ensureFreshTailoring(input: {
+  taskId: string; userId: string; name: string; jobId: string; job: { title: string; company: string; country: string; location?: string | null; role_id?: string };
+  resume: ResumeContent | null; resumeUpdatedAt: string | null; tone?: string | null; style?: string | null; fullName: string;
+}): Promise<{ refreshed: boolean; reason?: string }> {
+  const { resumeIssues } = await import("@/lib/resume/health");
+  const resumes = await rpcExt<(ResumeRow & { updated_at?: string })[]>("user_resumes", { user_id: input.userId });
+  const own = resumes.filter((r) => r.is_master || !r.name.includes(" — "));
+  const base = own.find((r) => input.job.role_id && !r.is_master && r.target_role_id === input.job.role_id) || own.find((r) => r.is_master) || own[0];
+  if (!base) return { refreshed: false };
+  const issues = resumeIssues(input.resume, input.fullName);
+  const age = input.resumeUpdatedAt ? Date.now() - Date.parse(input.resumeUpdatedAt) : Infinity;
+  const baseNewer = base.updated_at && input.resumeUpdatedAt ? Date.parse(base.updated_at) > Date.parse(input.resumeUpdatedAt) : false;
+  if (!issues.length && age < 12 * 3600_000 && !baseNewer) return { refreshed: false };
+  const jd = await rpcExt<{ description: string | null; location: string | null; country: string | null } | null>("job", { job_id: input.jobId }).catch(() => null);
+  const tone = (input.tone as LetterTone) || "confident";
+  const t = await tailorForJob(base.content, { title: input.job.title, company: input.job.company, description: jd?.description || null, country: input.job.country || jd?.country || "US", location: input.job.location || jd?.location }, input.fullName || input.name, tone);
+  // The rewrite itself must pass the gate; otherwise keep the clean base resume rather than send something broken.
+  const content = resumeIssues(t.resume, input.fullName).length ? base.content : t.resume;
+  const report = scoreResume(content, t.keywords);
+  const saved = await rpcExt<{ id: string }>("save_resume", { user_id: input.userId, role_id: input.job.role_id || "", name: `${input.job.title} — ${input.job.company}`, content, ats_score: report.score, style: input.style || base.style || "classic" });
+  await rpc("update", { task_id: input.taskId, resume_id: saved.id, cover_letter: t.coverLetter, log: "Rewrote the resume and cover letter for this job before applying" });
+  return { refreshed: true, reason: issues.join(", ") || (baseNewer ? "newer master resume" : "older than 12 hours") };
 }

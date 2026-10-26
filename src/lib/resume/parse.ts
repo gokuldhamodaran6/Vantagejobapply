@@ -231,7 +231,18 @@ function parseSkills(lines: string[]): NonNullable<ResumeContent["skills"]> {
 }
 
 function addItems(g: { items: string[] }, text: string, continuation: boolean) {
-  const parts = text.split(/\s*[,;|•·]\s*/).filter((p) => p.length);
+  // Split on separators, but never inside parentheses: "SQL (PostgreSQL, DuckDB)" stays one item.
+  const parts: string[] = [];
+  let depth = 0, cur = "";
+  for (const ch of text) {
+    if (ch === "(") depth++;
+    if (ch === ")") depth = Math.max(0, depth - 1);
+    if (depth === 0 && /[,;|•·]/.test(ch)) {
+      if (cur.trim()) parts.push(cur.trim());
+      cur = "";
+    } else cur += ch;
+  }
+  if (cur.trim()) parts.push(cur.trim());
   if (continuation && g.items.length && parts.length) {
     // A wrapped item: "B2B & B2C Campaign" + "Strategy, A/B Testing" → "B2B & B2C Campaign Strategy"
     const lastEndedClean = (g as { _ended?: boolean })._ended;

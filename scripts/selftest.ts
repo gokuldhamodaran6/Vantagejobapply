@@ -1,3 +1,4 @@
+import { extractCode } from "../src/lib/mail-code";
 // Quick sanity checks for the eligibility engine. Run: npx tsx scripts/selftest.ts
 import { matchJob } from "../src/lib/jobs/match";
 import { analyzeText } from "../src/lib/jobs/signals";
@@ -9,6 +10,7 @@ import { roleSimilarity } from "../src/lib/jobs/roles";
 import { bestOption, bestName, buildFacts, coreLabel, placeFromResume, planFields } from "../src/lib/agent/fields";
 import { isPrivateIp } from "../src/lib/net";
 import { parseEventText, parseIcs } from "../src/lib/mail-event";
+import { resumeIssues, tidyResume } from "../src/lib/resume/health";
 import { lintLetter } from "../src/lib/tailor";
 import type { Job, TargetRole, WorkAuth } from "../src/lib/types";
 
@@ -113,6 +115,24 @@ async function plannerChecks() {
   const d = parseIcs("BEGIN:VCALENDAR\nBEGIN:VEVENT\nDTSTART:20261029T170000Z\nDTEND:20261029T174500Z\nSUMMARY:Interview with Acme\nLOCATION:https://meet.google.com/abc-defg-hij\nEND:VEVENT\nEND:VCALENDAR");
   ok(d?.start === "2026-10-29T17:00:00.000Z" && d.minutes === 45 && d.link === "https://meet.google.com/abc-defg-hij" && d.title === "Interview with Acme", "reads calendar invites");
   ok(parseEventText("Thanks for applying on 10/26. We will be in touch.", rec) === null, "ignores dates without a time");
+}
+
+// Resume quality gate.
+{
+  const broken = { name: "Gokul", summary: "gokuldhamodaran.com", skills: [{ group: "Paid Media", items: ["Google Ads", "Budget Management", "ROAS"] }, { group: "Skills", items: ["& CPL Optimization", "Funnel Analysis"] }],
+    experience: [{ title: "Senior Analyst", company: "Kaar Tech", start: "2023", end: "2024", bullets: ["Owned paid search and paid social strategy on Google Ads and LinkedIn Ads,", "managed A/B", "testing of ad creatives and landing pages", "Executed ABM campaigns using HubSpot and Demandbase across 100+ accounts."] }] } as never;
+  const issues = resumeIssues(broken, "Gokul Dhamodaran");
+  const t = tidyResume(broken, "GOKUL DHAMODARAN");
+  ok(issues.includes("name incomplete") && issues.includes("summary missing") && issues.includes("broken bullet points"), "quality gate catches broken resumes");
+  ok(t.name === "Gokul Dhamodaran" && !t.summary && t.skills!.length === 1 && t.skills![0].items.includes("ROAS & CPL Optimization") && t.experience![0].bullets.length === 2, "tidy repairs name, summary, skills and fragmented bullets");
+}
+
+// One-time codes from real emails.
+{
+  const gh = " Copy and paste this code into the security code field on your application: O2YJR3FJ After you enter the code, resubmit your application. © 2026 Greenhouse 18 West 18th Street, 11th Floor, New York, NY 10011, USA ";
+  ok(extractCode(gh) === "O2YJR3FJ", "reads Greenhouse alphanumeric security codes");
+  ok(extractCode("Your verification code is 482913. It expires in 10 minutes.") === "482913" && extractCode("Use code: 7741 to sign in") === "7741", "reads numeric codes");
+  ok(extractCode("2-Step Verification turned on. Your Google Account is now protected") === null, "ignores emails without a code");
 }
 
 // Network guard.

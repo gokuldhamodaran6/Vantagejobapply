@@ -10,6 +10,8 @@ import { supabaseBrowser } from "@/lib/supabase/client";
 import { COUNTRIES, COUNTRY_BY_CODE, INDUSTRIES } from "@/lib/countries";
 import { effectivePlan } from "@/lib/access";
 import type { ApplyScope, TargetPrefs, TargetRole, WorkAuth, WorkStatus } from "@/lib/types";
+import type { Coach } from "@/lib/resume/coach";
+import { RoleCoach } from "@/components/role-coach";
 
 const LEVELS = ["intern", "entry", "mid", "senior", "lead"];
 const STATUS_LABEL: Record<WorkStatus, string> = {
@@ -35,6 +37,7 @@ export default function TargetsPage() {
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+  const [coachQueue, setCoachQueue] = useState<{ id: string; title: string; coach: Coach }[]>([]);
   const [newRole, setNewRole] = useState("");
   const [company, setCompany] = useState("");
   const [companyBusy, setCompanyBusy] = useState(false);
@@ -62,6 +65,7 @@ export default function TargetsPage() {
   }, [userId]);
 
   if (!p) return <div className="skeleton h-96" />;
+  const coachFor = coachQueue[0];
 
   const set = (patch: Partial<TargetPrefs>) => {
     setP({ ...p, ...patch });
@@ -134,9 +138,13 @@ export default function TargetsPage() {
     const existing = rs.filter((r) => !r.id.startsWith("new-"));
     const created = rs.filter((r) => r.id.startsWith("new-"));
     const removed = roles.filter((r) => !rs.some((x) => x.id === r.id));
+    let added: { id: string; title: string; coach: Coach }[] = [];
+    if (created.length) {
+      const ins = await s.from("target_roles").insert(created.map((r) => ({ user_id: userId, title: r.title, levels: r.levels, keywords: r.keywords, priority: r.priority, active: r.active }))).select("id,title,coach");
+      added = (ins.data as typeof added) || [];
+    }
     await Promise.all([
       ...existing.map((r) => s.from("target_roles").update({ title: r.title, levels: r.levels, keywords: r.keywords, priority: r.priority, active: r.active }).eq("id", r.id)),
-      ...(created.length ? [s.from("target_roles").insert(created.map((r) => ({ user_id: userId, title: r.title, levels: r.levels, keywords: r.keywords, priority: r.priority, active: r.active })))] : []),
       ...removed.map((r) => s.from("target_roles").delete().eq("id", r.id)),
       ...as.filter((a) => p.countries.includes(a.country)).map((a) =>
         s.from("work_auth").upsert({ user_id: userId, country: a.country, status: a.status, needs_sponsorship_now: a.needs_sponsorship_now, needs_sponsorship_future: a.needs_sponsorship_future, apply_scope: a.apply_scope, details: a.details }, { onConflict: "user_id,country" }),
@@ -144,8 +152,24 @@ export default function TargetsPage() {
     ]);
     setSaving(false);
     setDirty(false);
-    setToast(e1 ? e1.message : "Targets saved. Your matches update right away.");
-    refresh();
+    setToast(e1 ? e1.message : added.length ? `Saved. Reading your resume against live ${added[0].title} postings…` : "Targets saved. Your matches update right away.");
+    await refresh();
+    if (added.length) setupNewRoles(added);
+  }
+
+  // Each new role: check how the resume fits it. A close fit or career move gets the recruiter coach; a strong fit gets its resume written straight away.
+  async function setupNewRoles(added: { id: string; title: string; coach: Coach }[]) {
+    const needCoach: { id: string; title: string; coach: Coach }[] = [];
+    for (const r of added) {
+      const res = await fetch("/api/resume/coach", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "assess", roleId: r.id }) }).catch(() => null);
+      const d = res?.ok ? await res.json() : null;
+      if (!d?.coach) continue;
+      if (d.coach.fit?.level === "strong") {
+        void fetch("/api/resume/role", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ roleId: r.id }) });
+        setToast(`${r.title}: strong fit with your experience — writing its resume now.`);
+      } else needCoach.push({ ...r, coach: d.coach });
+    }
+    setCoachQueue(needCoach);
   }
 
   const watched = new Map(boards.map((b) => [b.name.toLowerCase(), b]));
@@ -331,6 +355,7 @@ export default function TargetsPage() {
           <button className="btn-primary" onClick={save} disabled={saving}>{saving ? "Saving…" : "Save changes"}</button>
         </div>
       )}
+      {coachFor && <RoleCoach role={coachFor} onClose={() => setCoachQueue((q) => q.slice(1))} onDone={(m) => { setToast(m); setCoachQueue((q) => q.slice(1)); }} />}
       <Toast message={toast} onClose={() => setToast(null)} />
     </>
   );

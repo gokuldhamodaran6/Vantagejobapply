@@ -1,5 +1,6 @@
 import { agentSecretOk, rpc } from "@/lib/agent/svc";
 import { filesFor, loadBundle } from "@/lib/agent/bundle";
+import { ensureFreshTailoring } from "@/lib/agent/prepare";
 import { planFields, type FormField } from "@/lib/agent/fields";
 import { syncAccount } from "@/lib/agent/mailsync";
 import { encryptFor, generatePassword } from "@/lib/vault";
@@ -27,6 +28,17 @@ export async function POST(req: Request, { params }: { params: Promise<{ op: str
       if (!b.resume) {
         await rpc("update", { task_id: t.id, status: "failed", error: "No resume on file. Upload your resume in Vantage." });
         return j({ task: null });
+      }
+      // Quality gate: never send a broken or stale resume.
+      if (b.task.mode !== "dry_run") {
+        const fresh = await ensureFreshTailoring({
+          taskId: b.task.id, userId: b.task.user_id, name: b.facts.full_name, jobId: b.task.job_id, job: b.task.job,
+          resume: b.raw.resume?.content || null, resumeUpdatedAt: b.raw.resume?.updated_at || null, tone: b.task.letter_tone, style: b.task.resume_style, fullName: b.facts.full_name,
+        }).catch((e) => { console.error("retailor failed", e); return { refreshed: false }; });
+        if (fresh.refreshed) {
+          const nb = await loadBundle(t.id);
+          if (nb) Object.assign(b, nb);
+        }
       }
       if (!(await isSafePublicUrl(b.target.url, { httpsOnly: true }))) {
         await rpc("update", { task_id: t.id, status: "failed", error: "This application link isn't a public https page, so your agent won't open it." });
@@ -75,23 +87,34 @@ export async function POST(req: Request, { params }: { params: Promise<{ op: str
       const floor = Date.parse(t.started_at || "") || Date.now() - 15 * 60 * 1000;
       const asked = Date.parse(String(body.since || "")) || floor;
       const since = new Date(Math.max(floor - 60_000, asked)).toISOString();
-      let codes = await rpc<{ from_addr: string; subject: string; code: string | null; link: string | null; received_at: string }[]>("recent_codes", { user_id: t.user_id, since });
-      if (!codes?.length && body.checkMail) {
-        const accts = await rpc<MailAccount[]>("mail_accounts", { user_id: t.user_id });
-        if (accts?.[0]) {
-          await syncAccount(accts[0], { days: 1 });
-          codes = await rpc("recent_codes", { user_id: t.user_id, since });
-        }
-      }
+      type CodeMail = { from_addr: string; subject: string; code: string | null; link: string | null; received_at: string };
       const pageHost = String(body.pageHost || "");
       const domains = [baseDomain(hostOf(t.apply_url)), pageHost ? baseDomain(pageHost) : ""].filter(Boolean);
       const words = [...domains.map((d) => d.split(".")[0]), ...t.job.company.toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length > 2)];
       const ATS_MAIL = /(myworkday|workday|greenhouse|lever|ashby|icims|taleo|successfactors|smartrecruiters|workable|recruitee|jobvite|oraclecloud|avature|eightfold)/;
-      const fromEmployer = (c: { from_addr: string; subject: string }) => {
+      const fromEmployer = (c: CodeMail) => {
         const f = `${c.from_addr || ""} ${c.subject || ""}`.toLowerCase();
         return words.some((w) => f.includes(w)) || ATS_MAIL.test((c.from_addr || "").toLowerCase());
       };
-      const pick = (codes || []).find(fromEmployer);
+      // Several applications can run on the same ATS at once (Datadog and Robinhood both use Greenhouse):
+      // a mail that names another company ("…your application to Robinhood") never answers this one.
+      const names = words.filter((w) => !["careers", "jobs", "inc", "llc", "the", "greenhouse", "lever", "ashbyhq", "myworkdayjobs", "workday"].includes(w));
+      const named = (c: CodeMail) => names.some((w) => (c.subject || "").toLowerCase().includes(w));
+      const forOther = (c: CodeMail) => {
+        const m = (c.subject || "").toLowerCase().match(/(?:application|apply(?:ing)?) (?:to|at|for|with) (.+)$/);
+        return Boolean(m && names.length && !names.some((w) => m[1].includes(w)));
+      };
+      const best = (list: CodeMail[] | null) =>
+        (list || []).filter((c) => (c.code || c.link) && fromEmployer(c) && !forOther(c)).sort((a, b) => Number(named(b)) - Number(named(a)) || Date.parse(b.received_at) - Date.parse(a.received_at))[0];
+      let pick = best(await rpc<CodeMail[]>("recent_codes", { user_id: t.user_id, since }));
+      if (!pick && body.checkMail) {
+        // Not in yet: read the mailbox right now (new mail only) rather than waiting for the next sync.
+        const accts = await rpc<MailAccount[]>("mail_accounts", { user_id: t.user_id });
+        if (accts?.[0]) {
+          await syncAccount(accts[0], { days: 1 }).catch(() => {});
+          pick = best(await rpc<CodeMail[]>("recent_codes", { user_id: t.user_id, since }));
+        }
+      }
       // A verification link is opened only if it points at the same site the agent is applying on.
       const link = pick?.link && domains.some((d) => hostOf(pick.link!).endsWith(d)) ? pick.link : null;
       return j({ userInput: t.user_input, code: pick?.code || null, link });

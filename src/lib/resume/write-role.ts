@@ -3,7 +3,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { roleResume } from "@/lib/tailor";
 import { scoreResume } from "@/lib/ats";
 import { marketKeywords } from "@/lib/resume/market";
-import { coachFacts, type Coach } from "@/lib/resume/coach";
+import { assessFit, coachFacts, FIT_VERSION, type Coach } from "@/lib/resume/coach";
 import type { ResumeContent, TargetRole } from "@/lib/types";
 
 /** Write (or rewrite) the one resume for a target role, using what the user told the role coach. */
@@ -11,7 +11,13 @@ export async function writeRoleResume(supabase: SupabaseClient, userId: string, 
   const { data: master } = await supabase.from("resumes").select("content").eq("user_id", userId).eq("is_master", true).maybeSingle();
   if (!master) return { error: "Upload your resume first." } as const;
   const kws = await marketKeywords(supabase, role.title, country);
-  const coach = role.coach || {};
+  const coach: Coach = { ...(role.coach || {}) };
+  // Know how this role fits before writing: a career move is positioned differently from a strong fit.
+  if (!coach.fit) {
+    coach.fit = assessFit(master.content as ResumeContent, role.title, kws);
+    coach.v = FIT_VERSION;
+    await supabase.from("target_roles").update({ coach }).eq("id", role.id);
+  }
   const courses = (coach.answers || [])
     .filter((x) => /course|certif|bootcamp|training/i.test(`${x.key} ${x.q}`))
     .flatMap((x) => x.a.split(/\n|;|•/).map((t) => t.trim()).filter((t) => t.length > 4 && t.length < 140))

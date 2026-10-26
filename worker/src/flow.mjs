@@ -1,5 +1,5 @@
 import { call, log, update } from "./api.mjs";
-import { declineCookies, extractFields, fillField, findEntry, findNext, findSubmit, human, humanCheckVisible, isConfirmation, pageText, readComboOptions, visibleErrors } from "./forms.mjs";
+import { codeChallenge, declineCookies, enterCode, extractFields, isCodeField, fillField, findEntry, findNext, findSubmit, human, humanCheckVisible, isConfirmation, pageText, readComboOptions, visibleErrors } from "./forms.mjs";
 import { live } from "./live.mjs";
 import { allowedUrl, baseDomain } from "./guard.mjs";
 
@@ -67,6 +67,13 @@ export async function runTask(bundle, browser) {
       }
 
       const fields = await extractFields(page);
+      // The site emailed a code (Greenhouse's "security code" after Submit): read it from the inbox and enter it.
+      const challenge = await codeChallenge(page, fields);
+      if (challenge) {
+        if (bundle.dry) throw new Stop("manual", "Dry run: the site asked for an emailed security code", { needs: await diagnose(page, bundle) });
+        if (await passCode(bundle, page, challenge)) break;
+        continue;
+      }
       const formish = fields.filter((f) => !["password"].includes(f.type));
       const passwords = fields.filter((f) => f.type === "password");
 
@@ -131,6 +138,7 @@ export async function runTask(bundle, browser) {
       }
       const after = await pageText(page);
       if (isConfirmation(page.url(), after)) break;
+      if (await codeChallenge(page)) continue; // handled at the top of the loop, without closing the page
       if (page.url() === before) {
         const errs = await visibleErrors(page);
         if (errs.length) {
@@ -147,7 +155,7 @@ export async function runTask(bundle, browser) {
     const finalText = await pageText(page);
     if (!isConfirmation(page.url(), finalText)) throw new Stop("manual", "The site didn't confirm the submission. Open the job link to check and finish it.");
     const shot = await page.screenshot({ type: "jpeg", quality: 55 }).catch(() => null);
-    await update(task.id, { status: "submitted", step: "Applied", log: `Applied to ${task.job.title} at ${task.job.company}`, proof: shot ? shot.toString("base64") : undefined, answers: filled });
+    await update(task.id, { status: "submitted", step: "Applied", needs: [], log: `Applied to ${task.job.title} at ${task.job.company}`, proof: shot ? shot.toString("base64") : undefined, answers: filled });
     return "submitted";
   } catch (e) {
     const shot = await page.screenshot({ type: "jpeg", quality: 50 }).catch(() => null);
@@ -187,7 +195,7 @@ async function fillPage(bundle, page, filled, seen, collectMissing = false) {
   let missingAll = [];
   const failed = [];
   for (let pass = 0; pass < 3; pass++) {
-    const fields = (await extractFields(page)).filter((f) => f.type !== "password");
+    const fields = (await extractFields(page)).filter((f) => f.type !== "password" && !isCodeField(f));
     const fresh = fields.filter((f) => !seen.has(f.id) || (collectMissing && f.required && !f.value && !f.checked));
     if (!fresh.length) break;
     for (const f of fresh) {
@@ -357,6 +365,66 @@ async function verifyEmail(bundle, page, sinceIso) {
     await settle(page, 2000);
     if (!/apply|application|job/i.test(page.url())) await bundle.goto(bundle.task.url || back).catch(() => {});
     await settle(page);
+  }
+}
+
+const ATS_NAMES = [["greenhouse", "Greenhouse"], ["lever.co", "Lever"], ["ashbyhq", "Ashby"], ["myworkday", "Workday"], ["icims", "iCIMS"], ["smartrecruiters", "SmartRecruiters"], ["workable", "Workable"]];
+const systemOf = (url, company) => (ATS_NAMES.find(([k]) => url.includes(k)) || [null, `${company}'s careers site`])[1];
+const cleanCo = (c) => String(c || "").split(/\s*[|\-–]\s*/).filter(Boolean).pop()?.replace(/\bcareers?\b/i, "").trim() || c;
+
+/**
+ * The site emailed a one-time code to finish the application. The page stays open while the code is read
+ * from the user's connected job inbox (checked every few seconds) or typed by the user in Vantage.
+ * Returns true when the site confirmed the application.
+ */
+async function passCode(bundle, page, ch) {
+  const { task } = bundle;
+  const company = cleanCo(task.job.company);
+  const system = systemOf(page.url(), company);
+  const sentTo = ch.sentTo || bundle.identity.email;
+  const waitStart = Date.now();
+  const tried = new Set();
+  const since = new Date(Date.now() - 3 * 60 * 1000).toISOString(); // the email often lands while Submit is still spinning
+  const meta = (extra = {}) => [{ kind: "site_code", system, company, sentTo, length: ch.length, auto: bundle.hasMailbox, startedAt: new Date(waitStart).toISOString(), expiresAt: new Date(waitStart + 10 * 60 * 1000).toISOString(), ...extra }];
+  await update(task.id, {
+    status: "waiting_code",
+    step: bundle.hasMailbox ? `Reading the security code ${system} emailed to ${sentTo}` : `Enter the code ${system} emailed to ${sentTo}`,
+    needs: meta(),
+    log: `${system} emailed a security code to ${sentTo} to confirm this application`,
+  });
+  const deadline = waitStart + 10 * 60 * 1000;
+  try {
+    while (Date.now() < deadline) {
+      const r = await call("poll", { taskId: task.id, since, checkMail: bundle.hasMailbox, pageHost: new URL(page.url()).hostname }).catch(() => ({}));
+      if (r.cancelled) throw new Stop("cancelled", "Cancelled");
+      const fromUser = r.userInput?.code ? String(r.userInput.code).trim() : "";
+      const code = fromUser || (r.code && !tried.has(r.code) ? String(r.code) : "");
+      if (!code || tried.has(code)) {
+        await sleep(2500);
+        continue;
+      }
+      tried.add(code);
+      await update(task.id, { status: "running", step: `Entering the ${system} security code`, clearInput: Boolean(fromUser), log: fromUser ? "Entering the code you sent" : `Found the code in ${sentTo} — entering it` });
+      const fresh = (await codeChallenge(page)) || ch;
+      await enterCode(page, fresh.boxes, code);
+      await human(300, 700);
+      const submit = await findSubmit(page);
+      if (submit) {
+        await log(task.id, "Submitting the application with the security code", "Submitting");
+        await submit.click({ timeout: 10_000 }).catch(() => submit.click({ force: true }).catch(() => {}));
+      }
+      await settle(page, 2500);
+      if (isConfirmation(page.url(), await pageText(page))) return true;
+      const still = await codeChallenge(page);
+      if (!still) return false; // moved on (e.g. another step); the main loop carries on
+      const errs = (await visibleErrors(page)).join(" ");
+      const why = /expired/i.test(errs) ? "That code expired" : "That code didn't work";
+      await update(task.id, { status: "waiting_code", step: `${why} — waiting for a new one`, needs: meta({ error: why, tried: tried.size }), log: `${why}${errs ? `: ${errs.slice(0, 120)}` : ""}` });
+      if (tried.size >= 3) throw new Stop("needs_user", `${system} didn't accept the security code. Retry to get a fresh one.`, { needs: [] });
+    }
+    throw new Stop("needs_user", `The ${system} security code didn't arrive in 10 minutes. Retry and it will send a new one.`, { needs: [] });
+  } finally {
+    if (bundle.clock) bundle.clock.waited += Date.now() - waitStart;
   }
 }
 

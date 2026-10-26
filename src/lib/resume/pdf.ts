@@ -1,4 +1,5 @@
 import "server-only";
+import { tidyResume } from "@/lib/resume/health";
 import { PDFDocument, PDFFont, PDFPage, StandardFonts, rgb } from "pdf-lib";
 import { RESUME_STYLES } from "./styles";
 import type { ResumeContent, ResumeStyle } from "@/lib/types";
@@ -163,7 +164,9 @@ function bullets(c: Ctx, items: string[]) {
   }
 }
 
-export async function resumePdf(r: ResumeContent, opts: { style?: ResumeStyle; country?: string } = {}): Promise<Uint8Array> {
+export async function resumePdf(raw: ResumeContent, opts: { style?: ResumeStyle; country?: string; name?: string } = {}): Promise<Uint8Array> {
+  // Never render broken data: full name, no URL-as-summary, re-joined bullets, merged skill groups.
+  const r = tidyResume(raw, opts.name);
   const style = opts.style || "classic";
   const { c, st } = await setup(opts.country || "US", style);
   headerBlock(c, st, r);
@@ -231,7 +234,8 @@ export async function resumePdf(r: ResumeContent, opts: { style?: ResumeStyle; c
   return finish(c.doc, `${r.name || "Resume"} - Resume`, r.name || "");
 }
 
-export async function coverLetterPdf(letter: string, r: Pick<ResumeContent, "name" | "headline" | "location" | "phone" | "email" | "links">, opts: { style?: ResumeStyle; country?: string } = {}): Promise<Uint8Array> {
+export async function coverLetterPdf(letter: string, raw: Pick<ResumeContent, "name" | "headline" | "location" | "phone" | "email" | "links">, opts: { style?: ResumeStyle; country?: string; name?: string } = {}): Promise<Uint8Array> {
+  const r = { ...raw, name: tidyResume({ name: raw.name } as ResumeContent, opts.name).name };
   const style = opts.style || "classic";
   const { c, st } = await setup(opts.country || "US", style);
   c.size = st.body + 0.8;

@@ -1,0 +1,36 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Job Application for Senior Analyst at Umbrella</title></head>
+<body>
+<h1>Senior Analyst</h1>
+<form id="f" onsubmit="return go(event)">
+  <div class="field"><label for="first_name">First Name*</label><input id="first_name" name="first_name" required></div>
+  <div class="field"><label for="last_name">Last Name*</label><input id="last_name" name="last_name" required></div>
+  <div class="field"><label for="email">Email*</label><input id="email" name="email" type="email" required></div>
+  <div class="field"><label for="phone">Phone</label><input id="phone" name="phone" type="tel"></div>
+  <div id="sec" style="display:none">
+    <label for="code0">Security code</label>
+    <p id="secmsg">A verification code was sent to priya.careers@gmail.com. To submit your application, enter the 8-character code to confirm you're a human.</p>
+    <div id="boxes"></div>
+    <p id="err" style="color:red"></p>
+  </div>
+  <button type="submit">Submit application</button>
+</form>
+<script>
+  let asked = false;
+  const boxes = document.getElementById("boxes");
+  for (let i = 0; i < 8; i++) {
+    const b = document.createElement("input");
+    b.id = "code" + i; b.maxLength = 1; b.setAttribute("aria-labelledby", "secmsg"); b.style.width = "2em";
+    b.addEventListener("input", () => { b.value = b.value.toUpperCase(); if (b.value && b.nextElementSibling) b.nextElementSibling.focus(); });
+    boxes.appendChild(b);
+  }
+  function go(e) {
+    e.preventDefault();
+    if (!asked) { asked = true; document.getElementById("sec").style.display = "block"; return false; }
+    const code = [...boxes.querySelectorAll("input")].map((b) => b.value).join("");
+    if (code === "O2YJR3FJ") location.href = "/fx/gh-confirmation.html";
+    else { document.getElementById("err").textContent = "Incorrect security code (" + code + ")"; [...boxes.querySelectorAll("input")].forEach((b) => (b.value = "")); }
+    return false;
+  }
+</script>
+</body></html>
