@@ -273,7 +273,7 @@ Rules:
 Return ONLY JSON {"<id>": "<value or ASK>"}.`,
       [{
         role: "user",
-        content: `JOB: ${ctx.job.title} at ${ctx.job.company}\n${(ctx.job.description || "").slice(0, 3000)}\n\nCANDIDATE FACTS: ${JSON.stringify({ ...ctx.facts, email: undefined, phone: undefined, address1: undefined })}\nRESUME: ${JSON.stringify(ctx.resume || {}).slice(0, 7000)}\nSAVED ANSWERS: ${JSON.stringify(ctx.answers.slice(0, 40))}\n\nFIELDS: ${JSON.stringify(askable.map((f) => ({ id: f.id, label: f.label, type: f.type, options: f.options?.slice(0, 40), required: f.required })))}`,
+        content: `JOB: ${ctx.job.title} at ${ctx.job.company}\n${(ctx.job.description || "").slice(0, 3000)}\n\nCANDIDATE FACTS: ${JSON.stringify({ ...ctx.facts, email: undefined, phone: undefined, address1: undefined })}\nRESUME: ${JSON.stringify(ctx.resume || {}).slice(0, 7000)}\nSAVED ANSWERS: ${JSON.stringify(relevantAnswers(ctx.answers, askable))}\n\nFIELDS: ${JSON.stringify(askable.map((f) => ({ id: f.id, label: f.label, type: f.type, options: f.options?.slice(0, 40), required: f.required })))}`,
       }],
       2500,
       { model: "fast", temperature: 0.2 },
@@ -297,4 +297,11 @@ Return ONLY JSON {"<id>": "<value or ASK>"}.`,
     if (f.required) missing.push({ id: f.id, qkey: qkeyOf(f.label), label: f.label.replace(/\s*\*\s*$/, ""), type: f.type, options: f.options, required: true });
   }
   return { fills, missing };
+}
+
+/** Only saved answers that share meaningful words with the fields being asked go to the AI. */
+function relevantAnswers(answers: { qkey: string; question: string; answer: string }[], fields: FormField[]) {
+  const stop = new Set(["you", "your", "have", "are", "the", "and", "for", "with", "what", "this", "that", "will", "any", "how", "did", "please", "describe"]);
+  const words = new Set(fields.flatMap((f) => qkeyOf(f.label).split(" ")).filter((w) => w.length > 3 && !stop.has(w)));
+  return answers.filter((a) => a.qkey.split(" ").some((w) => words.has(w))).slice(0, 12);
 }

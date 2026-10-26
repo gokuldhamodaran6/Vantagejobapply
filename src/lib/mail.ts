@@ -45,7 +45,7 @@ export async function testMailbox(address: string, password: string, host: strin
       ok: false,
       error: /auth|credential|password|invalid/i.test(msg)
         ? "The email or app password was not accepted. For Gmail, create an app password (not your normal password) with 2-Step Verification turned on."
-        : `Could not connect to the mailbox: ${msg}`,
+        : "Could not connect to that mailbox. Check the provider and that IMAP is turned on.",
     };
   }
 }

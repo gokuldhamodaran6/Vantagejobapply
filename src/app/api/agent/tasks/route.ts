@@ -28,9 +28,9 @@ export async function POST(req: Request) {
     const found = await jobFromLink(body.link);
     if (!found) return json({ error: "We couldn't read that job link. Check it opens the job on the company's site and try again." }, 400);
     job = found.job;
-    await rpcExt("store_job", { job });
-    // Start watching that employer's careers feed too (discovery).
+    // Only jobs read from an official careers feed join the shared job pool; other pages stay private to this task.
     if (found.board) {
+      await rpcExt("store_job", { job });
       await supabaseAnon().rpc("upsert_board", { secret: ingestSecret(), p: { ats: found.board.ats, token: found.board.token, name: found.board.name, host: found.board.host || null, site: found.board.site || "", added_by: ctx.user.id } }).then(() => {}, () => {});
     }
   }

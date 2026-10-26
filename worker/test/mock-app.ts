@@ -66,7 +66,7 @@ const server = http.createServer(async (req, res) => {
     else {
       next.status = "running";
       next.attempts++;
-      out = { task: { id: next.id, ats: next.ats, url: next.url, host: new URL(next.url).host, job: next.job, attempts: next.attempts, userInput: {} }, identity: { email: "priya.careers@gmail.com", name: "Priya Raman" }, credential: vault[next.id] || null, hasMailbox: next.id === "t-wd", files: await files() };
+      out = { task: { id: next.id, ats: next.ats, url: next.url, host: new URL(next.url).hostname, job: next.job, attempts: next.attempts, userInput: {} }, identity: { email: "priya.careers@gmail.com", name: "Priya Raman" }, credential: vault[next.id] || null, hasMailbox: next.id === "t-wd", files: await files() };
     }
   } else if (op === "plan") {
     out = await planFields(body.fields as FormField[], { facts: facts(), answers, job: t!.job, resume, coverLetter: "Dear team,\n\nHello.\n\nSincerely,\nPriya Raman", consent: true });
@@ -81,8 +81,8 @@ const server = http.createServer(async (req, res) => {
     if (t!.id === "t-wd") out = { code: "482913", link: null, userInput: {} };
     else out = { userInput: t!.userInput };
   } else if (op === "credential") {
-    vault[t!.id] = { login: body.login, password: generatePassword() };
-    out = vault[t!.id];
+    vault[t!.id] = { login: "priya.careers@gmail.com", password: generatePassword() };
+    out = { ...vault[t!.id], host: body.host };
   }
   res.writeHead(200, { "content-type": "application/json" });
   res.end(JSON.stringify(out));

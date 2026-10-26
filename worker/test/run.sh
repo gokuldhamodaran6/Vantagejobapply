@@ -6,7 +6,7 @@ LOG=${LOG_DIR:-/tmp}
 SECRET=test-secret-0123456789abcdef
 npx tsx --conditions=react-server --tsconfig tsconfig.json worker/test/mock-app.ts > $LOG/mock.log 2>&1 & MOCK=$!
 sleep 7
-(cd worker && APP_URL=http://127.0.0.1:4100 AGENT_SECRET=$SECRET PORT=4200 exec node src/server.mjs > $LOG/worker.log 2>&1) & WORKER=$!
+(cd worker && AGENT_ALLOW_LOCAL=1 APP_URL=http://127.0.0.1:4100 AGENT_SECRET=$SECRET PORT=4200 exec node src/server.mjs > $LOG/worker.log 2>&1) & WORKER=$!
 cleanup() { for d in /proc/[0-9]*; do c=$(tr '\0' ' ' < $d/cmdline 2>/dev/null); case "$c" in *"worker/test/mock-app"*|*"node src/server.mjs"*) case "$c" in *bash*) ;; *) kill ${d#/proc/} 2>/dev/null;; esac;; esac; done; }
 trap cleanup EXIT
 answered=0; capdone=0

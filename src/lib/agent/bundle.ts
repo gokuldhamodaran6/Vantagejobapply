@@ -32,11 +32,11 @@ export function hostOf(url: string) {
   }
 }
 
-export async function loadBundle(taskId: string) {
+export async function loadBundle(taskId: string, hostOverride?: string) {
   const t0 = await rpc<TaskRow | null>("task", { task_id: taskId });
   if (!t0) return null;
   const target = { ats: t0.ats || "generic", url: t0.apply_url, host: hostOf(t0.apply_url) };
-  const host = vaultHost(target);
+  const host = hostOverride || vaultHost(target);
   const b = await rpc<RawBundle>("bundle", { task_id: taskId, host });
   const resume = b.resume?.content || b.master?.content || null;
   const country = b.task.job.country || "US";

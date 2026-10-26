@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test": "tsx scripts/selftest.ts",
+    "test": "tsx --conditions=react-server scripts/selftest.ts",
     "test:agent": "bash worker/test/run.sh"
   },
   "dependencies": {

@@ -3,7 +3,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { motion } from "motion/react";
-import { ArrowUp, Bot, CheckCircle2, Circle } from "lucide-react";
+import { ArrowRight, ArrowUp, Bot, CheckCircle2, Circle, Sparkles } from "lucide-react";
 import { useMe } from "@/lib/me";
 import { supabaseBrowser } from "@/lib/supabase/client";
 import { initials, timeAgo, tintFor } from "@/lib/format";
@@ -16,12 +16,14 @@ export default function Dashboard() {
   const [hasResume, setHasResume] = useState<boolean | null>(null);
   const [top, setTop] = useState<{ job: Job; match: MatchResult }[] | null>(null);
   const [ask, setAsk] = useState("");
+  const [agent, setAgent] = useState<{ status: string; job: { title: string; company: string }; updated_at: string }[]>([]);
 
   useEffect(() => {
     if (!userId) return;
     const s = supabaseBrowser();
     s.from("applications").select("*").order("updated_at", { ascending: false }).then(({ data }) => setApps((data as Application[]) || []));
     s.from("resumes").select("id", { count: "exact", head: true }).then(({ count }) => setHasResume((count || 0) > 0));
+    s.from("agent_tasks").select("status,job,updated_at").order("updated_at", { ascending: false }).limit(200).then(({ data }) => setAgent((data as typeof agent) || []));
     fetch(`/api/jobs?country=${prefs?.countries?.[0] || "US"}`).then(async (r) => {
       const d = await r.json();
       setTop((d.results || []).slice(0, 5));
@@ -62,6 +64,27 @@ export default function Dashboard() {
         <input className="min-h-11 flex-1 bg-transparent text-[15px] outline-none placeholder:text-subtle" placeholder="Ask your agent — “What did I apply to today?” or “Also target Product Analyst roles”" value={ask} onChange={(e) => setAsk(e.target.value)} aria-label="Ask your agent" />
         <button className="flex h-10 w-10 items-center justify-center rounded-full bg-brand text-white" aria-label="Send"><ArrowUp size={18} /></button>
       </form>
+
+      {(() => {
+        const today = new Date(new Date(now).setHours(0, 0, 0, 0)).getTime();
+        const done = agent.filter((t) => t.status === "submitted" && Date.parse(t.updated_at) >= today).length;
+        const working = agent.find((t) => ["running", "waiting_code"].includes(t.status));
+        const queued = agent.filter((t) => t.status === "queued").length;
+        const needs = agent.filter((t) => ["needs_user", "needs_human", "awaiting_approval", "manual"].includes(t.status)).length;
+        return (
+          <Link href="/app/agent" className="card group mb-6 flex flex-wrap items-center gap-4 overflow-hidden bg-gradient-to-r from-brand-soft via-white to-pink-tint/50 p-5 transition hover:border-brand">
+            <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-brand to-pink text-white shadow-lg shadow-brand/20"><Sparkles size={22} /></span>
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-semibold text-brand-ink">Your agent</p>
+              <p className="truncate text-lg font-bold">
+                {working ? `Applying to ${working.job.title} at ${working.job.company}…` : needs ? `${needs} application${needs > 1 ? "s" : ""} need${needs > 1 ? "" : "s"} you` : queued ? `${queued} application${queued > 1 ? "s" : ""} queued` : done ? `${done} applied today` : "Ready — paste a job link or pick from Live jobs"}
+              </p>
+              <p className="text-sm text-muted">{done} applied today · {queued} in queue · {profile?.autonomy === "fully_automatic" ? "fully automatic" : profile?.autonomy === "approve_all" ? "you approve each one" : "you approve important ones"}</p>
+            </div>
+            <span className="btn-primary">Open <ArrowRight size={16} /></span>
+          </Link>
+        );
+      })()}
 
       <section className="grid grid-cols-2 gap-3 lg:grid-cols-4" aria-label="Summary">
         {[

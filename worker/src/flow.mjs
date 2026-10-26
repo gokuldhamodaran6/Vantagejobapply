@@ -1,9 +1,11 @@
 import { call, log, update } from "./api.mjs";
 import { extractFields, fillField, findEntry, findNext, findSubmit, human, humanCheckVisible, isConfirmation, pageText, readComboOptions, visibleErrors } from "./forms.mjs";
 import { live } from "./live.mjs";
+import { allowedUrl, baseDomain } from "./guard.mjs";
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-const TASK_BUDGET_MS = 9 * 60 * 1000;
+const TASK_BUDGET_MS = 9 * 60 * 1000; // active work, excluding time spent waiting for the user
+const HARD_CAP_MS = 25 * 60 * 1000; // everything included
 
 class Stop extends Error {
   constructor(status, message, extra = {}) {
@@ -26,24 +28,36 @@ export async function runTask(bundle, browser) {
     timezoneId: process.env.TZ_DEFAULT || "America/Chicago",
     userAgent: process.env.BROWSER_UA || "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36",
   });
-  await context.route("**/*", (route) => (["media", "font"].includes(route.request().resourceType()) ? route.abort() : route.continue()));
+  await context.route("**/*", async (route) => {
+    const req = route.request();
+    if (["media", "font"].includes(req.resourceType())) return route.abort();
+    if (!(await allowedUrl(req.url()))) return route.abort("blockedbyclient");
+    return route.continue();
+  });
   let page = await context.newPage();
   context.on("page", (p) => (page = p)); // follow "Apply" links that open a new tab
   live.attach(task.id, () => page);
   const filled = {};
   const seen = new Set();
+  const clock = { started, waited: 0 };
+  bundle.clock = clock;
+  const goto = async (url) => {
+    if (!(await allowedUrl(url))) throw new Stop("failed", "This link isn't a public web page, so your agent won't open it.");
+    await page.goto(url, { waitUntil: "domcontentloaded", timeout: 45_000 });
+  };
+  bundle.goto = goto;
 
   try {
     await log(task.id, `Opening ${task.job.company}'s application`, "Opening the application");
-    await page.goto(task.url, { waitUntil: "domcontentloaded", timeout: 45_000 });
+    await goto(task.url);
     await settle(page);
 
     for (let step = 0; step < 14; step++) {
-      if (Date.now() - started > TASK_BUDGET_MS) throw new Stop("failed", "Took too long on this site. You can finish it yourself from the job link.");
+      if (Date.now() - started - clock.waited > TASK_BUDGET_MS || Date.now() - started > HARD_CAP_MS) throw new Stop("failed", "Took too long on this site. You can finish it yourself from the job link.");
       const text = await pageText(page);
       if (isConfirmation(page.url(), text)) break;
 
-      if (await humanCheckVisible(page)) await waitForHuman(task, page);
+      if (await humanCheckVisible(page)) await waitForHuman(task, page, clock);
 
       const fields = await extractFields(page);
       const formish = fields.filter((f) => !["password"].includes(f.type));
@@ -97,7 +111,7 @@ export async function runTask(bundle, browser) {
       }
       await settle(page, 2500);
       if (await humanCheckVisible(page)) {
-        await waitForHuman(task, page);
+        await waitForHuman(task, page, clock);
         await settle(page);
       }
       const after = await pageText(page);
@@ -106,7 +120,7 @@ export async function runTask(bundle, browser) {
         const errs = await visibleErrors(page);
         if (errs.length) {
           await log(task.id, `The form flagged: ${errs.slice(0, 3).join(" · ")}`);
-          if (/captcha|robot|human|verification failed/i.test(errs.join(" "))) await waitForHuman(task, page);
+          if (/captcha|robot|human|verification failed/i.test(errs.join(" "))) await waitForHuman(task, page, clock);
           // Errors usually mean a required field we couldn't fill; the next pass asks the user for it.
           const missing = await fillPage(bundle, page, filled, seen, true);
           if (missing.length) throw new Stop("needs_user", "A few questions only you can answer", { needs: missing });
@@ -180,10 +194,15 @@ async function fillPage(bundle, page, filled, seen, collectMissing = false) {
 }
 
 /** Sign in, or create an account with the job email + a strong unique password saved to the user's vault. */
-async function handleAccount(bundle, page, fields, passwords) {
+async function handleAccount(bundle, page, fields, allPasswords) {
   const { task } = bundle;
   const text = (await pageText(page)).toLowerCase();
-  let cred = bundle.credential?.password ? bundle.credential : null;
+  // Passwords are only ever typed into the site the login belongs to — never into another site's frame.
+  const pageHost = new URL(page.url()).hostname.toLowerCase().replace(/^www\./, "");
+  const passwords = allPasswords.filter((f) => !f.frame || new URL(f.frame).hostname.toLowerCase().replace(/^www\./, "") === pageHost);
+  if (!passwords.length) throw new Stop("manual", "This site asks for a password inside another site's box. Open the job link to finish.");
+  const siteCred = pageHost === task.host || pageHost.endsWith(`.${task.host}`) ? bundle.credential : null;
+  let cred = siteCred?.password ? siteCred : null;
   const createBtn = await page.getByRole("button", { name: /create account|sign up|register/i }).first().isVisible().catch(() => false);
   const signInBtn = await page.getByRole("button", { name: /^(sign in|log in|login)$/i }).first().isVisible().catch(() => false);
   const creating = passwords.length >= 2 || (!cred && createBtn && !signInBtn);
@@ -199,9 +218,10 @@ async function handleAccount(bundle, page, fields, passwords) {
     throw new Stop("manual", "This site wants a login the agent doesn't have yet. Open the job link and create the account once.");
   }
 
+  if (!creating && !cred) cred = null;
   if (creating) {
-    cred = await call("credential", { taskId: task.id, login: bundle.identity.email, rotate: !bundle.credential?.password });
-    bundle.credential = cred;
+    cred = await call("credential", { taskId: task.id, host: pageHost, rotate: !siteCred?.password });
+    if (pageHost === task.host) bundle.credential = cred;
     await log(task.id, `Creating your ${task.job.company} careers account with ${cred.login}`, "Creating your account");
   } else {
     await log(task.id, `Signing in to ${task.job.company} careers`, "Signing in");
@@ -231,7 +251,7 @@ async function handleAccount(bundle, page, fields, passwords) {
   const sinceIso = new Date(Date.now() - 30_000).toISOString();
   await btn.click({ timeout: 8000 }).catch(() => btn.click({ force: true }));
   await settle(page, 2500);
-  if (await humanCheckVisible(page)) await waitForHuman(task, page);
+  if (await humanCheckVisible(page)) await waitForHuman(task, page, bundle.clock);
 
   const after = (await pageText(page)).toLowerCase();
   if (/incorrect|invalid (email|password|credentials)|wrong password|doesn.?t match/.test(after) && !creating) {
@@ -239,7 +259,7 @@ async function handleAccount(bundle, page, fields, passwords) {
   }
   if (/already (exists|registered|in use)|account with this email/.test(after) && creating) {
     // Account exists from before: switch to sign in with the vault password if we have one.
-    if (bundle.credential?.password) return;
+    if (siteCred?.password) return;
     throw new Stop("manual", `An account for ${cred.login} already exists on this site. Sign in once from the job link (use "forgot password"), then retry.`);
   }
   if (/verify|verification|confirm your email|check your (email|inbox)|we (have )?sent|enter (the )?code|one[- ]time/.test(after)) {
@@ -250,12 +270,13 @@ async function handleAccount(bundle, page, fields, passwords) {
 /** Get the verification code or link from the job mailbox (or from the user when no mailbox is connected). */
 async function verifyEmail(bundle, page, sinceIso) {
   const { task } = bundle;
-  const host = new URL(page.url()).hostname.split(".").slice(-2, -1)[0] || "";
+  const pageHost = new URL(page.url()).hostname;
+  const waitStart = Date.now();
   await update(task.id, { status: "waiting_code", step: bundle.hasMailbox ? "Reading the verification email" : `Enter the code sent to ${bundle.identity.email}`, log: "Waiting for the verification email" });
   const deadline = Date.now() + (bundle.hasMailbox ? 4 : 10) * 60 * 1000;
   let got = null;
   while (Date.now() < deadline) {
-    const r = await call("poll", { taskId: task.id, since: sinceIso, checkMail: bundle.hasMailbox, senderHint: host }).catch(() => ({}));
+    const r = await call("poll", { taskId: task.id, since: sinceIso, checkMail: bundle.hasMailbox, pageHost }).catch(() => ({}));
     if (r.cancelled) throw new Stop("cancelled", "Cancelled");
     const userCode = r.userInput?.code;
     if (userCode) {
@@ -268,7 +289,10 @@ async function verifyEmail(bundle, page, sinceIso) {
     }
     await sleep(bundle.hasMailbox ? 8000 : 4000);
   }
+  if (bundle.clock) bundle.clock.waited += Date.now() - waitStart;
   if (!got) throw new Stop("needs_user", `Verify your email: we couldn't find the code sent to ${bundle.identity.email}. Retry after it arrives.`, { needs: [] });
+  if (got.link && !(new URL(got.link).hostname.endsWith(baseDomain(pageHost)) && (await allowedUrl(got.link)))) got.link = null;
+  if (!got.code && !got.link) throw new Stop("manual", "The verification email pointed somewhere unexpected, so your agent didn't open it. Check your job email.");
   await update(task.id, { status: "running", step: "Verifying your email", clearInput: true, log: got.code ? "Entered the verification code" : "Opened the verification link" });
   if (got.code) {
     const fields = await extractFields(page);
@@ -282,17 +306,18 @@ async function verifyEmail(bundle, page, sinceIso) {
     }
   } else if (got.link) {
     const back = page.url();
-    await page.goto(got.link, { waitUntil: "domcontentloaded", timeout: 45_000 }).catch(() => {});
+    await bundle.goto(got.link).catch(() => {});
     await settle(page, 2000);
-    if (!/apply|application|job/i.test(page.url())) await page.goto(bundle.task.url || back, { waitUntil: "domcontentloaded" }).catch(() => {});
+    if (!/apply|application|job/i.test(page.url())) await bundle.goto(bundle.task.url || back).catch(() => {});
     await settle(page);
   }
 }
 
 /** Pause for the user to complete a human check in the live view. The agent never solves these itself. */
-async function waitForHuman(task, page) {
+async function waitForHuman(task, page, clock) {
   await update(task.id, { status: "needs_human", step: "Complete the quick “I'm human” check — open Live view", log: "The site asked for a human check" });
-  const deadline = Date.now() + 12 * 60 * 1000;
+  const begin = Date.now();
+  const deadline = Math.min(begin + 10 * 60 * 1000, (clock?.started || begin) + HARD_CAP_MS);
   while (Date.now() < deadline) {
     await sleep(3000);
     if (live.doneFlag(task.id)) break;
@@ -304,6 +329,7 @@ async function waitForHuman(task, page) {
       if (!(await humanCheckVisible(page))) break;
     }
   }
+  if (clock) clock.waited += Date.now() - begin;
   if (await humanCheckVisible(page)) throw new Stop("manual", "The human check wasn't completed in time. Open the job link to finish the application.");
   live.clearDone(task.id);
   await update(task.id, { status: "running", step: "Continuing the application", clearInput: true, log: "Human check done — continuing" });

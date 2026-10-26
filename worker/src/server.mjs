@@ -1,4 +1,5 @@
 import http from "node:http";
+import { timingSafeEqual } from "node:crypto";
 import { chromium } from "playwright";
 import { call, update } from "./api.mjs";
 import { runTask } from "./flow.mjs";
@@ -14,7 +15,12 @@ async function getBrowser() {
   if (browser?.isConnected()) return browser;
   browser = process.env.BROWSER_WS_ENDPOINT
     ? await chromium.connectOverCDP(process.env.BROWSER_WS_ENDPOINT)
-    : await chromium.launch({ headless: true, args: ["--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu", "--no-zygote", "--js-flags=--max-old-space-size=256"] });
+    : await chromium.launch({
+        headless: true,
+        // The browser never sees the worker's secrets.
+        env: { HOME: process.env.HOME || "/tmp", PATH: process.env.PATH || "/usr/bin:/bin", TZ: process.env.TZ_DEFAULT || "UTC" },
+        args: ["--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu", "--no-zygote", "--disable-file-system", "--js-flags=--max-old-space-size=256"],
+      });
   return browser;
 }
 
@@ -60,10 +66,12 @@ const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host}`);
   if (url.pathname === "/health" || url.pathname === "/") {
     res.writeHead(200, { "content-type": "application/json" });
-    return res.end(JSON.stringify({ ok: true, running, ...stats }));
+    return res.end(JSON.stringify({ ok: true }));
   }
   if (url.pathname === "/tick" && req.method === "POST") {
-    if (req.headers["x-agent-secret"] !== process.env.AGENT_SECRET) {
+    const want = process.env.AGENT_SECRET || "";
+    const got = String(req.headers["x-agent-secret"] || "");
+    if (want.length < 24 || got.length !== want.length || !timingSafeEqual(Buffer.from(got), Buffer.from(want))) {
       res.writeHead(401);
       return res.end();
     }

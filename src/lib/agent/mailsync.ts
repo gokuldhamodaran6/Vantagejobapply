@@ -2,6 +2,7 @@ import "server-only";
 import { decryptFor } from "@/lib/vault";
 import { fetchNew, matchApplication, type MailAccount, type ParsedMail } from "@/lib/mail";
 import { rpc } from "./svc";
+import { isPublicHost } from "@/lib/net";
 
 const KIND_TO_STATUS: Record<string, { status?: string; text: (m: ParsedMail) => string }> = {
   received: { text: (m) => `Company confirmed your application (“${m.subject}”)` },
@@ -13,6 +14,10 @@ const KIND_TO_STATUS: Record<string, { status?: string; text: (m: ParsedMail) =>
 
 /** Pull new mail for one account, store it, and update matching applications. */
 export async function syncAccount(acct: MailAccount, opts: { days?: number } = {}): Promise<{ inserted: number; messages: ParsedMail[] }> {
+  if (![993, 143].includes(acct.imap_port) || !(await isPublicHost(acct.imap_host))) {
+    await rpc("mail_update", { user_id: acct.user_id, status: "error", error: "Mail server must be a public IMAP server." });
+    return { inserted: 0, messages: [] };
+  }
   let password: string;
   try {
     password = decryptFor(acct.user_id, acct.secret_enc);

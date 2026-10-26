@@ -60,12 +60,24 @@ export async function handleLive(req, res, url) {
   if (req.method === "POST") {
     const body = await new Promise((r) => {
       let d = "";
-      req.on("data", (c) => (d += c));
-      req.on("end", () => r(d ? JSON.parse(d) : {}));
-    }).catch(() => ({}));
+      req.on("data", (c) => {
+        d += c;
+        if (d.length > 4096) req.destroy();
+      });
+      req.on("end", () => {
+        try {
+          r(d ? JSON.parse(d) : {});
+        } catch {
+          r({});
+        }
+      });
+      req.on("error", () => r({}));
+    });
     try {
       if (action === "input") {
-        if (body.type === "click") await page.mouse.click(Number(body.x), Number(body.y));
+        const x = Math.max(0, Math.min(1280, Number(body.x) || 0));
+        const y = Math.max(0, Math.min(900, Number(body.y) || 0));
+        if (body.type === "click") await page.mouse.click(x, y);
         else if (body.type === "scroll") await page.mouse.wheel(0, Number(body.dy) || 300);
         else if (body.type === "key") await page.keyboard.press(String(body.key).slice(0, 20));
         else if (body.type === "text") await page.keyboard.type(String(body.text).slice(0, 200), { delay: 30 });

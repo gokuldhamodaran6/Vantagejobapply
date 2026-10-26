@@ -1,3 +1,4 @@
+import { timingSafeEqual } from "crypto";
 import type { NextRequest } from "next/server";
 import { fetchBoard, fetchDescription, type Board } from "@/lib/jobs/sources";
 import { refreshBoard, storeJobs } from "@/lib/jobs/engine";
@@ -10,8 +11,10 @@ import type { Job } from "@/lib/types";
 export const maxDuration = 300;
 
 function authorized(req: NextRequest) {
-  const s = req.headers.get("x-cron-secret") || req.nextUrl.searchParams.get("secret");
-  return Boolean(process.env.INGEST_SECRET) && s === process.env.INGEST_SECRET;
+  const want = process.env.INGEST_SECRET || "";
+  const got = req.headers.get("x-cron-secret") || "";
+  if (want.length < 16 || got.length !== want.length) return false;
+  return timingSafeEqual(Buffer.from(got), Buffer.from(want));
 }
 
 async function ingestBoards(deadline: number) {

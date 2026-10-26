@@ -3,6 +3,12 @@ import { matchJob } from "../src/lib/jobs/match";
 import { analyzeText } from "../src/lib/jobs/signals";
 import { detectCountry } from "../src/lib/jobs/geo";
 import { parseResumeText, scoreResume, extractKeywords } from "../src/lib/ats";
+import { readFileSync } from "fs";
+import { workAuthAnswers } from "../src/lib/answers";
+import { roleSimilarity } from "../src/lib/jobs/roles";
+import { bestOption } from "../src/lib/agent/fields";
+import { isPrivateIp } from "../src/lib/net";
+import { lintLetter } from "../src/lib/tailor";
 import type { Job, TargetRole, WorkAuth } from "../src/lib/types";
 
 let fail = 0;
@@ -48,6 +54,32 @@ ok((cv.skills?.[0]?.items || []).includes("SQL"), "parses skills");
 const kw = extractKeywords("We need SQL, Python and Tableau. SQL is key.");
 ok(kw[0] === "sql" && kw.includes("tableau"), "extracts keywords ranked by frequency");
 ok(scoreResume(cv, kw).matched.includes("sql"), "ATS score finds matched keywords");
+
+// Work authorisation: OPT holders are authorised now, need sponsorship later.
+const optAns = workAuthAnswers("US", { country: "US", status: "post_study_work", needs_sponsorship_now: true, needs_sponsorship_future: true, apply_scope: "sponsor_only", details: { opt_end: "2099-01-01" } });
+ok(optAns.find((a) => a.key === "work_authorized")?.a === "Yes" && optAns.find((a) => a.key === "sponsorship")?.a === "Yes", "OPT: authorised now = Yes, sponsorship later = Yes");
+
+// Resume parser on PDF-style text.
+const pdf = parseResumeText(readFileSync(new URL("./fixtures/resume-pdf.txt", import.meta.url), "utf8"));
+ok(pdf.phone === "(312) 555-0142" && pdf.experience?.length === 3, "PDF resume: phone and 3 jobs");
+ok(pdf.experience?.[1].company === "Brightline Tech" && pdf.experience?.[1].location === "Chennai, India" && pdf.experience?.[1].start === "Oct 2022", "PDF resume: company, location, dates split correctly");
+ok((pdf.skills?.[0].items || []).includes("B2B & B2C Campaign Strategy") && (pdf.skills?.[0].items || []).includes("ROAS & CPL Optimization"), "PDF resume: wrapped skill items re-joined");
+ok(pdf.education?.length === 2 && (pdf.certifications || []).includes("HubSpot: Digital Advertising Certified"), "PDF resume: education and wrapped certifications");
+
+// Role matching across title families.
+ok(roleSimilarity("Marketing Specialist", "Growth Marketing Manager") >= 0.6, "marketing specialist ≈ growth marketing manager");
+ok(roleSimilarity("Product Manager", "Product Designer") < 0.45, "product manager ≠ product designer");
+ok(analyzeText("Product Manager", "").level === null && analyzeText("Senior Product Manager", "").level === "senior" && analyzeText("Director of Marketing", "").level === "lead", "seniority detection");
+
+// Form answers.
+ok(bestOption(["Select...", "Yes", "No"], "Yes") === "Yes" && bestOption(["Male", "Female", "Decline To Self Identify"], "Decline to self-identify") === "Decline To Self Identify", "picks Yes/No and decline options");
+ok(bestOption(["Illinois", "Texas"], "IL") === "Illinois", "maps state codes to names");
+
+// Network guard.
+ok(isPrivateIp("10.1.2.3") && isPrivateIp("169.254.169.254") && isPrivateIp("::1") && !isPrivateIp("8.8.8.8"), "blocks private and metadata addresses");
+
+// Cover letter quality checks.
+ok(lintLetter("I am writing to express my interest. I am passionate!", "Acme").length >= 3, "letter lint catches clichés and length");
 
 console.log(fail ? `\n${fail} failed` : "\nAll checks passed");
 process.exit(fail ? 1 : 0);

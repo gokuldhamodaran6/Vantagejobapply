@@ -4,6 +4,8 @@ import { planFields, type FormField } from "@/lib/agent/fields";
 import { syncAccount } from "@/lib/agent/mailsync";
 import { encryptFor, generatePassword } from "@/lib/vault";
 import type { MailAccount } from "@/lib/mail";
+import { baseDomain, isSafePublicUrl } from "@/lib/net";
+import { hostOf } from "@/lib/agent/bundle";
 
 export const maxDuration = 120;
 
@@ -24,6 +26,10 @@ export async function POST(req: Request, { params }: { params: Promise<{ op: str
       if (!b) return j({ task: null });
       if (!b.resume) {
         await rpc("update", { task_id: t.id, status: "failed", error: "No resume on file. Upload your resume in Vantage." });
+        return j({ task: null });
+      }
+      if (!(await isSafePublicUrl(b.target.url, { httpsOnly: true }))) {
+        await rpc("update", { task_id: t.id, status: "failed", error: "This application link isn't a public https page, so your agent won't open it." });
         return j({ task: null });
       }
       const files = await filesFor(b);
@@ -62,10 +68,13 @@ export async function POST(req: Request, { params }: { params: Promise<{ op: str
 
     if (op === "poll") {
       // Worker waits for: user-entered code, "I finished the human check", cancellation, or a verification email.
-      const t = await rpc<{ status: string; user_input: Record<string, unknown>; user_id: string } | null>("task", { task_id: taskId });
+      const t = await rpc<{ status: string; user_input: Record<string, unknown>; user_id: string; apply_url: string; started_at: string | null; locked_at: string | null; job: { company: string } } | null>("task", { task_id: taskId });
       if (!t) return j({ cancelled: true });
       if (t.status === "cancelled") return j({ cancelled: true });
-      const since = String(body.since || new Date(Date.now() - 10 * 60 * 1000).toISOString());
+      // Only codes that arrived during this run, from the employer or its careers system.
+      const floor = Date.parse(t.started_at || "") || Date.now() - 15 * 60 * 1000;
+      const asked = Date.parse(String(body.since || "")) || floor;
+      const since = new Date(Math.max(floor - 60_000, asked)).toISOString();
       let codes = await rpc<{ from_addr: string; subject: string; code: string | null; link: string | null; received_at: string }[]>("recent_codes", { user_id: t.user_id, since });
       if (!codes?.length && body.checkMail) {
         const accts = await rpc<MailAccount[]>("mail_accounts", { user_id: t.user_id });
@@ -74,19 +83,35 @@ export async function POST(req: Request, { params }: { params: Promise<{ op: str
           codes = await rpc("recent_codes", { user_id: t.user_id, since });
         }
       }
-      const hint = String(body.senderHint || "").toLowerCase();
-      const pick = (codes || []).find((c) => !hint || (c.from_addr || "").toLowerCase().includes(hint) || (c.subject || "").toLowerCase().includes(hint)) || (codes || [])[0];
-      return j({ userInput: t.user_input, code: pick?.code || null, link: pick?.link || null });
+      const pageHost = String(body.pageHost || "");
+      const domains = [baseDomain(hostOf(t.apply_url)), pageHost ? baseDomain(pageHost) : ""].filter(Boolean);
+      const words = [...domains.map((d) => d.split(".")[0]), ...t.job.company.toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length > 2)];
+      const ATS_MAIL = /(myworkday|workday|greenhouse|lever|ashby|icims|taleo|successfactors|smartrecruiters|workable|recruitee|jobvite|oraclecloud|avature|eightfold)/;
+      const fromEmployer = (c: { from_addr: string; subject: string }) => {
+        const f = `${c.from_addr || ""} ${c.subject || ""}`.toLowerCase();
+        return words.some((w) => f.includes(w)) || ATS_MAIL.test((c.from_addr || "").toLowerCase());
+      };
+      const pick = (codes || []).find(fromEmployer);
+      // A verification link is opened only if it points at the same site the agent is applying on.
+      const link = pick?.link && domains.some((d) => hostOf(pick.link!).endsWith(d)) ? pick.link : null;
+      return j({ userInput: t.user_input, code: pick?.code || null, link });
     }
 
     if (op === "credential") {
       const b = await loadBundle(taskId);
       if (!b) return j({ error: "task not found" }, 404);
-      if (b.credential?.password && !body.rotate) return j(b.credential);
+      // Logins are per site: the worker names the site it is on; a password is only ever returned for that site.
+      const host = String(body.host || b.host).toLowerCase().replace(/^www\./, "");
+      if (!/^[a-z0-9.-]+\.[a-z]{2,}$/.test(host)) return j({ error: "bad host" }, 400);
+      if (host === b.host && b.credential?.password && !body.rotate) return j({ ...b.credential, host });
+      if (host !== b.host) {
+        const other = await loadBundle(taskId, host);
+        if (other?.credential?.password && !body.rotate) return j({ ...other.credential, host });
+      }
       const password = generatePassword();
-      const login = String(body.login || b.identity);
-      await rpc("vault_upsert", { user_id: b.task.user_id, host: b.host, label: b.task.job.company, login, secret_enc: encryptFor(b.task.user_id, password) });
-      return j({ login, password });
+      const login = b.identity;
+      await rpc("vault_upsert", { user_id: b.task.user_id, host, label: b.task.job.company, login, secret_enc: encryptFor(b.task.user_id, password) });
+      return j({ login, password, host });
     }
 
     return j({ error: "unknown op" }, 404);

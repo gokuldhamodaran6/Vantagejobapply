@@ -2,6 +2,7 @@ import "server-only";
 import { boardFromUrl, fetchBoard, fetchDescription, type Board } from "@/lib/jobs/sources";
 import { analyzeText, stripHtml } from "@/lib/jobs/signals";
 import { detectCountry } from "@/lib/jobs/geo";
+import { isSafePublicUrl, safeFetch } from "@/lib/net";
 import type { Job } from "@/lib/types";
 
 export type ApplyTarget = { ats: string; url: string; host: string };
@@ -49,6 +50,7 @@ export async function jobFromLink(raw: string): Promise<{ job: Job; board: (Omit
   } catch {
     return null;
   }
+  if (!(await isSafePublicUrl(u.toString()))) return null;
   const b = boardFromUrl(u.toString());
   if (b) {
     const name = b.token.replace(/[-_]/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
@@ -75,9 +77,9 @@ export async function jobFromLink(raw: string): Promise<{ job: Job; board: (Omit
     }
   }
   // Any other careers site: read the schema.org JobPosting most company sites publish for search engines.
-  const page = await fetch(u.toString(), { headers: { "User-Agent": UA, Accept: "text/html" }, redirect: "follow", signal: AbortSignal.timeout(15000) }).catch(() => null);
+  const page = await safeFetch(u.toString(), { headers: { "User-Agent": UA, Accept: "text/html" }, maxBytes: 3_000_000 });
   if (!page?.ok) return null;
-  const html = await page.text();
+  const html = page.text;
   const posting = findJobPosting(html);
   const title = posting?.title || html.match(/<meta property="og:title" content="([^"]+)"/i)?.[1] || html.match(/<title>([^<]+)<\/title>/i)?.[1];
   if (!title) return null;

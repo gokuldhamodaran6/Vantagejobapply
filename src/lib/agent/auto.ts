@@ -7,6 +7,7 @@ import { effectivePlan } from "@/lib/access";
 import { prepareAndQueue } from "./prepare";
 import { inPreferredPlace } from "@/lib/jobs/places";
 import { rpc, wakeWorker } from "./svc";
+import { ingestSecret, supabaseAnon } from "@/lib/supabase/server";
 import type { Job, TargetPrefs, TargetRole, WorkAuth } from "@/lib/types";
 
 type AutoUser = {
@@ -21,6 +22,12 @@ type AutoUser = {
  */
 export async function autoSource(deadline: number) {
   const users = (await rpc<AutoUser[]>("auto_users", {})) || [];
+  // Boards anyone can add go into the shared pool, so auto-apply only uses boards Vantage vetted, plus the user's own targets.
+  const { data: boards } = await supabaseAnon().rpc("list_boards", { secret: ingestSecret() });
+  const PREFIX: Record<string, string> = { greenhouse: "gh", lever: "lever", ashby: "ashby", smartrecruiters: "sr", workable: "wk", recruitee: "rc", workday: "wd", amazon: "amazon" };
+  const boardRows = (boards as { ats: string; token: string; name: string; added_by?: string | null }[]) || [];
+  const vetted = new Set(boardRows.filter((b) => !b.added_by).map((b) => `${PREFIX[b.ats]}:${b.token}`));
+  const boardOfJob = (id: string) => id.split(":").slice(0, 2).join(":");
   const summary: Record<string, number> = {};
   for (const u of users) {
     if (Date.now() > deadline) break;
@@ -34,8 +41,10 @@ export async function autoSource(deadline: number) {
     const candidates: { job: Job; score: number; important: boolean; roleId?: string }[] = [];
     for (const country of (u.prefs?.countries?.length ? u.prefs.countries : ["US"]).slice(0, 6)) {
       const jobs = (await rpc<Job[]>("search", { country, tsquery: titleTsQuery(phrases), since, limit: 300 })) || [];
+      const mine = new Set(boardRows.filter((b) => (u.prefs?.companies || []).some((c) => normCompany(c) === normCompany(b.name))).map((b) => `${PREFIX[b.ats]}:${b.token}`));
       for (const job of jobs) {
         if (known.has(job.id)) continue;
+        if (!vetted.has(boardOfJob(job.id)) && !mine.has(boardOfJob(job.id))) continue;
         const m = matchJob(job, { roles: u.roles, prefs: u.prefs, auth: u.auth });
         if (!m.eligible || m.tooSenior || (m.roleFit ?? 0) < 0.55 || m.score < 58) continue;
         if (!inPreferredPlace(job, u.prefs)) continue;

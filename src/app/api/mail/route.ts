@@ -2,6 +2,8 @@ import { json, loadUserContext } from "@/lib/server-user";
 import { MAIL_PROVIDERS, testMailbox, type MailAccount } from "@/lib/mail";
 import { encryptFor, vaultReady } from "@/lib/vault";
 import { syncAccount } from "@/lib/agent/mailsync";
+import { rpcExt } from "@/lib/agent/svc";
+import { isPublicHost } from "@/lib/net";
 
 export const maxDuration = 90;
 
@@ -19,14 +21,18 @@ export async function POST(req: Request) {
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(address)) return json({ error: "Enter the full email address." }, 400);
   if (password.length < 8) return json({ error: "Paste the app password (for Gmail it's 16 letters)." }, 400);
   if (!host) return json({ error: "Enter your provider's IMAP server." }, 400);
+  if (![993, 143].includes(port) || !(await isPublicHost(host))) return json({ error: "Use your provider's public IMAP server on port 993." }, 400);
   if (address === ctx.profile.email.toLowerCase()) {
     // Allowed, but we recommend a separate inbox; nothing to block.
   }
   const test = await testMailbox(address, password, host, port);
   if (!test.ok) return json({ error: test.error }, 400);
   const row = { user_id: ctx.user.id, address, provider, imap_host: host, imap_port: port, secret_enc: encryptFor(ctx.user.id, password), status: "active", error: null, last_uid: 0 };
-  const { error } = await ctx.supabase.from("mail_accounts").upsert(row, { onConflict: "user_id" });
-  if (error) return json({ error: error.message }, 500);
+  try {
+    await rpcExt("mail_upsert", row);
+  } catch (e) {
+    return json({ error: (e as Error).message }, 500);
+  }
   const sync = await syncAccount({ ...row } as MailAccount, { days: 14 }).catch(() => ({ inserted: 0 }));
   return json({ ok: true, address, imported: sync.inserted });
 }
