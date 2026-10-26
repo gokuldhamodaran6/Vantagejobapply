@@ -122,10 +122,22 @@ type Suggestion = { value?: string; file?: "resume" | "cover_letter"; check?: bo
 const cache = new Map<string, { at: number; s: Suggestion | null }>();
 const CACHE_MS = 30 * 60 * 1000;
 
+/** The question as it should be understood: "Please check one of the boxes" whose options talk about disability is the disability question. */
+function meaning(it: PilotItem) {
+  const l = it.label || "";
+  const opts = (it.options || []).join(" ");
+  if (/disabilit/i.test(opts) && !/disabilit/i.test(l)) return `Disability status: ${l}`;
+  if (/protected veteran|veteran/i.test(opts) && !/veteran/i.test(l)) return `Veteran status: ${l}`;
+  if (/hispanic|latino|ethnicit/i.test(opts) && !/ethnic|race|hispanic/i.test(l)) return `Ethnicity: ${l}`;
+  return l;
+}
+// "Today's date" / signature date fields are filled by the pilot with today's date.
+const TODAY_Q = /^(today'?s )?date\b|signature date|date signed|^date (month|day|year)\b/i;
+
 function asField(it: PilotItem): FormField | null {
   if (!FIELD_KINDS.has(it.kind)) return null;
   const type = (it.kind === "month" ? "text" : it.kind) as FormField["type"];
-  return { id: String(it.i), label: it.label || "", type, required: it.required, options: it.options, placeholder: it.placeholder, section: it.section };
+  return { id: String(it.i), label: meaning(it), type, required: it.required, options: it.options, placeholder: it.placeholder, section: it.section };
 }
 
 async function suggestions(snap: PilotSnapshot, ctx: PilotCtx): Promise<Map<number, Suggestion>> {
@@ -141,11 +153,11 @@ async function suggestions(snap: PilotSnapshot, ctx: PilotCtx): Promise<Map<numb
       continue;
     }
     const f = asField(it);
-    if (!f || !f.label) continue;
+    if (!f || !f.label || TODAY_Q.test(it.label)) continue;
     // Repeated sections (work history, schools) are filled from the resume by the pilot, entry by entry.
     if (REPEATED.test(it.section || "") && !/resume|cv|cover/i.test(it.label) && it.kind !== "file") continue;
     const filled = it.kind === "file" ? Boolean(it.value) : it.kind === "checkbox" ? it.value === "checked" : Boolean(it.value);
-    const lk = lockedKind(`${it.label}`) || (EEO.test(it.label) ? "eeo" : null);
+    const lk = lockedKind(`${it.label}`) || (EEO.test(meaning(it)) ? "eeo" : null);
     if (filled && !lk && !it.error) continue;
     const key = `${ctx.taskId}|${bankSig}|${it.kind}|${qkeyOf(it.label)}|${(it.options || []).slice(0, 30).join("¦")}`;
     const hit = cache.get(key);
@@ -267,7 +279,9 @@ export async function pilotStep(snap: PilotSnapshot, history: PilotHistory, ctx:
   const resume = aiResume(ctx.resume);
   const facts = aiFacts(ctx.facts);
   const known = PH.map(([n]) => n).filter((n) => factValue(ctx.facts, n)).map((n) => `{{${n}}}`).join(" ");
+  const now = new Date();
   const user = [
+    `TODAY: ${now.toISOString().slice(0, 10)} (month ${String(now.getUTCMonth() + 1).padStart(2, "0")}, day ${String(now.getUTCDate()).padStart(2, "0")}, year ${now.getUTCFullYear()}) — use it for "Date" / "Today's date" / signature-date fields.`,
     `JOB: ${ctx.job.title} at ${ctx.job.company}`,
     `APPLICANT (non-contact facts): ${JSON.stringify(facts)}`,
     `CONTACT PLACEHOLDERS AVAILABLE: ${known || "none"}`,
@@ -310,7 +324,7 @@ export function __validate(p: { say?: string; actions?: PilotAction[]; status?: 
     if (!o) return null;
     if (o.kind === "password") return "password";
     if (lockedKind(o.label || "")) return "locked";
-    if (EEO.test(o.label || "")) return "eeo";
+    if (EEO.test(meaning(o))) return "eeo";
     if (o.rk && ctx.approved && typeof ctx.approved[o.rk] === "string") return "approved";
     return null;
   };
