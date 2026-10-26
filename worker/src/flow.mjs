@@ -207,6 +207,17 @@ async function handleAccount(bundle, page, fields, allPasswords) {
   const signInBtn = await page.getByRole("button", { name: /^(sign in|log in|login)$/i }).first().isVisible().catch(() => false);
   const creating = passwords.length >= 2 || (!cred && createBtn && !signInBtn);
 
+  bundle.signIns = (bundle.signIns || 0) + (creating ? 0 : 1);
+  if (!creating && cred && bundle.signIns > 1) {
+    // The saved login didn't work: try creating the account once (it may not exist here), then stop.
+    const create = page.getByText(/create (an |your )?account|sign up|register|new user/i).first();
+    if (bundle.signIns === 2 && (await create.isVisible().catch(() => false))) {
+      await create.click().catch(() => {});
+      await settle(page);
+      return;
+    }
+    throw new Stop("manual", `Signing in to ${task.job.company}'s careers site didn't work. Your login is in Settings → Careers-site accounts; reset the password there if needed, then retry.`);
+  }
   if (!creating && !cred) {
     // Look for a "create account" path.
     const link = page.getByText(/create (an |your )?account|sign up|register|new user/i).first();

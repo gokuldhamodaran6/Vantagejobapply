@@ -13,7 +13,7 @@ import { ACTIVE, NEEDS_YOU, STATUS_META, type AgentTask } from "@/lib/agent/stat
 type Setup = { mailbox: { address: string; status: string } | null; profileDone: boolean; consent: boolean; hasResume: boolean };
 
 export default function AgentPage() {
-  const { userId, profile } = useMe();
+  const { userId, profile, refresh } = useMe();
   const [tasks, setTasks] = useState<AgentTask[] | null>(null);
   const [setup, setSetup] = useState<Setup | null>(null);
   const [link, setLink] = useState("");
@@ -82,6 +82,15 @@ export default function AgentPage() {
       ]
     : [];
   const setupLeft = steps.filter((s) => !s.done).length;
+  const ready = setup ? setup.hasResume && setup.profileDone && setup.consent : false;
+
+  async function toggleAuto(on: boolean) {
+    if (on && !ready) return setToast("Finish the setup steps first — your agent only applies once your profile, consent and resume are in place.");
+    const { error } = await supabaseBrowser().from("profiles").update({ agent_enabled: on }).eq("id", userId!);
+    if (error) return setToast(error.message);
+    await refresh();
+    setToast(on ? "Auto-apply is on. Your agent will apply to your best new matches through the day." : "Auto-apply is off. Your agent only applies when you press Apply.");
+  }
 
   return (
     <>
@@ -102,6 +111,26 @@ export default function AgentPage() {
           </form>
           <p className="mt-2 text-xs text-muted">Works with Greenhouse, Lever, Ashby, Workday, SmartRecruiters, Workable and most company sites. Vantage also starts watching that company for new roles.</p>
         </div>
+      </section>
+
+      <section className="mt-5 card flex flex-wrap items-center gap-4 p-5">
+        <div className="min-w-0 flex-1">
+          <p className="font-bold">Auto-apply {profile?.agent_enabled ? <span className="text-green-ink">is on</span> : <span className="text-muted">is off</span>}</p>
+          <p className="text-sm text-muted">
+            {profile?.agent_enabled
+              ? `Your agent applies to your best new matches (up to ${profile?.daily_limit || 25} a day)${profile?.autonomy === "approve_important" ? ", and asks you first for target companies and top matches" : profile?.autonomy === "approve_all" ? ", and waits for your OK on each one" : ""}.`
+              : "Your agent only applies when you press “Apply with agent” or paste a link. Turn this on to let it find and apply to new matches by itself."}
+          </p>
+        </div>
+        <button
+          role="switch"
+          aria-checked={Boolean(profile?.agent_enabled)}
+          onClick={() => toggleAuto(!profile?.agent_enabled)}
+          className={`relative h-8 w-14 shrink-0 rounded-full transition ${profile?.agent_enabled ? "bg-green" : ready ? "bg-[#cfd4de]" : "bg-[#e6e8ef]"}`}
+          aria-label="Auto-apply"
+        >
+          <span className={`absolute top-1 h-6 w-6 rounded-full bg-white shadow transition ${profile?.agent_enabled ? "left-7" : "left-1"}`} />
+        </button>
       </section>
 
       {setup && setupLeft > 0 && (

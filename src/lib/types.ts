@@ -80,6 +80,7 @@ export type Profile = {
   phone: string | null;
   linkedin_url: string | null;
   autonomy: "approve_all" | "approve_important" | "fully_automatic";
+  agent_enabled?: boolean;
   daily_limit: number;
   onboarding_complete: boolean;
   created_at: string;
