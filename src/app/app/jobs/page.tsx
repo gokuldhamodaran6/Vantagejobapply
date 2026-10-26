@@ -1,4 +1,5 @@
 "use client";
+import type { GhostRisk } from "@/lib/jobs/ghost";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { motion } from "motion/react";
@@ -11,7 +12,7 @@ import { COUNTRY_BY_CODE } from "@/lib/countries";
 import { money, timeAgo, tintFor, initials } from "@/lib/format";
 import type { Job, MatchResult } from "@/lib/types";
 
-type Item = { job: Job; match: MatchResult };
+type Item = { job: Job; match: MatchResult; ghost?: GhostRisk };
 type Resp = { results: Item[]; meta: { sources: Record<string, number>; hidden: number; hiddenBy?: Record<string, number>; total: number; refreshed: number; sponsorCheck?: boolean }; tookMs: number; error?: string };
 
 const SOURCE_LABEL: Record<string, string> = {
@@ -159,11 +160,17 @@ export default function JobsPage() {
 }
 
 function JobCard({ item, onOpen }: { item: Item; onOpen: () => void }) {
-  const { job, match } = item;
+  const { job, match, ghost } = item;
   const blocked = !match.eligible;
   const pay = money(job.salary_min, job.salary_max, job.currency);
   return (
-    <article className={`card p-5 transition hover:border-[#c9d5fb] ${blocked ? "opacity-70" : ""}`}>
+    <article className={`card p-5 transition hover:border-[#c9d5fb] ${blocked ? "opacity-70" : ""} ${ghost?.level === "high" ? "border-red/40 bg-red-tint/30" : ""}`}>
+      {ghost && (
+        <p className={`-mx-5 -mt-5 mb-4 flex items-start gap-2 rounded-t-[inherit] px-5 py-2 text-[13px] font-semibold ${ghost.level === "high" ? "bg-red-tint text-red-ink" : "bg-orange-tint text-orange-ink"}`}>
+          <span aria-hidden>●</span>
+          <span>{ghost.level === "high" ? "Likely ghost job — skip it and save an application" : "Might be a ghost job"}<span className="font-normal"> · {ghost.reasons.join(" · ")}</span></span>
+        </p>
+      )}
       <div className="flex flex-wrap items-start gap-4">
         <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-sm font-bold" style={tintFor(job.company)}>{initials(job.company)}</span>
         <div className="min-w-0 flex-1">

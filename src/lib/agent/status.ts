@@ -36,6 +36,7 @@ export const STATUS_META: Record<string, { label: string; tone: "green" | "red" 
   manual: { label: "Finish on site", tone: "orange", needsYou: true },
   failed: { label: "Couldn't apply", tone: "red" },
   cancelled: { label: "Cancelled", tone: "gray" },
+  extension: { label: "Filled in your browser", tone: "blue" },
 };
 
 export const ACTIVE = ["queued", "running", "waiting_code", "needs_human"];
@@ -53,6 +54,7 @@ export function statusLine(t: AgentTask, queuePos?: number) {
     case "submitted": return `Applied ${timeAgo(t.finished_at || t.updated_at)}`;
     case "manual": case "failed": return t.error || t.step || "Couldn't finish on this site";
     case "cancelled": return "Cancelled";
+    case "extension": return "Filled by the Vantage extension — submit it on the company's page";
     default: return t.step || "";
   }
 }

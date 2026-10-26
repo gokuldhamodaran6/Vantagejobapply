@@ -1,4 +1,5 @@
 import "server-only";
+import { companyKey, ghostRisk, type CompanyReplies, type GhostRisk } from "./ghost";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { fetchBoard, type Board } from "./sources";
 import { matchJob } from "./match";
@@ -88,7 +89,7 @@ export type SearchInput = {
   showBlocked?: boolean;
 };
 
-export type ScoredJob = { job: Job; match: MatchResult };
+export type ScoredJob = { job: Job; match: MatchResult; ghost?: GhostRisk };
 
 const JOB_COLS = "id,source,country,title,company,location,remote,description,url,salary_min,salary_max,currency,category,contract_time,posted_at,sponsorship,sponsor_registered,restrictions";
 
@@ -120,15 +121,20 @@ export async function searchForUser(
 
   // 2) One ranked, title-weighted search over stored jobs from official employer feeds.
   const since = new Date(Date.now() - maxDays * 864e5).toISOString();
-  const [dbRes, sponsorsLoaded] = await Promise.all([
+  const [dbRes, sponsorsLoaded, statsRes] = await Promise.all([
     supabase.rpc("search_jobs", { p_country: country, p_tsquery: titleTsQuery(phrases), p_since: since, p_limit: 500 }),
     loadedSponsorCountries(supabase),
+    supabase.rpc("company_reply_stats").then((r) => r, () => ({ data: null })),
   ]);
+  const replies = new Map(((statsRes.data as ({ company: string } & CompanyReplies)[] | null) || []).map((s) => [s.company, s]));
+  const copies = new Map<string, number>();
   if (dbRes.error) throw new Error(dbRes.error.message);
 
   const byKey = new Map<string, Job>();
   ((dbRes.data as Job[] | null) || []).forEach((j) => {
     if (j.source === "adzuna") return;
+    const ck = `${normCompany(j.company)}|${j.title.toLowerCase().trim()}`;
+    copies.set(ck, (copies.get(ck) || 0) + 1);
     const k = `${normCompany(j.company)}|${j.title.toLowerCase().trim()}|${(j.location || "").toLowerCase().split(",")[0]}`;
     if (!byKey.has(k)) byKey.set(k, j);
   });
@@ -153,9 +159,12 @@ export async function searchForUser(
     if (!input.q && match.score < 30) continue;
     // If the user picked cities, keep jobs in those cities, remote, or anywhere when the location is unknown.
     if (hasPlaces && !input.city && !inPreferredPlace(job, ctx.prefs) && match.score < 70) continue;
-    results.push({ job, match });
+    const ghost = ghostRisk(job, { replies: replies.get(companyKey(job.company)) || null, copies: copies.get(`${normCompany(job.company)}|${job.title.toLowerCase().trim()}`) });
+    results.push({ job, match, ghost });
   }
-  results.sort((a, b) => b.match.score - a.match.score || (Date.parse(b.job.posted_at || "") || 0) - (Date.parse(a.job.posted_at || "") || 0));
+  // Likely ghost jobs sink to the bottom; they stay visible (in red) so the user knows why.
+  const sink = (x: ScoredJob) => (x.ghost?.level === "high" ? 2 : x.ghost ? 1 : 0);
+  results.sort((a, b) => sink(a) - sink(b) || b.match.score - a.match.score || (Date.parse(b.job.posted_at || "") || 0) - (Date.parse(a.job.posted_at || "") || 0));
 
   return {
     results: results.slice(0, 150),

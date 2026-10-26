@@ -1,0 +1,63 @@
+{
+  "manifest_version": 3,
+  "name": "Vantage \u2014 Fill job applications",
+  "short_name": "Vantage",
+  "version": "1.0.0",
+  "description": "Fills job applications on company careers sites with your profile, saved answers and a resume tailored to each job. You review and submit.",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAv/RIEiJABo2y88th1DZvHxhQhrnxAT6zkTwZ2WkKPWYASJDBhdz/h3NZVEVOt6gK3aYH4LUzCZFdP6curMMZ3r/XshYCnWextUosycVcvdMxh8Vr6SZEbyk0zqYy+1YpzCKC2+nYOZZ+ukpav5ZoNoEtEV7YYASW4mENviyKAMtikAfrw6yIuTmu9Bpg+WtiPzxLhufUQdYnm4++d4OYswNDxcDszYugWbfiWwS6bi28gP2pi+GomGe21Rm9960hR3NO9i9STyu0SLts0Ddx007xVsRdzFpNJfjiauMCzBK2oADP3qz+YJ/tznEFMXTSBfPo6ExaPEjotE1/b8wI7wIDAQAB",
+  "icons": {
+    "16": "icons/16.png",
+    "48": "icons/48.png",
+    "128": "icons/128.png"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Fill with Vantage",
+    "default_icon": {
+      "16": "icons/16.png",
+      "48": "icons/48.png"
+    }
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "permissions": [
+    "storage",
+    "scripting",
+    "activeTab",
+    "tabs"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "externally_connectable": {
+    "matches": [
+      "https://vantagejobapply.onrender.com/*"
+    ]
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://*.greenhouse.io/*",
+        "https://*.lever.co/*",
+        "https://*.ashbyhq.com/*",
+        "https://*.myworkdayjobs.com/*",
+        "https://*.icims.com/*",
+        "https://*.smartrecruiters.com/*",
+        "https://*.workable.com/*",
+        "https://*.jobvite.com/*",
+        "https://*.bamboohr.com/*",
+        "https://*.recruitee.com/*",
+        "https://*.amazon.jobs/*",
+        "https://*.taleo.net/*",
+        "https://*.successfactors.com/*",
+        "https://*.oraclecloud.com/*",
+        "https://*.breezy.hr/*"
+      ],
+      "js": [
+        "launcher.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ]
+}

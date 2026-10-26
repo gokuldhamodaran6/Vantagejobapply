@@ -1,4 +1,5 @@
 import "server-only";
+import { ghostRisk } from "@/lib/jobs/ghost";
 import { matchJob } from "@/lib/jobs/match";
 import { searchVariants } from "@/lib/jobs/roles";
 import { titleTsQuery } from "@/lib/jobs/engine";
@@ -48,6 +49,8 @@ export async function autoSource(deadline: number) {
         const m = matchJob(job, { roles: u.roles, prefs: u.prefs, auth: u.auth });
         if (!m.eligible || m.tooSenior || (m.roleFit ?? 0) < 0.55 || m.score < 58) continue;
         if (!inPreferredPlace(job, u.prefs)) continue;
+        // Don't spend applications on likely ghost jobs (talent pools, months-old or never-answered postings).
+        if (ghostRisk(job)?.level === "high") continue;
         const target = (u.prefs?.companies || []).some((c) => normCompany(c) === normCompany(job.company));
         candidates.push({ job, score: m.score + (target ? 15 : 0), important: target || m.score >= 85, roleId: m.role?.id });
       }

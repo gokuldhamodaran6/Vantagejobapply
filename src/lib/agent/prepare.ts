@@ -18,7 +18,7 @@ export async function prepareAndQueue(input: {
   job: Job;
   roleId?: string | null;
   match?: number | null;
-  status: "queued" | "awaiting_approval";
+  status: "queued" | "awaiting_approval" | "extension";
   priority?: number;
   tone?: LetterTone;
   style?: ResumeStyle;

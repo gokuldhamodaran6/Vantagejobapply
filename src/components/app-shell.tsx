@@ -3,7 +3,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import {
-  Bot, Briefcase, Building2, CalendarDays, FileText, LayoutDashboard, LogOut, Mail, MessageSquare, Search, Settings, Shield, Sparkles, Target, Menu, X,
+  Bot, Briefcase, Building2, CalendarDays, FileText, LayoutDashboard, LogOut, Mail, MessageSquare, Search, Puzzle, Settings, Shield, Sparkles, Target, Menu, X,
 } from "lucide-react";
 import { LogoMark } from "@/components/brand";
 import { useMe } from "@/lib/me";
@@ -21,6 +21,7 @@ const NAV = [
   { href: "/app/inbox", label: "Inbox", icon: Mail },
   { href: "/app/resumes", label: "Resumes", icon: FileText },
   { href: "/app/interviews", label: "Interviews", icon: CalendarDays },
+  { href: "/app/extension", label: "Chrome extension", icon: Puzzle },
   { href: "/app/settings", label: "Settings", icon: Settings },
 ];
 

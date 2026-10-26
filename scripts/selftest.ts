@@ -1,3 +1,4 @@
+import { ghostRisk } from "../src/lib/jobs/ghost";
 import { classifyMail, nextStatus } from "../src/lib/mail-classify";
 import { extractCode } from "../src/lib/mail-code";
 // Quick sanity checks for the eligibility engine. Run: npx tsx scripts/selftest.ts
@@ -150,6 +151,16 @@ async function plannerChecks() {
   ok(k("Security code for your application to Datadog", "Copy and paste this code into the security code field on your application: O2YJR3FJ") === "verification", "security codes are verification mail");
   ok(k("New jobs for you", "10 new product manager jobs near Chicago") === "other", "job alerts are not application mail");
   ok(nextStatus("applied", "received") === "in_review" && nextStatus("interview", "received") === undefined && nextStatus("rejected", "received") === undefined && nextStatus("in_review", "assessment") === "assessment" && nextStatus("interview", "rejection") === "rejected" && nextStatus("offer", "rejection") === undefined, "applications only move forward through the pipeline");
+}
+
+// Ghost jobs.
+{
+  const now = Date.parse("2026-10-26T00:00:00Z");
+  const days = (d: number) => new Date(now - d * 864e5).toISOString();
+  ok(ghostRisk({ title: "Join our Talent Community", posted_at: days(3) }, { now })?.level === "high", "talent pools are ghost jobs");
+  ok(ghostRisk({ title: "Product Manager", posted_at: days(90) }, { now })?.level === "high" && ghostRisk({ title: "Product Manager", posted_at: days(40) }, { now })?.level === "medium", "months-old postings are flagged");
+  ok(ghostRisk({ title: "Product Manager", posted_at: days(5) }, { now, replies: { sent: 6, replied: 0, silent: 5 } })?.level === "high", "companies whose applicants never hear back are flagged");
+  ok(ghostRisk({ title: "Product Manager", posted_at: days(5) }, { now, replies: { sent: 6, replied: 3, silent: 1 } }) === null, "fresh postings at responsive companies are fine");
 }
 
 // Network guard.
