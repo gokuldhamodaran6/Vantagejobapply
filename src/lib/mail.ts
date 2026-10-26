@@ -1,6 +1,7 @@
 import "server-only";
 import { ImapFlow } from "imapflow";
 import { simpleParser } from "mailparser";
+import { parseEventText, parseIcs, type MailEvent } from "@/lib/mail-event";
 
 export const MAIL_PROVIDERS: Record<string, { label: string; host: string; port: number; help: string }> = {
   gmail: { label: "Gmail", host: "imap.gmail.com", port: 993, help: "Turn on 2-Step Verification, then create an app password at myaccount.google.com/apppasswords." },
@@ -25,6 +26,7 @@ export type ParsedMail = {
   code: string | null;
   link: string | null;
   company: string | null;
+  event?: MailEvent | null;
 };
 
 function client(address: string, password: string, host: string, port: number) {
@@ -80,6 +82,11 @@ export async function fetchNew(acct: MailAccount, password: string, opts: { days
           const html = typeof p.html === "string" ? p.html : "";
           const subject = p.subject || "";
           const c2 = classify(from?.address || "", from?.name || "", subject, text, html);
+          // Interview time: a calendar invite beats anything we read from the text.
+          const ics = (p.attachments || []).find((a) => /text\/calendar|application\/ics/i.test(a.contentType || "") || /\.ics$/i.test(a.filename || ""));
+          let event: MailEvent | null = ics ? parseIcs(ics.content.toString("utf8")) : null;
+          if (event && c2.kind === "other" && /interview|call|chat|screen|meet|conversation/i.test(`${subject} ${event.title || ""}`)) c2.kind = "interview";
+          if (!event && c2.kind === "interview") event = parseEventText(`${subject}\n${text}`, p.date || new Date());
           out.push({
             msg_id: (p.messageId || `${box}:${m.uid}`).slice(0, 300),
             uid: m.uid,
@@ -90,6 +97,7 @@ export async function fetchNew(acct: MailAccount, password: string, opts: { days
             body: text.slice(0, 8000),
             received_at: (p.date || (m.internalDate instanceof Date ? m.internalDate : new Date())).toISOString(),
             ...c2,
+            event: c2.kind === "interview" ? event : null,
           });
           if (isInbox) lastUid = Math.max(lastUid, m.uid);
         }

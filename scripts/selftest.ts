@@ -8,6 +8,7 @@ import { workAuthAnswers } from "../src/lib/answers";
 import { roleSimilarity } from "../src/lib/jobs/roles";
 import { bestOption, bestName, buildFacts, coreLabel, placeFromResume, planFields } from "../src/lib/agent/fields";
 import { isPrivateIp } from "../src/lib/net";
+import { parseEventText, parseIcs } from "../src/lib/mail-event";
 import { lintLetter } from "../src/lib/tailor";
 import type { Job, TargetRole, WorkAuth } from "../src/lib/types";
 
@@ -88,6 +89,20 @@ async function plannerChecks() {
   ], { facts, answers: [], job: { title: "PM", company: "Datadog" }, resume: null, coverLetter: null, consent: false });
   const v = Object.fromEntries(plan.fills.map((x) => [x.id, x.value]));
   ok(v.a === "Yes" && v.b === "United States" && v.c === "Datadog Careers Page" && v.d === "Dhamodaran" && plan.missing.length === 0, "real Greenhouse questions answered (work auth, country, source, last name)");
+}
+
+// Interview times from emails.
+{
+  const rec = new Date("2026-10-26T15:00:00Z");
+  const a = parseEventText("Hi Gokul, can you do a 30-minute call on Tuesday, October 28 at 2:00 PM CT? Join: https://zoom.us/j/123456", rec);
+  ok(a?.start === "2026-10-28T19:00:00.000Z" && a.minutes === 30 && a.link === "https://zoom.us/j/123456", "reads '2:00 PM CT' (daylight time) and the Zoom link");
+  const b = parseEventText("We'd like to meet 11/4 10am-10:45am ET", rec);
+  ok(b?.start === "2026-11-04T15:00:00.000Z" && b.minutes === 45, "reads numeric date, a time range, and standard time after the switch");
+  const c = parseEventText("Please pick a time that works: https://calendly.com/acme-recruiting/30min", rec);
+  ok(c?.needsScheduling === true && c.start === null, "scheduling links become 'pick a time'");
+  const d = parseIcs("BEGIN:VCALENDAR\nBEGIN:VEVENT\nDTSTART:20261029T170000Z\nDTEND:20261029T174500Z\nSUMMARY:Interview with Acme\nLOCATION:https://meet.google.com/abc-defg-hij\nEND:VEVENT\nEND:VCALENDAR");
+  ok(d?.start === "2026-10-29T17:00:00.000Z" && d.minutes === 45 && d.link === "https://meet.google.com/abc-defg-hij" && d.title === "Interview with Acme", "reads calendar invites");
+  ok(parseEventText("Thanks for applying on 10/26. We will be in touch.", rec) === null, "ignores dates without a time");
 }
 
 // Network guard.

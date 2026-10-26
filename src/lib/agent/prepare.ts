@@ -35,7 +35,9 @@ export async function prepareAndQueue(input: {
 
   if (!resumeId || !coverLetter) {
     const resumes = await rpcExt<ResumeRow[]>("user_resumes", { user_id: userId });
-    const base = resumes.find((r) => input.roleId && r.target_role_id === input.roleId) || resumes.find((r) => r.is_master) || resumes[0];
+    // Base = the role's own resume, else the master. Never another job's tailored copy (that would drift further each time).
+    const own = resumes.filter((r) => r.is_master || !r.name.includes(" — "));
+    const base = own.find((r) => input.roleId && !r.is_master && r.target_role_id === input.roleId) || own.find((r) => r.is_master) || own[0];
     if (!base) return { taskCreated: false, resumeId: null, error: "Add your resume first." };
     if (!style || !tone) {
       const apps = await rpcExt<{ status: string; resume_style: string | null; letter_tone: string | null }[]>("style_stats", { user_id: userId });

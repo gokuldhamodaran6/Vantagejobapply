@@ -1,4 +1,5 @@
-import { structureResume, roleResume } from "@/lib/tailor";
+import { structureResume } from "@/lib/tailor";
+import { writeRoleResume } from "@/lib/resume/write-role";
 import { extractKeywords, scoreResume } from "@/lib/ats";
 import { fileToText } from "@/lib/resume/extract";
 import { marketKeywords } from "@/lib/resume/market";
@@ -45,13 +46,8 @@ export async function POST(req: Request) {
   void (async () => {
     for (const r of roles) {
       try {
-        const kws = await marketKeywords(supabase, r.title, ctx.prefs?.countries?.[0] || "US");
-        const out = await roleResume(content, r, kws, ctx.prefs?.countries?.[0] || "US");
-        const score = scoreResume(out.content, kws.length ? kws : extractKeywords(r.title)).score;
-        const { data: cur } = await supabase.from("resumes").select("id").eq("user_id", ctx.user.id).eq("target_role_id", r.id).not("name", "like", "% — %").maybeSingle();
-        const patch = { content: out.content, notes: out.notes, ats_score: score, name: `${r.title} resume` };
-        if (cur) await supabase.from("resumes").update(patch).eq("id", cur.id);
-        else await supabase.from("resumes").insert({ ...patch, user_id: ctx.user.id, target_role_id: r.id });
+        // Same writer as the Resumes page, so coaching answers the user gave earlier are kept.
+        await writeRoleResume(supabase, ctx.user.id, r, ctx.prefs?.countries?.[0] || "US");
       } catch (e) {
         console.error("role resume failed", r.title, e);
       }

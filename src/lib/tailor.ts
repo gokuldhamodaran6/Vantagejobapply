@@ -72,14 +72,32 @@ Return ONLY JSON matching: ${SCHEMA}`,
 /* Role-specific master resume                                         */
 /* ------------------------------------------------------------------ */
 
-export async function roleResume(master: ResumeContent, role: { title: string; levels: string[] }, marketKeywords: string[], country = "US"): Promise<{ content: ResumeContent; notes: string[]; ai: boolean }> {
+export async function roleResume(
+  master: ResumeContent,
+  role: { title: string; levels: string[] },
+  marketKeywords: string[],
+  country = "US",
+  coach?: { facts: string; level?: "strong" | "adjacent" | "switch"; courses?: string[] },
+): Promise<{ content: ResumeContent; notes: string[]; ai: boolean }> {
+  // What the candidate told us about this role counts as their own facts (the truth guard accepts them).
+  const facts: ResumeContent = coach?.facts
+    ? { ...master, additional: [...(master.additional || []), coach.facts], certifications: [...(master.certifications || []), ...(coach.courses || [])] }
+    : master;
+  const switching = coach?.level === "switch" || coach?.level === "adjacent";
   if (aiConfigured()) {
     const out = await claude(
       `You are a senior recruiter turned executive resume writer. You have screened tens of thousands of resumes for ${role.title} roles at top companies and know exactly what earns an interview.
 Rewrite the candidate's master resume into a resume targeted at ${role.title} roles (${role.levels.join("/")} level) in ${country}.
 ${TRUTH}
 ${RESUME_CRAFT}
-Use these keywords from live ${role.title} job postings ONLY where the resume genuinely supports them: ${marketKeywords.join(", ")}.
+Use these keywords from live ${role.title} job postings ONLY where the resume genuinely supports them: ${marketKeywords.join(", ")}.${switching ? `
+CAREER MOVE: the candidate is moving into ${role.title} from a related or different field. Write it the way the best recruiters position career switchers:
+- Headline and summary bridge their proven results to what a ${role.title} does; lead with transferable strengths, never pretend they already held the title.
+- Reframe existing bullets toward ${role.title} work (stakeholders, decisions, customers, data, delivery) only where the facts genuinely show it; most relevant bullets first.
+- If they gave training or projects, add "Relevant Training" (inside certifications) and "Projects" sections and place projects right after the summary's focus.
+- Keep every claim proportionate to what they said: "completed a course" never becomes "expert".` : ""}${coach?.facts ? `
+The candidate also told us the following in their own words. Treat these as facts you may use (with the same truth rules):
+${coach.facts.slice(0, 4000)}` : ""}
 Also return "notes": up to 5 short, specific suggestions where the candidate could strengthen the resume with facts only they know (e.g. "Add the size of the budget you managed at Kaar Tech"). Never put these suggestions inside the resume.
 Return ONLY JSON: {"resume": ${SCHEMA}, "notes": string[]}`,
       [{ role: "user", content: `MASTER RESUME JSON:\n${JSON.stringify(master)}` }],
@@ -87,9 +105,15 @@ Return ONLY JSON: {"resume": ${SCHEMA}, "notes": string[]}`,
       { model: "writer", temperature: 0.3 },
     );
     const j = extractJson<{ resume: ResumeContent; notes?: string[] }>(out);
-    if (j?.resume?.experience?.length) return { content: guard(master, j.resume), notes: (j.notes || []).slice(0, 5), ai: true };
+    if (j?.resume?.experience?.length) {
+      const content = guard(facts, j.resume);
+      content.additional = master.additional; // the Q&A itself never appears on the resume
+      return { content, notes: (j.notes || []).slice(0, 5), ai: true };
+    }
   }
-  return { content: ruleRoleResume(master, role.title, marketKeywords), notes: ruleNotes(master), ai: false };
+  const content = ruleRoleResume(master, role.title, marketKeywords);
+  if (coach?.courses?.length) content.certifications = [...(content.certifications || []), ...coach.courses.filter((c) => !(content.certifications || []).includes(c))];
+  return { content, notes: ruleNotes(master), ai: false };
 }
 
 /* ------------------------------------------------------------------ */
