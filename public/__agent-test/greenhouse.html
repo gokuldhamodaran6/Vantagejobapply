@@ -1,0 +1,37 @@
+<!doctype html><html><head><title>Apply - Product Marketing Specialist at Acme</title></head><body>
+<h1>Product Marketing Specialist</h1>
+<form id="application_form" action="gh-confirmation.html" method="get" onsubmit="return validate()">
+  <div class="field"><label for="first_name">First Name *</label><input id="first_name" name="first_name" required></div>
+  <div class="field"><label for="last_name">Last Name *</label><input id="last_name" name="last_name" required></div>
+  <div class="field"><label for="email">Email *</label><input id="email" type="email" name="email" required></div>
+  <div class="field"><label for="phone">Phone</label><input id="phone" type="tel" name="phone"></div>
+  <div class="field"><label for="resume">Resume/CV *</label><input id="resume" type="file" name="resume" required></div>
+  <div class="field"><label for="cover_letter">Cover Letter</label><input id="cover_letter" type="file" name="cover_letter"></div>
+  <div class="field"><label id="loc-label">Location (City) *</label>
+    <div class="select"><input role="combobox" aria-labelledby="loc-label" aria-required="true" id="loc" autocomplete="off">
+    <ul role="listbox" id="loc-list" style="display:none"></ul></div></div>
+  <div class="field"><label for="q_li">LinkedIn Profile</label><input id="q_li" name="question_1"></div>
+  <div class="field"><label for="q_auth">Are you legally authorized to work in the United States? *</label>
+    <select id="q_auth" name="question_2" required><option value="">Select...</option><option>Yes</option><option>No</option></select></div>
+  <div class="field"><label for="q_sp">Will you now or in the future require sponsorship for employment visa status (e.g. H-1B visa status)? *</label>
+    <select id="q_sp" name="question_3" required><option value="">Select...</option><option>Yes</option><option>No</option></select></div>
+  <div class="field"><label for="q_hear">How did you hear about this job?</label><input id="q_hear" name="question_4"></div>
+  <div class="field"><label for="q_fav">Which marketing campaign are you proudest of, and why? *</label><textarea id="q_fav" name="question_5" required></textarea></div>
+  <div class="field"><label for="q_tool">Have you used Marketo in a professional setting? *</label>
+    <select id="q_tool" name="question_6" required><option value="">Select...</option><option>Yes</option><option>No</option></select></div>
+  <fieldset><legend>Gender</legend>
+    <select id="gender" name="gender" aria-label="Gender"><option value="">Select...</option><option>Male</option><option>Female</option><option>Decline To Self Identify</option></select></fieldset>
+  <fieldset><legend>Are you a protected veteran?</legend>
+    <label><input type="radio" name="veteran" value="1"> I am a protected veteran</label>
+    <label><input type="radio" name="veteran" value="2"> I am not a protected veteran</label>
+    <label><input type="radio" name="veteran" value="3"> I don't wish to answer</label></fieldset>
+  <div class="field"><label><input type="checkbox" id="consent" required> I acknowledge the privacy notice *</label></div>
+  <button type="submit">Submit application</button>
+</form>
+<script>
+const cities=["Chicago, Illinois, United States","Chicago Heights, Illinois, United States","Austin, Texas, United States"];
+const input=document.getElementById('loc'), list=document.getElementById('loc-list');
+input.addEventListener('input',()=>{ const v=input.value.toLowerCase(); list.innerHTML=''; cities.filter(c=>c.toLowerCase().includes(v)).forEach(c=>{const li=document.createElement('li');li.setAttribute('role','option');li.textContent=c;li.onclick=()=>{input.value=c;list.style.display='none';input.dataset.chosen=c};list.appendChild(li);}); list.style.display='block'; });
+input.addEventListener('click',()=>{ if(!input.value){ list.innerHTML=''; cities.forEach(c=>{const li=document.createElement('li');li.setAttribute('role','option');li.textContent=c;li.onclick=()=>{input.value=c;list.style.display='none';input.dataset.chosen=c};list.appendChild(li);}); list.style.display='block'; }});
+function validate(){ const r=document.getElementById('resume').files.length; const ok = r && input.dataset.chosen && document.getElementById('consent').checked; if(!ok){ document.getElementById('err')?.remove(); const d=document.createElement('div'); d.id='err'; d.setAttribute('role','alert'); d.textContent='Please complete the required fields'; document.body.appendChild(d);} window.__submitted = {resume: document.getElementById('resume').files[0]?.name, cover: document.getElementById('cover_letter').files[0]?.name}; localStorage.setItem('gh', JSON.stringify({resume: document.getElementById('resume').files[0]?.name, auth: document.getElementById('q_auth').value, sp: document.getElementById('q_sp').value, loc: input.value, gender: document.getElementById('gender').value, vet: (document.querySelector('input[name=veteran]:checked')||{}).value, fav: document.getElementById('q_fav').value, hear: document.getElementById('q_hear').value, fn: document.getElementById('first_name').value})); return !!ok; }
+</script></body></html>

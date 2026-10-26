@@ -3,6 +3,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { Loader2, Plus, Trash2 } from "lucide-react";
 import { PageHeader } from "@/components/app-shell";
+import { US_STATES } from "@/lib/jobs/places";
 import { ChoiceCard, Segmented, TagInput, Toast, Toggle } from "@/components/ui";
 import { useMe } from "@/lib/me";
 import { supabaseBrowser } from "@/lib/supabase/client";
@@ -17,6 +18,13 @@ const STATUS_LABEL: Record<WorkStatus, string> = {
 };
 
 type Board = { id: number; name: string; ats: string; last_count: number | null; last_ok_at: string | null };
+
+const REGIONS: Record<string, string[]> = {
+  US: Object.values(US_STATES),
+  CA: ["Ontario", "British Columbia", "Quebec", "Alberta", "Manitoba", "Nova Scotia", "Saskatchewan", "New Brunswick"],
+  AU: ["New South Wales", "Victoria", "Queensland", "Western Australia", "South Australia", "Australian Capital Territory", "Tasmania"],
+  GB: ["England", "Scotland", "Wales", "Northern Ireland", "Greater London", "South East", "North West", "West Midlands"],
+};
 
 export default function TargetsPage() {
   const { profile, prefs, roles, auth, userId, refresh } = useMe();
@@ -201,16 +209,25 @@ export default function TargetsPage() {
           <div className="mt-5 space-y-4">
             {p.countries.map((code) => {
               const a = as.find((x) => x.country === code);
-              const cityList = p.locations.filter((l) => l.country === code).map((l) => l.city);
+              const cityList = p.locations.filter((l) => l.country === code && l.city).map((l) => l.city);
+              const stateList = p.locations.filter((l) => l.country === code && l.state && !l.city).map((l) => l.state!);
+              const locs = p.locations;
+              const others = (keep: (l: (typeof locs)[number]) => boolean) => locs.filter((l) => l.country !== code || keep(l));
+              const radius = p.locations.find((l) => l.country === code)?.radius_km || 40;
               return (
                 <div key={code} className="rounded-xl border border-line p-4">
                   <p className="font-semibold">{COUNTRY_BY_CODE[code]?.name}</p>
                   <div className="mt-3 grid gap-4 lg:grid-cols-2">
                     <div>
-                      <p className="mb-1.5 text-sm font-semibold">Cities (empty = whole country)</p>
+                      <p className="mb-1.5 text-sm font-semibold">Cities</p>
                       <TagInput label={`Cities in ${code}`} values={cityList} placeholder="Add a city"
                         suggestions={COUNTRY_BY_CODE[code]?.defaultCities || []}
-                        onChange={(v) => set({ locations: [...p.locations.filter((l) => l.country !== code), ...v.map((city) => ({ country: code, city, radius_km: p.locations.find((l) => l.country === code)?.radius_km || 40 }))] })} />
+                        onChange={(v) => set({ locations: [...others((l) => !l.city), ...v.map((city) => ({ country: code, city, radius_km: radius }))] })} />
+                      <p className="mb-1.5 mt-4 text-sm font-semibold">{code === "US" ? "Whole states" : code === "CA" || code === "AU" ? "Provinces / states" : "Regions"}</p>
+                      <TagInput label={`States in ${code}`} values={stateList} placeholder={code === "US" ? "e.g. Texas or TX" : "Add a region"}
+                        suggestions={REGIONS[code] || []}
+                        onChange={(v) => set({ locations: [...others((l) => Boolean(l.city)), ...v.map((state) => ({ country: code, city: "", state, radius_km: radius }))] })} />
+                      <p className="mt-2 text-xs text-muted">Leave both empty to search the whole country. Remote jobs are included when you allow remote.</p>
                     </div>
                     {a && (
                       <div className="space-y-3">

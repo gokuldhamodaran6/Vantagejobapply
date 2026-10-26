@@ -159,11 +159,29 @@ export default function AdminPage() {
               <h2 className="font-semibold">Data jobs</h2>
               <p className="mt-1 text-sm text-muted">These also run automatically on a schedule.</p>
               <div className="mt-4 flex flex-wrap gap-2">
-                {[["boards", "Sync all company job feeds"], ["enrich", "Fill missing job descriptions"], ["uk_sponsors", "Refresh UK sponsor register"], ["prune", "Remove closed jobs"]].map(([t, l]) => (
+                {[["boards", "Sync all company job feeds"], ["discover", "Discover more companies"], ["agent", "Run agent cycle (mail, targets, auto-apply)"], ["enrich", "Fill missing job descriptions"], ["uk_sponsors", "Refresh UK sponsor register"], ["prune", "Remove closed jobs"]].map(([t, l]) => (
                   <button key={t} className="btn-secondary" disabled={running !== ""} onClick={() => run(t)}>
                     {running === t ? <Loader2 size={16} className="animate-spin" /> : <Play size={16} />} {l}
                   </button>
                 ))}
+              </div>
+              <div className="mt-5 rounded-xl border border-line p-4">
+                <p className="text-sm font-semibold">US H-1B sponsor history (official USCIS data)</p>
+                <p className="mt-1 text-xs text-muted">Download the export from uscis.gov → H-1B Employer Data Hub, then upload the CSV here. Jobs from those employers are flagged “Has sponsored H-1B visas before”.</p>
+                <input type="file" accept=".csv,text/csv" className="mt-3 text-sm" disabled={running !== ""} onChange={async (e) => {
+                  const f = e.target.files?.[0];
+                  if (!f) return;
+                  setRunning("uscis");
+                  const fd = new FormData();
+                  fd.append("file", f);
+                  const r = await fetch("/api/admin/sponsors", { method: "POST", body: fd }).catch(() => null);
+                  const d = r ? await r.json().catch(() => ({})) : { error: "Upload failed" };
+                  setRunning("");
+                  setToast(r?.ok ? `Loaded ${d.employers.toLocaleString()} H-1B employers` : d.error || "Upload failed");
+                  e.target.value = "";
+                  load();
+                }} />
+                {running === "uscis" && <p className="mt-2 flex items-center gap-2 text-xs text-muted"><Loader2 size={14} className="animate-spin" /> Loading employers…</p>}
               </div>
             </section>
           </div>

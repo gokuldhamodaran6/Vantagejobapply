@@ -1,0 +1,14 @@
+<!doctype html><html><body><h1>Growth Marketing Manager</h1>
+<div id="app">
+ <div class="field"><label for="_systemfield_name">Name *</label><input id="_systemfield_name" required></div>
+ <div class="field"><label for="_systemfield_email">Email *</label><input id="_systemfield_email" type="email" required></div>
+ <div class="field"><label for="_systemfield_resume">Resume *</label><input id="_systemfield_resume" type="file"></div>
+ <fieldset class="question"><legend>Are you currently based in the United States? *</legend><button type="button" onclick="pick(this)">Yes</button><button type="button" onclick="pick(this)">No</button></fieldset>
+ <fieldset class="question"><legend>Do you require visa sponsorship now or in the future? *</legend><button type="button" onclick="pick(this)">Yes</button><button type="button" onclick="pick(this)">No</button></fieldset>
+ <button type="button" id="submit" onclick="go()">Submit Application</button>
+</div>
+<script>
+function pick(b){ [...b.parentElement.querySelectorAll('button')].forEach(x=>x.setAttribute('aria-pressed','false')); b.setAttribute('aria-pressed','true'); }
+function go(){ const answers=[...document.querySelectorAll('fieldset')].map(f=>f.querySelector('[aria-pressed=true]')?.textContent); const ok = document.getElementById('_systemfield_resume').files.length && answers.every(Boolean);
+ if(ok){ document.getElementById('app').innerHTML='<h2>Thank you for applying!</h2><p>Your application was successfully submitted. Answers: '+answers.join(',')+'</p>'; } else { alert('missing'); } }
+</script></body></html>

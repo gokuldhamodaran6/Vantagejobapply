@@ -3,7 +3,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import {
-  Bot, Briefcase, CalendarDays, FileText, LayoutDashboard, LogOut, Search, Settings, Shield, Target, Menu, X,
+  Bot, Briefcase, Building2, CalendarDays, FileText, LayoutDashboard, LogOut, Mail, MessageSquare, Search, Settings, Shield, Sparkles, Target, Menu, X,
 } from "lucide-react";
 import { LogoMark } from "@/components/brand";
 import { useMe } from "@/lib/me";
@@ -12,22 +12,45 @@ import { hardNavigate } from "@/lib/nav";
 
 const NAV = [
   { href: "/app", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/app/assistant", label: "Ask your agent", icon: Bot },
+  { href: "/app/agent", label: "Your agent", icon: Sparkles },
+  { href: "/app/assistant", label: "Ask your agent", icon: MessageSquare },
   { href: "/app/jobs", label: "Live jobs", icon: Search },
+  { href: "/app/companies", label: "Companies", icon: Building2 },
   { href: "/app/targets", label: "My targets", icon: Target },
   { href: "/app/applications", label: "Applications", icon: Briefcase },
+  { href: "/app/inbox", label: "Inbox", icon: Mail },
   { href: "/app/resumes", label: "Resumes", icon: FileText },
   { href: "/app/interviews", label: "Interviews", icon: CalendarDays },
   { href: "/app/settings", label: "Settings", icon: Settings },
 ];
 
-const MOBILE = ["/app", "/app/jobs", "/app/assistant", "/app/applications", "/app/targets"];
+const MOBILE = ["/app", "/app/agent", "/app/jobs", "/app/applications", "/app/assistant"];
+void Bot;
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const { profile, loading } = useMe();
   const [drawer, setDrawer] = useState(false);
+  const [needs, setNeeds] = useState(0);
+
+  // "Your agent needs you" — checked every 25s on every page.
+  useEffect(() => {
+    if (!profile) return;
+    let alive = true;
+    const check = () =>
+      supabaseBrowser()
+        .from("agent_tasks")
+        .select("id", { count: "exact", head: true })
+        .in("status", ["needs_user", "needs_human", "awaiting_approval"])
+        .then(({ count }) => alive && setNeeds(count || 0));
+    check();
+    const id = setInterval(check, 25000);
+    return () => {
+      alive = false;
+      clearInterval(id);
+    };
+  }, [profile]);
 
   useEffect(() => {
     if (!loading && profile && !profile.onboarding_complete) router.replace("/onboarding");
@@ -62,6 +85,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             >
               <Icon size={19} className={on ? "text-brand" : "text-subtle"} />
               {label}
+              {href === "/app/agent" && needs > 0 && <span className="ml-auto rounded-full bg-orange px-1.5 text-[11px] font-bold text-white">{needs}</span>}
             </Link>
           );
         })}
@@ -114,6 +138,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             {(profile?.full_name || profile?.email || "?").slice(0, 2).toUpperCase()}
           </Link>
         </header>
+        {needs > 0 && !pathname.startsWith("/app/agent") && (
+          <Link href="/app/agent" className="flex items-center justify-center gap-2 bg-gradient-to-r from-orange to-pink px-4 py-2 text-sm font-semibold text-white">
+            <span className="live-dot h-2 w-2 rounded-full bg-white" /> Your agent needs you on {needs} application{needs > 1 ? "s" : ""} — takes seconds. Open
+          </Link>
+        )}
         <main className="mx-auto w-full max-w-[1200px] flex-1 px-4 pb-28 pt-6 sm:px-6 lg:px-8 lg:pb-12 lg:pt-8">{children}</main>
       </div>
 
@@ -123,7 +152,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           return (
             <Link key={href} href={href} className={`flex min-h-14 flex-1 flex-col items-center justify-center gap-1 text-[11px] font-semibold ${on ? "text-brand" : "text-subtle"}`}>
               <Icon size={21} />
-              {label.replace("Ask your agent", "Agent").replace("Live jobs", "Jobs").replace("My targets", "Targets")}
+              {label.replace("Ask your agent", "Ask").replace("Your agent", "Agent").replace("Live jobs", "Jobs").replace("My targets", "Targets")}
             </Link>
           );
         })}

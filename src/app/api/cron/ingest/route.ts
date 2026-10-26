@@ -102,9 +102,15 @@ export async function POST(req: NextRequest) {
     if (task === "boards" || task === "all") out.boards = await ingestBoards(deadline);
     if (task === "enrich" || task === "all") out.enrich = await enrichDescriptions(deadline);
     if (task === "uk_sponsors" || task === "all") out.uk = await ingestUkSponsors();
+    if (task === "discover") {
+      const { discover } = await import("@/lib/jobs/discovery");
+      out.discover = await discover(deadline);
+    }
     if (task === "agent") {
       const { syncAll } = await import("@/lib/agent/mailsync");
       const { autoSource } = await import("@/lib/agent/auto");
+      const { refreshTargets } = await import("@/lib/jobs/discovery");
+      out.targets = await refreshTargets(started + 60_000).catch((e) => ({ error: String(e) }));
       out.mail = await syncAll(started + 90_000).catch((e) => ({ error: String(e) }));
       out.auto = await autoSource(deadline).catch((e) => ({ error: String(e) }));
     }

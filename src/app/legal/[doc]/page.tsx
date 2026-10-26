@@ -31,6 +31,10 @@ const DOCS: Record<string, Doc> = {
           "Job-search preferences: target roles, levels, skills, countries, cities, industries, companies and salary floor.",
           "Resumes and cover letters you paste, write or generate, and the applications you save or track, including notes and interview details.",
           "Messages you send to “Ask your agent”.",
+          "Your application profile (address, phone, links, salary expectation, optional equal-opportunity answers — which default to “decline”) and answers you give your agent so it can reuse them.",
+          "If you connect a job email: its address and an app password, which we encrypt. Your agent reads messages in that mailbox to find verification codes and employer replies, and stores the ones relevant to your job search (sender, subject, a short excerpt, codes and links).",
+          "Logins your agent creates on employers' careers sites (email and a generated password), encrypted with a key unique to you.",
+          "A screenshot of each application's confirmation page, as proof it was submitted.",
         ],
       },
       {
@@ -62,15 +66,15 @@ const DOCS: Record<string, Doc> = {
         p: ["We share personal information only with service providers that help us run Vantage, under contracts that limit how they can use it:"],
         list: [
           "Supabase — database and sign-in.",
-          "Render — application hosting.",
-          "Anthropic — when AI features are used, the relevant resume and job text is sent to generate tailored documents and answers. It isn't used to train their models.",
+          "Render — application hosting, including the browser your agent uses to apply.",
+          "Anthropic — when AI features are used, the relevant resume and job text (and the questions on an application form) is sent to generate tailored documents and answers. Passwords and app passwords are never sent. It isn't used to train their models.",
           "Email delivery provider — to send sign-in and account emails.",
         ],
       },
       {
         h: "Employers and job applications",
         p: [
-          "Vantage links you to employers' official job postings. When you apply, you submit your application on the employer's own site, and the employer's privacy policy then applies to what you give them. Vantage doesn't send your information to employers on its own.",
+          "Vantage works only with employers' official job postings. When you choose “Apply with agent”, or turn on automatic applying, your agent submits your application on the employer's own careers site on your behalf, using your resume, cover letter, application profile and answers you've confirmed. The employer then receives that application and its privacy policy applies. Your agent never applies to a job you haven't approved directly or through the autonomy setting you chose, and you can pause it at any time.",
         ],
       },
       {
@@ -101,7 +105,7 @@ const DOCS: Record<string, Doc> = {
       {
         h: "Security",
         p: [
-          "Data is encrypted in transit and at rest by our providers. Access to your data is restricted by row-level security so each account can only read its own records. No system is perfectly secure, so please use a strong, unique password.",
+          "Data is encrypted in transit and at rest by our providers. Access to your data is restricted by row-level security so each account can only read its own records. Mailbox app passwords and careers-site passwords are additionally encrypted with AES-256 using a key derived for your account; they are decrypted only on our servers when your agent needs them or when you choose to reveal one, and are never shown to our staff or sent to AI providers. No system is perfectly secure, so please use a strong, unique password.",
         ],
       },
       {
@@ -135,6 +139,13 @@ const DOCS: Record<string, Doc> = {
         h: "Honest applications",
         p: [
           "You're responsible for the content of your profile, resumes and applications. Vantage only uses facts you provide and never invents experience or changes your work-authorisation answers. Don't use Vantage to submit false or misleading information to employers.",
+        ],
+      },
+      {
+        h: "Your agent applies on your behalf",
+        p: [
+          "When you use “Apply with agent” or automatic applying, you authorise Vantage to complete and submit applications for you on employers' official careers sites, to create accounts there using your job email, and to accept those sites' privacy notices if you allowed it in your application profile. You remain responsible for every application submitted for you, so keep your profile, resume and saved answers accurate.",
+          "Your agent never tries to defeat security checks such as CAPTCHAs; it hands those to you. Some sites may limit automated use. If a site asks you to stop, or if an employer prefers direct applications, apply there yourself. You can pause your agent or set approval for every application at any time in Settings.",
         ],
       },
       {

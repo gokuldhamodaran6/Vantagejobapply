@@ -59,7 +59,12 @@ export async function POST(req: Request) {
   const message = (body.message || "").trim().slice(0, 2000);
   if (!message) return json({ error: "Type a question or instruction." }, 400);
   await ctx.supabase.from("chat_messages").insert({ user_id: ctx.user.id, role: "user", content: message });
-  const reply = await answer(ctx.supabase, { userId: ctx.user.id, name: ctx.profile.full_name || "", roles: ctx.roles, prefs: ctx.prefs, auth: ctx.auth }, message);
-  await ctx.supabase.from("chat_messages").insert({ user_id: ctx.user.id, role: "assistant", content: reply.text, data: { apps: reply.apps, changes: reply.changes } });
-  return json(reply);
+  try {
+    const reply = await answer(ctx.supabase, { userId: ctx.user.id, name: ctx.profile.full_name || "", roles: ctx.roles, prefs: ctx.prefs, auth: ctx.auth, roleLimit: ctx.plan.limits.roles }, message);
+    await ctx.supabase.from("chat_messages").insert({ user_id: ctx.user.id, role: "assistant", content: reply.text, data: { apps: reply.apps, changes: reply.changes, jobs: reply.jobs } });
+    return json(reply);
+  } catch (e) {
+    console.error("assistant failed", e);
+    return json({ text: "I hit a snag answering that. Try again in a moment — or ask “What's my agent doing?”." });
+  }
 }

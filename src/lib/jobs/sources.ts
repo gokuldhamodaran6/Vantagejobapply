@@ -6,7 +6,7 @@ import type { Job } from "@/lib/types";
 // Every job comes from the employer's own careers system (ATS), and every
 // link points to the employer's official posting — never to an aggregator.
 
-export type Ats = "greenhouse" | "lever" | "ashby" | "smartrecruiters" | "workable" | "recruitee" | "workday";
+export type Ats = "greenhouse" | "lever" | "ashby" | "smartrecruiters" | "workable" | "recruitee" | "workday" | "amazon";
 export type Board = {
   id?: number;
   ats: Ats;
@@ -227,8 +227,48 @@ async function workday(b: Board, maxPages = 10): Promise<Job[] | null> {
   return out;
 }
 
+/* ------------------------------- Amazon -------------------------------- */
+// amazon.jobs publishes its own JSON search. Queried by broad role families so the feed stays small but useful.
+type AmzJob = { id_icims?: string; title: string; company_name?: string; normalized_location?: string; location?: string; city?: string; state?: string; country_code?: string; posted_date?: string; description?: string; basic_qualifications?: string; preferred_qualifications?: string; job_path?: string; job_category?: string };
+const AMAZON_QUERIES = ["marketing", "product manager", "program manager", "data analyst", "business analyst", "software development engineer", "operations", "finance", "sales", "recruiter", "ux designer", "data scientist"];
+const AMZ_COUNTRY: Record<string, string> = { USA: "US", GBR: "GB", CAN: "CA", AUS: "AU", IND: "IN", DEU: "DE", IRL: "IE" };
+
+async function amazon(b: Board): Promise<Job[] | null> {
+  const queries = (b.site || "").split("|").map((q) => q.trim()).filter(Boolean);
+  const list = queries.length ? queries : AMAZON_QUERIES;
+  const seen = new Set<string>();
+  const out: Job[] = [];
+  let ok = false;
+  for (const country of ["USA", "GBR", "CAN", "AUS"]) {
+    const pages = await Promise.all(
+      list.map((q) => getJson<{ jobs?: AmzJob[] }>(`https://www.amazon.jobs/en/search.json?base_query=${encodeURIComponent(q)}&country=${country}&result_limit=100&offset=0&sort=recent`, {}, 20000)),
+    );
+    for (const p of pages) {
+      if (!p?.jobs) continue;
+      ok = true;
+      for (const j of p.jobs) {
+        const id = j.id_icims || j.job_path || j.title;
+        if (seen.has(id)) continue;
+        seen.add(id);
+        const loc = j.normalized_location || [j.city, j.state].filter(Boolean).join(", ") || j.location || null;
+        const posted = j.posted_date ? new Date(j.posted_date) : null;
+        out.push(
+          finalize({ ...b, name: "Amazon" }, {
+            id: `amazon:amazon:${id}`, source: "amazon", country: AMZ_COUNTRY[j.country_code || country] || detectCountry(loc, "US") || "US", title: j.title, location: loc,
+            description: stripHtml([j.description, j.basic_qualifications && `Basic qualifications\n${j.basic_qualifications}`, j.preferred_qualifications && `Preferred qualifications\n${j.preferred_qualifications}`].filter(Boolean).join("\n\n")).slice(0, 15000),
+            url: j.job_path ? `https://www.amazon.jobs${j.job_path}` : "https://www.amazon.jobs", salary_min: null, salary_max: null, contract_time: null,
+            posted_at: posted && !isNaN(posted.getTime()) ? posted.toISOString() : null,
+          }),
+        );
+      }
+    }
+  }
+  return ok ? out : null;
+}
+
 export async function fetchBoard(b: Board): Promise<Job[] | null> {
   switch (b.ats) {
+    case "amazon": return amazon(b);
     case "greenhouse": return greenhouse(b);
     case "lever": return lever(b);
     case "ashby": return ashby(b);

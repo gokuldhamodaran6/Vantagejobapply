@@ -110,7 +110,7 @@ export async function searchForUser(
   if (targets.length) {
     const { data: boards } = await supabase.from("boards").select("*").in("name_norm", targets).eq("active", true);
     const stale = ((boards as (Board & { id: number; last_ok_at: string | null })[]) || []).filter(
-      (b) => !b.last_ok_at || Date.now() - Date.parse(b.last_ok_at) > 20 * 60 * 1000,
+      (b) => !b.last_ok_at || Date.now() - Date.parse(b.last_ok_at) > 10 * 60 * 1000,
     );
     if (stale.length) {
       const budget = new Promise<void>((r) => setTimeout(r, 6000));

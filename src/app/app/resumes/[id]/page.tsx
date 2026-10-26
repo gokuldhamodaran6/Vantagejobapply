@@ -7,7 +7,9 @@ import { Toast } from "@/components/ui";
 import { useMe } from "@/lib/me";
 import { supabaseBrowser } from "@/lib/supabase/client";
 import { extractKeywords, resumeText, scoreResume } from "@/lib/ats";
-import type { Resume, ResumeContent } from "@/lib/types";
+import { searchVariants } from "@/lib/jobs/roles";
+import { RESUME_STYLES } from "@/lib/resume/styles";
+import type { Resume, ResumeContent, ResumeStyle } from "@/lib/types";
 
 export default function ResumeEditor({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
@@ -33,14 +35,16 @@ export default function ResumeEditor({ params }: { params: Promise<{ id: string 
   useEffect(() => {
     const role = roles.find((x) => x.id === r?.target_role_id) || roles[0];
     if (!role) return;
+    const tsq = searchVariants(role.title, 6)
+      .map((p) => p.replace(/[^a-z0-9 ]/gi, " ").trim().split(/\s+/).filter((w) => w.length > 1).map((w) => `${w.toLowerCase()}:A`).join(" <-> "))
+      .filter(Boolean)
+      .map((x) => `(${x})`)
+      .join(" | ");
     supabaseBrowser()
-      .from("jobs")
-      .select("title,description")
-      .textSearch("fts", role.title, { type: "websearch", config: "english" })
-      .limit(25)
+      .rpc("search_jobs", { p_country: "US", p_tsquery: tsq, p_since: new Date(Date.now() - 60 * 864e5).toISOString(), p_limit: 40 })
       .then(({ data }) => {
         const text = (data || []).map((j: { title: string; description: string | null }) => `${j.title} ${j.description || ""}`).join(" \n ");
-        const kw = extractKeywords(`${text} ${role.keywords.join(" ")}`, 18);
+        const kw = extractKeywords(`${role.title} ${text} ${role.keywords.join(" ")}`, 20);
         setKeywords([...new Set([...role.keywords.map((k) => k.toLowerCase()), ...kw])].slice(0, 20));
       });
   }, [r, roles]);
@@ -55,7 +59,7 @@ export default function ResumeEditor({ params }: { params: Promise<{ id: string 
   };
 
   async function save() {
-    const { error } = await supabaseBrowser().from("resumes").update({ content: c, ats_score: report?.score ?? null, name: r!.name }).eq("id", r!.id);
+    const { error } = await supabaseBrowser().from("resumes").update({ content: c, ats_score: report?.score ?? null, name: r!.name, style: r!.style || "classic" }).eq("id", r!.id);
     setToast(error ? error.message : "Resume saved");
     if (!error) setDirty(false);
   }
@@ -89,7 +93,11 @@ export default function ResumeEditor({ params }: { params: Promise<{ id: string 
         <input aria-label="Resume name" className="input max-w-xs font-semibold" value={r.name} onChange={(e) => { setR({ ...r, name: e.target.value }); setDirty(true); }} />
         <div className="ml-auto flex flex-wrap gap-2">
           <button className="btn-secondary" onClick={downloadTxt}>Plain text</button>
-          <button className="btn-secondary" onClick={printPdf}><Download size={16} /> Download PDF</button>
+          <select aria-label="Resume style" className="input h-10 w-[130px] py-0 text-sm" value={r.style || "classic"} onChange={(e) => { setR({ ...r, style: e.target.value as ResumeStyle }); setDirty(true); }}>
+            {(Object.keys(RESUME_STYLES) as ResumeStyle[]).map((s) => <option key={s} value={s}>{RESUME_STYLES[s].label}</option>)}
+          </select>
+          <a className="btn-secondary" href={`/api/resume/${r.id}/pdf?style=${r.style || "classic"}`} onClick={(e) => { if (dirty) { e.preventDefault(); setToast("Save your changes first, then download."); } }}><Download size={16} /> Download PDF</a>
+          <button className="btn-ghost" onClick={printPdf}>Print</button>
           <button className="btn-primary" onClick={save} disabled={!dirty}>{dirty ? "Save" : "Saved"}</button>
         </div>
       </div>
@@ -102,6 +110,13 @@ export default function ResumeEditor({ params }: { params: Promise<{ id: string 
 
       <div className="grid gap-6 lg:grid-cols-[1fr_1.05fr]">
         <div className={`no-print space-y-5 ${tab === "preview" ? "hidden lg:block" : ""}`}>
+          {!!(r as Resume & { notes?: string[] }).notes?.length && (
+            <section className="card border-orange/30 bg-orange-tint/40 p-5">
+              <p className="font-semibold">Make it even stronger</p>
+              <p className="text-sm text-muted">Facts only you know. Add them if they&apos;re true — your agent will never make them up.</p>
+              <ul className="mt-2 space-y-1 text-sm">{((r as Resume & { notes?: string[] }).notes || []).map((n) => <li key={n}>• {n}</li>)}</ul>
+            </section>
+          )}
           {report && (
             <section className="card p-5">
               <div className="flex items-center gap-4">
@@ -207,7 +222,7 @@ export default function ResumeEditor({ params }: { params: Promise<{ id: string 
         <div className={tab === "edit" ? "hidden lg:block" : ""}>
           <div className="sticky top-6 overflow-hidden rounded-xl border border-line bg-[#e9ebf0] p-3 sm:p-5">
             <div className="max-h-[calc(100vh-120px)] overflow-y-auto shadow-lg">
-              <ResumePaper c={{ ...c, experience: c.experience?.map((e) => ({ ...e, bullets: e.bullets.filter((b) => b.trim()) })) }} highlight={showKw ? report?.matched || [] : []} />
+              <ResumePaper style={r.style || "classic"} c={{ ...c, experience: c.experience?.map((e) => ({ ...e, bullets: e.bullets.filter((b) => b.trim()) })) }} highlight={showKw ? report?.matched || [] : []} />
             </div>
           </div>
         </div>

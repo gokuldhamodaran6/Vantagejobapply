@@ -2,21 +2,27 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
-import { Check, Copy, ExternalLink, FileText, Loader2, Sparkles, X } from "lucide-react";
+import { Check, Copy, ExternalLink, FileText, Loader2, Send, Sparkles, X } from "lucide-react";
+import { LETTER_TONES, RESUME_STYLES } from "@/lib/resume/styles";
 import { supabaseBrowser } from "@/lib/supabase/client";
 import { useMe, track } from "@/lib/me";
 import { workAuthAnswers } from "@/lib/answers";
 import { money, timeAgo } from "@/lib/format";
 import { Badge } from "@/components/ui";
-import type { Job, MatchResult, ResumeContent } from "@/lib/types";
+import type { Job, LetterTone, MatchResult, ResumeContent, ResumeStyle } from "@/lib/types";
 
 type Tailored = {
   resume: ResumeContent;
   coverLetter: string;
   keywords: string[];
   ai: boolean;
+  tone: LetterTone;
+  style: ResumeStyle;
+  analysis: { requirement: string; evidence: string | null }[];
+  letterIssues: string[];
   report: { score: number; matched: string[]; missing: string[] };
   baseResumeId: string;
+  baseName?: string;
 };
 
 export function PrepareDrawer({ item, onClose, onSaved }: { item: { job: Job; match: MatchResult } | null; onClose: () => void; onSaved: (msg: string) => void }) {
@@ -24,7 +30,9 @@ export function PrepareDrawer({ item, onClose, onSaved }: { item: { job: Job; ma
   const [job, setJob] = useState<Job | null>(null);
   const [tailored, setTailored] = useState<Tailored | null>(null);
   const [cover, setCover] = useState("");
-  const [busy, setBusy] = useState<"" | "tailor" | "save">("");
+  const [busy, setBusy] = useState<"" | "tailor" | "save" | "agent">("");
+  const [tone, setTone] = useState<LetterTone | null>(null);
+  const [style, setStyle] = useState<ResumeStyle | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
 
@@ -47,12 +55,14 @@ export function PrepareDrawer({ item, onClose, onSaved }: { item: { job: Job; ma
   async function tailor() {
     setBusy("tailor");
     setError(null);
-    const r = await fetch("/api/tailor", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ jobId: j.id, roleId: item!.match.role?.id || null }) });
-    const d = await r.json();
+    const r = await fetch("/api/tailor", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ jobId: j.id, roleId: item!.match.role?.id || null, tone: tone || undefined, style: style || undefined }) }).catch(() => null);
+    const d = r ? await r.json().catch(() => ({})) : { error: "Network error. Try again." };
     setBusy("");
-    if (!r.ok) return setError(d.error || "Couldn't tailor your resume. Try again.");
+    if (!r?.ok) return setError(d.error || "Couldn't tailor your resume. Try again.");
     setTailored(d);
     setCover(d.coverLetter);
+    setTone(d.tone);
+    setStyle(d.style);
     track("tailor_view", { job: j.id });
   }
 
@@ -64,7 +74,7 @@ export function PrepareDrawer({ item, onClose, onSaved }: { item: { job: Job; ma
     if (tailored) {
       const r = await supabase.from("resumes").insert({
         user_id: userId, name: `${j.title} — ${j.company}`, is_master: false, target_role_id: item!.match.role?.id || null,
-        content: tailored.resume, ats_score: tailored.report.score,
+        content: tailored.resume, ats_score: tailored.report.score, style: tailored.style,
       }).select("id").single();
       if (r.data) resumeId = r.data.id;
     }
@@ -79,6 +89,8 @@ export function PrepareDrawer({ item, onClose, onSaved }: { item: { job: Job; ma
         status,
         match_score: item!.match.score,
         cover_letter: cover || null,
+        resume_style: tailored?.style || null,
+        letter_tone: tailored?.tone || null,
         answers: Object.fromEntries(answers.map((a) => [a.q, a.a])),
         applied_at: status === "applied" ? now : null,
         events: [{ at: now, type: status, text: status === "applied" ? "Applied on the company's official site" : status === "ready" ? "Application prepared" : "Saved" }],
@@ -90,6 +102,22 @@ export function PrepareDrawer({ item, onClose, onSaved }: { item: { job: Job; ma
     track(status === "applied" ? "applied" : "saved", { job: j.id });
     onSaved(status === "applied" ? "Marked as applied — tracking it in Applications" : status === "ready" ? "Application prepared and saved" : "Saved to Applications");
     if (status !== "ready") onClose();
+  }
+
+  async function applyWithAgent() {
+    setBusy("agent");
+    setError(null);
+    const r = await fetch("/api/agent/tasks", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ jobId: j.id, roleId: item!.match.role?.id || null, tone: tailored?.tone || tone || undefined, style: tailored?.style || style || undefined, resume: tailored?.resume, coverLetter: tailored ? cover : undefined, atsScore: tailored?.report.score }),
+    }).catch(() => null);
+    const d = r ? await r.json().catch(() => ({})) : { error: "Network error. Try again." };
+    setBusy("");
+    if (!r?.ok) return setError(d.error || "Couldn't start your agent.");
+    track("agent_apply", { job: j.id });
+    onSaved(`Your agent is applying to ${j.company} — follow it on the Agent page`);
+    onClose();
   }
 
   function copy(text: string, key: string) {
@@ -142,6 +170,25 @@ export function PrepareDrawer({ item, onClose, onSaved }: { item: { job: Job; ma
                   {tailored ? "Tailor again" : "Tailor for this job"}
                 </button>
               </div>
+              <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                <div>
+                  <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted">Cover letter tone</p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {(Object.keys(LETTER_TONES) as LetterTone[]).map((t) => (
+                      <button key={t} title={LETTER_TONES[t].blurb} onClick={() => setTone(t)} aria-pressed={tone === t} className={`min-h-8 rounded-lg border px-2.5 text-xs font-semibold ${tone === t ? "border-brand bg-brand text-white" : "border-line text-ink-2 hover:bg-canvas"}`}>{LETTER_TONES[t].label}</button>
+                    ))}
+                  </div>
+                </div>
+                <div>
+                  <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted">Resume style</p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {(Object.keys(RESUME_STYLES) as ResumeStyle[]).map((t) => (
+                      <button key={t} title={RESUME_STYLES[t].blurb} onClick={() => setStyle(t)} aria-pressed={style === t} className={`min-h-8 rounded-lg border px-2.5 text-xs font-semibold ${style === t ? "border-brand bg-brand text-white" : "border-line text-ink-2 hover:bg-canvas"}`}>{RESUME_STYLES[t].label}</button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+              {!tone && !tailored && <p className="mt-2 text-xs text-muted">Leave these unset and Vantage picks the style and tone that are getting you the most interviews.</p>}
               {error && <p role="alert" className="mt-3 rounded-lg bg-red-tint px-3 py-2 text-sm text-red-ink">{error}{error.includes("resume first") && <> · <Link href="/app/resumes" className="font-semibold underline">Add resume</Link></>}</p>}
               {tailored && (
                 <div className="mt-4 space-y-4">
@@ -149,9 +196,23 @@ export function PrepareDrawer({ item, onClose, onSaved }: { item: { job: Job; ma
                     <span className="text-2xl font-bold">{tailored.report.score}</span>
                     <div className="text-sm">
                       <p className="font-semibold">ATS match score</p>
-                      <p className="text-muted">{tailored.report.matched.length} of {tailored.keywords.length} keywords from the posting appear{tailored.ai ? " · AI-tailored" : ""}</p>
+                      <p className="text-muted">{tailored.report.matched.length} of {tailored.keywords.length} keywords from the posting appear · {RESUME_STYLES[tailored.style]?.label || "Classic"} style · {LETTER_TONES[tailored.tone]?.label || "Confident"} letter{tailored.ai ? "" : " · basic writer (add an AI key for recruiter-grade writing)"}</p>
                     </div>
                   </div>
+                  {tailored.analysis?.length > 0 && (
+                    <div>
+                      <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted">What they want · your evidence</p>
+                      <ul className="space-y-1.5 text-sm">
+                        {tailored.analysis.map((a) => (
+                          <li key={a.requirement} className="flex gap-2">
+                            <span className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[11px] font-bold ${a.evidence ? "bg-green-tint text-green-ink" : "bg-orange-tint text-orange-ink"}`}>{a.evidence ? "✓" : "–"}</span>
+                            <span><span className="font-medium">{a.requirement}</span>{a.evidence ? <span className="text-muted"> — {a.evidence}</span> : <span className="text-muted"> — not in your history (left out, never invented)</span>}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                  {tailored.letterIssues?.length > 0 && <p className="rounded-lg bg-orange-tint px-3 py-2 text-xs text-orange-ink">Worth a quick edit: {tailored.letterIssues.slice(0, 3).join("; ")}</p>}
                   {tailored.report.missing.length > 0 && (
                     <p className="text-sm text-muted">In the posting but not in your history (not added): {tailored.report.missing.slice(0, 8).join(", ")}</p>
                   )}
@@ -193,11 +254,14 @@ export function PrepareDrawer({ item, onClose, onSaved }: { item: { job: Job; ma
           </div>
 
           <div className="flex flex-wrap items-center gap-2 border-t border-line bg-white px-5 py-4">
-            <a href={j.url} target="_blank" rel="noopener noreferrer" className="btn-pink" onClick={() => save("ready")}>
-              Open official application <ExternalLink size={15} />
+            <button className="btn-pink" onClick={applyWithAgent} disabled={busy !== ""}>
+              {busy === "agent" ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />} Apply with agent
+            </button>
+            <a href={j.url} target="_blank" rel="noopener noreferrer" className="btn-secondary" onClick={() => save("ready")}>
+              Apply myself <ExternalLink size={15} />
             </a>
-            <button className="btn-secondary" onClick={() => save("applied")} disabled={busy !== ""}><Check size={16} /> I applied</button>
-            <button className="btn-ghost" onClick={() => save("saved")} disabled={busy !== ""}>Save for later</button>
+            <button className="btn-ghost" onClick={() => save("applied")} disabled={busy !== ""}><Check size={16} /> I applied</button>
+            <button className="btn-ghost" onClick={() => save("saved")} disabled={busy !== ""}>Save</button>
             {tailored && (
               <span className="ml-auto inline-flex items-center gap-1.5 text-xs text-muted"><FileText size={14} /> Tailored resume saves to Resumes</span>
             )}

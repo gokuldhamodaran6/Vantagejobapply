@@ -10,7 +10,8 @@ export type Change =
   | { type: "add_country"; code: string }
   | { type: "pause_role"; roleId: string; title: string };
 
-export type Reply = { text: string; apps?: { id: string; title: string; company: string; status: string; when: string | null }[]; changes?: Change[] };
+export type JobCard = { id: string; title: string; company: string; location: string | null; score: number; reasons: string[]; url: string };
+export type Reply = { text: string; apps?: { id: string; title: string; company: string; status: string; when: string | null }[]; changes?: Change[]; jobs?: JobCard[] };
 
 const COUNTRY_WORDS: [RegExp, string][] = [
   [/\b(uk|united kingdom|britain|england|london)\b/i, "GB"], [/\b(usa|us|united states|america)\b/i, "US"], [/\bcanada\b/i, "CA"],
@@ -43,8 +44,11 @@ function ruleIntent(msg: string, roles: TargetRole[]) {
     const r = roles.find((x) => pause[1].toLowerCase().includes(x.title.toLowerCase()));
     if (r) changes.push({ type: "pause_role", roleId: r.id, title: r.title });
   }
+  const find = msg.match(/(?:find|show|search|look for|any|get)(?: me)?(?: some| new| open)?\s+(.+?)\s+(?:jobs|roles|positions|openings)(?:\s+(?:in|near|around)\s+([a-z .,]+))?\??$/i);
   return {
-    changes,
+    changes: find ? [] : changes,
+    findJobs: find ? { title: find[1].replace(/^(any|some|new|open)\s+/i, "").trim(), place: find[2]?.trim() } : null,
+    asksAgent: /\b(agent|queue|in progress|working on|applying now|needs me|needs you)\b/.test(m),
     asksToday: /\btoday\b/.test(m),
     asksWeek: /\b(this week|7 days|past week)\b/.test(m),
     asksStatus: /\b(apply|applied|application|status|update|news|progress)\b/.test(m),
@@ -56,12 +60,33 @@ function ruleIntent(msg: string, roles: TargetRole[]) {
 
 export async function answer(
   supabase: SupabaseClient,
-  ctx: { userId: string; name: string; roles: TargetRole[]; prefs: TargetPrefs | null; auth: WorkAuth[] },
+  ctx: { userId: string; name: string; roles: TargetRole[]; prefs: TargetPrefs | null; auth: WorkAuth[]; roleLimit?: number },
   message: string,
 ): Promise<Reply> {
-  const { data } = await supabase.from("applications").select("*").order("updated_at", { ascending: false }).limit(300);
+  const [{ data }, { data: taskData }, { data: inbox }] = await Promise.all([
+    supabase.from("applications").select("*").order("updated_at", { ascending: false }).limit(300),
+    supabase.from("agent_tasks").select("status,step,job,updated_at").order("updated_at", { ascending: false }).limit(200),
+    supabase.from("inbox_messages").select("kind,subject,company,received_at").in("kind", ["interview", "offer", "assessment", "rejection", "received"]).order("received_at", { ascending: false }).limit(30),
+  ]);
   const apps = (data as Application[]) || [];
+  const tasks = (taskData as { status: string; step: string | null; job: { title: string; company: string }; updated_at: string }[]) || [];
   const intent = ruleIntent(message, ctx.roles);
+
+  if (intent.findJobs) return findJobs(supabase, ctx, intent.findJobs.title, intent.findJobs.place);
+
+  if (intent.asksAgent && !intent.changes.length) {
+    const by = (s: string[]) => tasks.filter((t) => s.includes(t.status));
+    const running = by(["running", "waiting_code"]);
+    const needs = by(["needs_user", "needs_human", "awaiting_approval"]);
+    const queued = by(["queued"]);
+    const today = tasks.filter((t) => t.status === "submitted" && Date.parse(t.updated_at) >= new Date(new Date().setHours(0, 0, 0, 0)).getTime());
+    const parts = [
+      running.length ? `Applying now: **${running.map((t) => `${t.job.title} at ${t.job.company}`).join(", ")}**.` : "Not applying to anything this second.",
+      `${queued.length} in the queue, ${today.length} submitted today.`,
+      needs.length ? `**${needs.length} need you** (answers, a human check or approval) — open Your agent.` : "Nothing needs you right now.",
+    ];
+    return { text: parts.join(" ") };
+  }
 
   // Let the model refine intent if configured (better language understanding), never invent facts.
   if (aiConfigured() && intent.changes.length === 0 && /\b(target|add|watch|also|pause|stop)\b/i.test(message)) {
@@ -125,19 +150,47 @@ export async function answer(
 
   if (aiConfigured()) {
     const summary = {
-      roles: ctx.roles.map((r) => r.title),
+      today: new Date().toDateString(),
+      roles: ctx.roles.map((r) => ({ title: r.title, levels: r.levels, active: r.active })),
       countries: ctx.prefs?.countries,
+      places: ctx.prefs?.locations,
       companies: ctx.prefs?.companies,
-      applications: apps.slice(0, 40).map((a) => ({ title: a.job.title, company: a.job.company, status: a.status, applied: a.applied_at })),
+      work_authorisation: ctx.auth.map((a) => ({ country: a.country, status: a.status })),
+      applications: apps.slice(0, 60).map((a) => ({ title: a.job.title, company: a.job.company, status: a.status, applied: a.applied_at, last: a.events?.[a.events.length - 1]?.text })),
+      agent_queue: tasks.slice(0, 40).map((t) => ({ title: t.job.title, company: t.job.company, status: t.status, step: t.step })),
+      recent_replies: (inbox || []).slice(0, 20),
     };
     const out = await claude(
-      `You are Vantage, a careful job-search agent for ${ctx.name || "the user"}. Answer briefly and concretely using ONLY this account data: ${JSON.stringify(summary)}. Supported countries: ${COUNTRIES.map((c) => c.name).join(", ")}. Never give legal advice; point to official sources for immigration questions. If asked to change settings, tell them to say e.g. "Also target Product Analyst roles" or "Add Monzo to my companies".`,
+      `You are Vantage, ${ctx.name ? `${ctx.name}'s` : "the user's"} personal job-search agent — warm, sharp and concise, like a great recruiter friend.
+Answer using ONLY this live account data (never invent applications, companies or numbers): ${JSON.stringify(summary)}
+You can: explain status, suggest next moves (which roles to add, which companies to target, how to improve interview odds), draft short messages (follow-ups, thank-you notes) and give interview prep tailored to their applications.
+The user can also tell you: "find marketing jobs in Texas", "also target Product Analyst roles", "add Stripe to my companies", "what's my agent doing?".
+Immigration: give general guidance only and point to the official source for ${COUNTRIES.filter((c) => (ctx.prefs?.countries || []).includes(c.code)).map((c) => c.name).join(", ") || "their country"}. Use **bold** for key facts. Keep it under 180 words unless they ask for a draft.`,
       [{ role: "user", content: message }],
-      600,
+      900,
+      { model: "writer", temperature: 0.4 },
     );
     if (out) return { text: out };
   }
   return {
-    text: "I can tell you what I applied to (“What did you apply to today?”), check a company (“Any news from Kestrel Bank?”), list interviews, explain visa rules (“UK sponsorship rules”), or change your targets (“Also target Product Analyst roles”, “Add Monzo and Wise to my companies”).",
+    text: "I can find jobs (“Find product manager jobs in Texas”), tell you what I'm doing (“What's my agent doing?”), what I applied to (“What did you apply to today?”), check a company (“Any news from Kestrel Bank?”), list interviews, explain visa rules (“UK sponsorship rules”), or change your targets (“Also target Product Analyst roles”, “Add Monzo and Wise to my companies”).",
+  };
+}
+
+async function findJobs(supabase: SupabaseClient, ctx: { roles: TargetRole[]; prefs: TargetPrefs | null; auth: WorkAuth[]; roleLimit?: number }, title: string, place?: string): Promise<Reply> {
+  const { searchForUser } = await import("@/lib/jobs/engine");
+  const { stateHit } = await import("@/lib/jobs/places");
+  const country = (place && COUNTRY_WORDS.find(([re]) => re.test(place))?.[1]) || ctx.prefs?.countries?.[0] || "US";
+  const out = await searchForUser(supabase, { roles: ctx.roles, prefs: ctx.prefs, auth: ctx.auth, roleLimit: ctx.roleLimit || 10 }, { country, q: title, maxDaysOld: 30 });
+  let results = out.results.filter((r) => r.match.eligible && !r.match.tooSenior);
+  if (place && !COUNTRY_WORDS.some(([re]) => re.test(place))) {
+    const p = place.toLowerCase();
+    results = results.filter((r) => (r.job.location || "").toLowerCase().includes(p) || stateHit((r.job.location || "").toLowerCase(), place) || (r.job.remote && /remote/.test(p)));
+  }
+  const jobs: JobCard[] = results.slice(0, 8).map((r) => ({ id: r.job.id, title: r.job.title, company: r.job.company, location: r.job.location, score: r.match.score, reasons: r.match.reasons.slice(0, 2), url: r.job.url }));
+  if (!jobs.length) return { text: `I couldn't find live **${title}** jobs${place ? ` in **${place}**` : ""} that can hire you right now. Try a broader title, or add target companies so I watch their careers sites.` };
+  return {
+    text: `Found **${results.length}** live ${title} job${results.length > 1 ? "s" : ""}${place ? ` in ${place}` : ""} you can legally take. Here are the best ${jobs.length}. Want me to apply? I'll write a tailored resume and cover letter for each.`,
+    jobs,
   };
 }

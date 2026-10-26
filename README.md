@@ -47,3 +47,26 @@ npm run dev
 
 The account `gokuldhamodaran6@gmail.com` becomes admin automatically on signup and gets `/admin`
 (users, plans, revenue estimate, job-source health, manual data syncs).
+
+## Apply agent
+
+The agent applies on employers' official careers sites. It has two parts:
+
+- **The app** (this Next.js service) decides everything: which jobs, what each field gets (`src/lib/agent/fields.ts`),
+  tailored resume/cover letter PDFs, the job mailbox (IMAP, `src/lib/mail.ts`) and the encrypted vault (`src/lib/vault.ts`).
+- **The worker** (`worker/`, Docker + Playwright) only drives a browser. It claims a task, fills the form page by page,
+  creates accounts with the job email + a vault password, reads verification codes through the app, and hands any
+  "I'm human" check to the user through a signed live view (`/live/:task`). It never stores credentials.
+
+Environment:
+
+| Service | Variable | Purpose |
+|---|---|---|
+| app | `VAULT_KEY` | 32-byte base64 key for AES-256-GCM secrets (back it up — losing it makes saved passwords unreadable) |
+| app | `AGENT_SECRET` | Shared secret between app and worker |
+| app | `WORKER_URL` | Public URL of the worker (to wake it and for live view) |
+| app | `ANTHROPIC_API_KEY` | AI writing and form reasoning (`AI_WRITER_MODEL`, `AI_TAILOR_MODEL`, `AI_MODEL` optional) |
+| worker | `APP_URL`, `AGENT_SECRET` | Where to fetch tasks |
+| worker | `BROWSER_WS_ENDPOINT` | Optional: use a hosted browser (e.g. Browserbase) instead of local Chromium |
+
+Test the whole loop locally against fixture sites (Greenhouse-, Ashby-, Workday-style and a human check): `npm run test:agent`.
