@@ -6,6 +6,19 @@ export const human = (min = 120, max = 420) => sleep(min + Math.random() * (max 
 /** Runs inside the page: find every fillable control, give it a stable handle, and describe it. */
 function extractInPage() {
   const W = window;
+  // Some sign-in pages (e.g. Amazon's) build their forms inside web components: look inside open shadow roots too.
+  const roots = [document];
+  const walk = (root) => {
+    for (const el of root.querySelectorAll("*")) {
+      if (el.shadowRoot) {
+        roots.push(el.shadowRoot);
+        walk(el.shadowRoot);
+      }
+    }
+  };
+  walk(document);
+  const qsa = (sel) => roots.flatMap((r) => [...r.querySelectorAll(sel)]);
+  const rootOf = (el) => (el.getRootNode && el.getRootNode().querySelector ? el.getRootNode() : document);
   const text = (el) => {
     if (!el) return "";
     if (el.querySelector && el.querySelector("select, option, [role='listbox'], [role='option']")) {
@@ -36,10 +49,10 @@ function extractInPage() {
   const labelOf = (el) => {
     const parts = [];
     const lb = el.getAttribute("aria-labelledby");
-    if (lb) parts.push(lb.split(/\s+/).map((id) => text(document.getElementById(id))).join(" "));
+    if (lb) parts.push(lb.split(/\s+/).map((id) => text(rootOf(el).getElementById ? rootOf(el).getElementById(id) : document.getElementById(id))).join(" "));
     if (el.id) {
       try {
-        const l = document.querySelector(`label[for="${CSS.escape(el.id)}"]`);
+        const l = rootOf(el).querySelector(`label[for="${CSS.escape(el.id)}"]`);
         if (l) parts.push(text(l));
       } catch { /* ignore */ }
     }
@@ -62,7 +75,7 @@ function extractInPage() {
   const fields = [];
   const seenGroups = new Set();
 
-  for (const el of document.querySelectorAll("input, textarea, select, [role='combobox'], button[aria-haspopup='listbox']")) {
+  for (const el of qsa("input, textarea, select, [role='combobox'], button[aria-haspopup='listbox']")) {
     const isListButton = el.tagName === "BUTTON" && el.getAttribute("aria-haspopup") === "listbox";
     const type = isListButton ? "combobox" : (el.tagName === "INPUT" ? el.getAttribute("type") || "text" : el.tagName).toLowerCase();
     if (["hidden", "submit", "button", "image", "reset", "search"].includes(type)) continue;
@@ -79,7 +92,7 @@ function extractInPage() {
       const group = el.name || el.closest("fieldset, [role='radiogroup']")?.id || "";
       if (!group || seenGroups.has(group)) continue;
       seenGroups.add(group);
-      const radios = [...document.querySelectorAll(`input[type='radio'][name="${CSS.escape(el.name)}"]`)];
+      const radios = [...rootOf(el).querySelectorAll(`input[type='radio'][name="${CSS.escape(el.name)}"]`)];
       const fs = el.closest("fieldset, [role='radiogroup']");
       const label = (fs && text(fs.querySelector("legend"))) || containerLabel(fs || el) || el.name;
       fields.push({ id: tag(el), type: "radio", label, name: el.name, required: radios.some((r) => r.required) || /\*/.test(label), options: radios.map((r) => labelOf(r) || r.value) });
@@ -88,7 +101,7 @@ function extractInPage() {
     const label = labelOf(el);
     if (type === "checkbox") {
       // Several checkboxes sharing one name are one question with options (e.g. Lever: "Previously employed? No / Yes - Intern").
-      const group = el.name ? [...document.querySelectorAll(`input[type='checkbox'][name="${CSS.escape(el.name)}"]`)] : [];
+      const group = el.name ? [...rootOf(el).querySelectorAll(`input[type='checkbox'][name="${CSS.escape(el.name)}"]`)] : [];
       if (group.length >= 2) {
         if (seenGroups.has(`cb:${el.name}`)) continue;
         seenGroups.add(`cb:${el.name}`);
@@ -117,7 +130,7 @@ function extractInPage() {
   }
 
   // Yes/No button groups (Ashby and others) — buttons inside a labelled container.
-  for (const box of document.querySelectorAll("fieldset, [class*='question' i], [class*='field' i]")) {
+  for (const box of qsa("fieldset, [class*='question' i], [class*='field' i]")) {
     const btns = [...box.querySelectorAll(":scope button, :scope [role='button']")].filter((b) => visible(b) && /^(yes|no)$/i.test(text(b)));
     if (btns.length !== 2 || box.querySelector("input:not([type='hidden']), select, textarea")) continue;
     const label = text(box.querySelector("legend, label, [class*='label' i], [class*='title' i]")) || containerLabel(btns[0]);
@@ -448,7 +461,20 @@ export async function declineCookies(page) {
 
 export async function pageText(page) {
   const parts = [];
-  for (const f of page.frames()) parts.push(await f.evaluate(() => document.body?.innerText || "").catch(() => ""));
+  // Includes text inside open shadow roots (web-component sign-in pages show nothing in body.innerText).
+  for (const f of page.frames()) parts.push(await f.evaluate(() => {
+    const out = [document.body?.innerText || ""];
+    const walk = (root) => {
+      for (const el of root.querySelectorAll("*")) {
+        if (el.shadowRoot) {
+          out.push(el.shadowRoot.textContent || "");
+          walk(el.shadowRoot);
+        }
+      }
+    };
+    if (document.body) walk(document.body);
+    return out.join(" ");
+  }).catch(() => ""));
   return parts.join("\n").replace(/\s+/g, " ");
 }
 

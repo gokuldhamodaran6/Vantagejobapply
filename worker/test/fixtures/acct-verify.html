@@ -1,11 +1,17 @@
-<!doctype html><html><head><meta charset="utf-8"><title>Verify your email · Initech Jobs</title></head><body>
-<h2>Verify your email</h2><p id="msg">We sent a verification code to your email. Enter the 6-digit code to activate your account.</p>
-<div id="boxes"></div><p id="err" style="color:red"></p>
-<button onclick="check()">Verify</button>
+<!doctype html><html><head><meta charset="utf-8"><title>Verify · Initech Jobs</title></head><body>
+<!-- Like Amazon's sign-in pages: everything lives inside a web component's shadow root. -->
+<verify-box></verify-box>
 <script>
-const bx = document.getElementById('boxes');
-for (let i = 0; i < 6; i++) { const b = document.createElement('input'); b.maxLength = 1; b.setAttribute('aria-label', 'Verification code digit ' + (i + 1)); b.style.width = '2em';
-  b.addEventListener('input', () => { if (b.value && b.nextElementSibling) b.nextElementSibling.focus(); }); bx.appendChild(b); }
-function check(){ const c = [...bx.querySelectorAll('input')].map((b) => b.value).join('');
-  if (c === '730514') { localStorage.acct = 'verified'; location.href = '/fx/acct-home.html'; } else document.getElementById('err').textContent = 'Wrong code'; }
+customElements.define('verify-box', class extends HTMLElement {
+  connectedCallback() {
+    const r = this.attachShadow({ mode: 'open' });
+    r.innerHTML = `<h2>Verify your email</h2><p id="msg">We sent a verification code to your email. Enter the 6-digit code to activate your account.</p>
+      <div id="boxes"></div><p id="err" style="color:red"></p><button id="v">Verify</button>`;
+    const bx = r.getElementById('boxes');
+    for (let i = 0; i < 6; i++) { const b = document.createElement('input'); b.maxLength = 1; b.setAttribute('aria-label', 'Verification code digit ' + (i + 1)); b.style.width = '2em';
+      b.addEventListener('input', () => { if (b.value && b.nextElementSibling) b.nextElementSibling.focus(); }); bx.appendChild(b); }
+    r.getElementById('v').onclick = () => { const c = [...bx.querySelectorAll('input')].map((b) => b.value).join('');
+      if (c === '730514') { localStorage.acct = 'verified'; location.href = '/fx/acct-home.html'; } else r.getElementById('err').textContent = 'Wrong code'; };
+  }
+});
 </script></body></html>

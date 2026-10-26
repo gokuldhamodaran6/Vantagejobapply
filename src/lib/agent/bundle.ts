@@ -1,7 +1,7 @@
 import "server-only";
 import { decryptFor } from "@/lib/vault";
 import { coverLetterPdf, resumePdf } from "@/lib/resume/pdf";
-import { buildFacts, type Facts } from "./fields";
+import { bestName, buildFacts, type Facts } from "./fields";
 import { vaultHost } from "./jobs";
 import { rpc } from "./svc";
 import type { ResumeContent, ResumeStyle, WorkAuth } from "@/lib/types";
@@ -42,7 +42,7 @@ export async function loadBundle(taskId: string, hostOverride?: string) {
   const resume = b.resume?.content || b.master?.content || null;
   const country = b.task.job.country || "US";
   const identity = b.mail?.status === "active" || b.mail?.status === "pending" ? b.mail.address : b.profile?.email || "";
-  const facts: Facts = buildFacts({ email: identity, name: b.profile?.full_name || resume?.name || "", applicant: b.applicant, resume, auth: b.auth.find((a) => a.country === country), country, prefs: b.prefs });
+  const facts: Facts = buildFacts({ email: identity, name: bestName(b.profile?.full_name, resume?.name || b.master?.content?.name) || "", applicant: b.applicant, resume, auth: b.auth.find((a) => a.country === country), country, prefs: b.prefs });
   const cred = b.vault[0];
   let password: string | null = null;
   if (cred) {

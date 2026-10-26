@@ -4,6 +4,7 @@ import { scoreResume } from "@/lib/ats";
 import { pickArm, STYLE_ARMS, styleStats, TONE_ARMS } from "@/lib/resume/learn";
 import { applyTarget } from "./jobs";
 import { rpc, rpcExt } from "./svc";
+import { bestName } from "./fields";
 import type { Job, LetterTone, ResumeContent, ResumeStyle } from "@/lib/types";
 
 type ResumeRow = { id: string; target_role_id: string | null; is_master: boolean; content: ResumeContent; style: ResumeStyle | null; name: string; updated_at?: string };
@@ -45,7 +46,7 @@ export async function prepareAndQueue(input: {
       style ||= pickArm(st.styles, STYLE_ARMS, (base.style as ResumeStyle) || "classic");
       tone ||= pickArm(st.tones, TONE_ARMS, "confident");
     }
-    const t = await tailorForJob(base.content, { title: job.title, company: job.company, description: job.description, country: job.country, location: job.location }, input.name, tone);
+    const t = await tailorForJob(base.content, { title: job.title, company: job.company, description: job.description, country: job.country, location: job.location }, bestName(input.name, base.content?.name), tone);
     coverLetter = coverLetter || t.coverLetter;
     const report = scoreResume(t.resume, t.keywords);
     const saved = await rpcExt<{ id: string }>("save_resume", {
@@ -85,7 +86,12 @@ export async function ensureFreshTailoring(input: {
   const own = resumes.filter((r) => r.is_master || !r.name.includes(" — "));
   const base = own.find((r) => input.job.role_id && !r.is_master && r.target_role_id === input.job.role_id) || own.find((r) => r.is_master) || own[0];
   if (!base) return { refreshed: false };
-  const issues = resumeIssues(input.resume, input.fullName);
+  // The person's full name: "Gokul" (from a Google sign-in) loses to "Gokul Dhamodaran" from the resume.
+  input.fullName = bestName(input.fullName || input.name, base.content?.name);
+  // Only problems a rewrite can fix count: the name is fixed when the PDF is drawn, and anything the base
+  // resume itself has would come straight back (rewriting again and again only wastes time).
+  const baseIssues = new Set(resumeIssues(base.content, input.fullName));
+  const issues = resumeIssues(input.resume, input.fullName).filter((i) => i !== "name incomplete" && !baseIssues.has(i));
   const age = input.resumeUpdatedAt ? Date.now() - Date.parse(input.resumeUpdatedAt) : Infinity;
   const baseNewer = base.updated_at && input.resumeUpdatedAt ? Date.parse(base.updated_at) > Date.parse(input.resumeUpdatedAt) : false;
   // Re-writing takes ~30s, so only when it matters: a broken copy, a newer master/role resume, or a copy older than two weeks.
