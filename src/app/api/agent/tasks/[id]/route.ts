@@ -21,9 +21,16 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   switch (body.action) {
     case "approve": {
       // Approving a reviewed form: submit exactly what the person saw.
-      const review = ((task.needs as Need[]) || []).filter((n) => n.type === "review");
-      const input = review.length
-        ? { ...(task.user_input || {}), review_ok: true, reviewed: Object.fromEntries(review.map((n) => [n.label, String((n as Need & { value?: string }).value || "")])) }
+      // Answers are keyed by question + position, exactly as the agent recorded them, so the next run reuses them as-is.
+      const review = ((task.needs as (Need & { rkey?: string; value?: string; info?: boolean })[]) || []).filter((n) => n.type === "review" && n.rkey && !n.info);
+      const prev = (task.user_input || {}) as Record<string, unknown>;
+      const input = ((task.needs as Need[]) || []).some((n) => n.type === "review")
+        ? {
+            ...prev,
+            review_ok: true,
+            review_round: Number(prev.review_round || 0) + 1,
+            reviewed: { ...((prev.reviewed as Record<string, string>) || {}), ...Object.fromEntries(review.map((n) => [n.rkey!, String(n.value ?? "")])) },
+          }
         : task.user_input;
       await set({ status: "queued", error: null, needs: [], locked_at: null, user_input: input });
       void wakeWorker();
@@ -60,7 +67,11 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
         const { error } = await ctx.supabase.from("applicant_profiles").upsert({ user_id: ctx.user.id, agent_consent: true, updated_at: new Date().toISOString() }, { onConflict: "user_id" });
         if (error) console.error("consent save failed", error.message);
       }
-      await set({ status: "queued", needs: [], error: null, locked_at: null });
+      // Agreeing to a careers site's terms for this application lets the agent continue past that page (this time only,
+      // unless they also chose "confirm for me on future applications" above).
+      const terms = needs.filter((n) => (n as Need & { kind?: string }).kind === "consent");
+      const consentAnswered = terms.length > 0 && terms.every((n) => String(body.answers?.[n.id] ?? "").trim() !== "");
+      await set({ status: "queued", needs: [], error: null, locked_at: null, ...(consentAnswered ? { user_input: { ...(task.user_input || {}), terms_ok: true } } : {}) });
       void wakeWorker();
       return json({ ok: true, saved: rows.length });
     }

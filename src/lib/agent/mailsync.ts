@@ -2,6 +2,7 @@ import "server-only";
 import { decryptFor } from "@/lib/vault";
 import { fetchNew, matchApplication, type MailAccount, type ParsedMail } from "@/lib/mail";
 import { rpc } from "./svc";
+import { ingestSecret, supabaseAnon } from "@/lib/supabase/server";
 import { ask, aiConfigured, extractJson } from "@/lib/ai";
 import { nextStatus, type MailKind } from "@/lib/mail-classify";
 import { isPublicHost } from "@/lib/net";
@@ -43,13 +44,42 @@ async function confirmStage(m: ParsedMail): Promise<{ kind: MailKind; sure: bool
   return stage && STAGES.includes(stage) ? { kind: stage, sure: true } : { kind: guess, sure: false };
 }
 
-const ATS_SENDER = /(greenhouse|lever|ashbyhq|myworkday|workday|icims|taleo|successfactors|smartrecruiters|workable|recruitee|jobvite|bamboohr|breezy|jazzhr|oraclecloud|avature|eightfold|phenom|gem\.com|rippling|teamtailor|personio|pinpointhq|dover|hirebridge|paylocity|paycom|ukg|ultipro|adp|amazon\.jobs)/i;
+// Careers-system senders, matched as whole names so "cleverbridge" or "phenomenal" don't count.
+const ATS_SENDER = /(?<![a-z0-9])(greenhouse(-mail)?|lever\.co|ashbyhq|myworkday(jobs)?|workday|icims|taleo|successfactors|smartrecruiters|workable(mail)?|recruitee|jobvite|bamboohr|breezy(hr)?|jazzhr|applytojob|oraclecloud|avature|eightfold|phenompeople|gem\.com|rippling|teamtailor|personio|pinpointhq|dover\.com|hirebridge|paylocity|paycom|ukg(pro)?|ultipro|adp\.com|amazon\.jobs|hirevue|codesignal|hackerrank)(?![a-z])/i;
+// Wording that makes a message about a job search.
+const JOBISH = /\b(applications?|applied|candidates?|careers?|recruit(er|ers|ing|ment)?|talent|hiring|jobs?|positions?|interviews?|offer letter|requisition)\b/i;
 
-/** A message about the job search: a careers-site email, a code, or a reply about one of the person's applications. */
-export function isJobMail(m: { kind?: string | null; from_addr?: string | null; from_name?: string | null; company?: string | null; subject?: string | null; body?: string | null; snippet?: string | null }, apps: { id: string; company: string; title: string; status: string }[]) {
-  if (m.kind && m.kind !== "other") return true;
-  if (ATS_SENDER.test(`${m.from_addr || ""} ${m.from_name || ""}`)) return true;
-  return Boolean(matchApplication(m.company || null, `${m.subject || ""}\n${(m.body || m.snippet || "").slice(0, 2500)}`, apps));
+/** A message about the job search: a careers-site email, a code from one, or a reply about one of the person's applications. */
+export function isJobMail(
+  m: { kind?: string | null; from_addr?: string | null; from_name?: string | null; company?: string | null; subject?: string | null; body?: string | null; snippet?: string | null },
+  apps: { id: string; company: string; title: string; status: string }[],
+  sites: string[] = [],
+) {
+  const from = `${m.from_addr || ""} ${m.from_name || ""}`;
+  // A code from a site the agent is applying on right now (Amazon's sign-in emails come from amazon.dev, say).
+  const domain = (m.from_addr || "").toLowerCase().split("@")[1] || "";
+  if (m.kind === "verification" && sites.some((w) => domain.split(/[.-]/).includes(w) || (m.subject || "").toLowerCase().includes(w))) return true;
+  if (ATS_SENDER.test(from)) return true;
+  if (matchApplication(m.company || null, `${m.subject || ""}\n${(m.body || m.snippet || "").slice(0, 2500)}`, apps)) return true;
+  // Codes from banks, shops and other services are never kept: a code counts only when the sender or subject is about jobs.
+  if (m.kind === "verification") return JOBISH.test(`${from} ${m.subject || ""}`);
+  if (m.kind && m.kind !== "other") return JOBISH.test(`${from} ${m.subject || ""} ${(m.body || m.snippet || "").slice(0, 600)}`);
+  return false;
+}
+
+/** One identifying word per site/company the agent is applying to now ("amazon", "datadog"). */
+async function taskSites(userId: string): Promise<string[]> {
+  const { data } = await supabaseAnon().rpc("mail_task_sites", { secret: ingestSecret(), p_user: userId });
+  const generic = new Set(["www", "jobs", "careers", "career", "apply", "boards", "job-boards", "greenhouse", "lever", "ashbyhq", "myworkdayjobs", "workday", "inc", "llc", "the", "com", "co", "io"]);
+  const words = new Set<string>();
+  for (const r of ((data as { host: string; company: string }[] | null) || [])) {
+    const parts = (r.host || "").split(".").filter((p) => p && !generic.has(p) && !/^wd[0-9]+$/.test(p));
+    const base = parts.length >= 2 ? parts[parts.length - 2] : parts[0];
+    if (base && base.length > 2) words.add(base);
+    const co = (r.company || "").toLowerCase().split(/[^a-z0-9]+/).find((w) => w.length > 2 && !generic.has(w));
+    if (co) words.add(co);
+  }
+  return [...words];
 }
 
 /** Pull new mail for one account, store it, and update matching applications. */
@@ -69,7 +99,8 @@ export async function syncAccount(acct: MailAccount, opts: { days?: number } = {
     const { messages: all, lastUid } = await fetchNew(acct, password, { days: opts.days ?? 14, max: 80 });
     const apps = all.length ? await rpc<{ id: string; company: string; title: string; status: string }[]>("apps_for_matching", { user_id: acct.user_id }) : [];
     // Only job mail is kept: anything else in the mailbox is never stored and never shown to the AI.
-    const messages = all.filter((m) => isJobMail(m, apps || []));
+    const sites = all.length ? await taskSites(acct.user_id) : [];
+    const messages = all.filter((m) => isJobMail(m, apps || [], sites));
     const confirmed = await Promise.all(messages.map((m) => confirmStage(m)));
     const rows = messages.map((m, i) => {
       const app = matchApplication(m.company, `${m.subject}\n${(m.body || m.snippet || "").slice(0, 2500)}`, apps || []);

@@ -1,6 +1,6 @@
 import { json, loadUserContext } from "@/lib/server-user";
 import { decryptFor } from "@/lib/vault";
-import { supabaseAnon } from "@/lib/supabase/server";
+import { ingestSecret, supabaseAnon } from "@/lib/supabase/server";
 
 const UNLOCK_MS = 10 * 60 * 1000;
 
@@ -15,14 +15,22 @@ export async function POST(req: Request) {
   const { data } = await ctx.supabase.from("vault_credentials").select("id,host,login,secret_enc").eq("id", id || "").maybeSingle();
   if (!data) return json({ error: "Not found" }, 404);
 
-  const since = new Date(Date.now() - 60 * 60 * 1000).toISOString();
-  const { count } = await ctx.supabase.from("usage_events").select("id", { count: "exact", head: true }).eq("user_id", ctx.user.id).eq("type", "vault_reveal").gte("created_at", since);
-  if ((count || 0) > 40) return json({ error: "Too many reveals in the last hour. Try again later." }, 429);
+  // Unlocks and reveals are logged where only the server can read or write them (users can't add or see these rows).
+  const gate = async (op: "check" | "unlock" | "reveal", host?: string) => {
+    const { data, error } = await supabaseAnon().rpc("vault_gate", { secret: ingestSecret(), p_user: ctx.user.id, p_op: op, p_host: host || null });
+    if (error) throw new Error(error.message);
+    return data as { unlocked: boolean; reveals: number };
+  };
+  let state: { unlocked: boolean; reveals: number };
+  try {
+    state = await gate("check");
+  } catch {
+    return json({ error: "Couldn't check your access right now. Try again in a minute." }, 503);
+  }
+  if (state.reveals >= 40) return json({ error: "Too many reveals in the last hour. Try again later." }, 429);
 
   // Step-up check: confirmed in the last 10 minutes, or confirm now.
-  const { count: unlocked } = await ctx.supabase.from("usage_events").select("id", { count: "exact", head: true })
-    .eq("user_id", ctx.user.id).eq("type", "vault_unlock").gte("created_at", new Date(Date.now() - UNLOCK_MS).toISOString());
-  if (!unlocked) {
+  if (!state.unlocked) {
     const { data: u } = await ctx.supabase.auth.getUser();
     const user = u.user;
     if (!user?.email) return json({ error: "Log in first." }, 401);
@@ -35,10 +43,18 @@ export async function POST(req: Request) {
       const last = Date.parse(user.last_sign_in_at || "");
       if (!last || Date.now() - last > UNLOCK_MS) return json({ reauth: true, error: "For your security, sign out and sign in again with Google, then reveal the password within 10 minutes." }, 401);
     }
-    await ctx.supabase.from("usage_events").insert({ user_id: ctx.user.id, type: "vault_unlock", meta: {} });
+    try {
+      await gate("unlock");
+    } catch {
+      return json({ error: "Couldn't confirm your access right now. Try again in a minute." }, 503);
+    }
   }
 
-  await ctx.supabase.from("usage_events").insert({ user_id: ctx.user.id, type: "vault_reveal", meta: { host: data.host } });
+  try {
+    await gate("reveal", data.host);
+  } catch {
+    return json({ error: "Couldn't log this reveal, so the password stays hidden. Try again in a minute." }, 503);
+  }
   try {
     return json({ login: data.login, password: decryptFor(ctx.user.id, data.secret_enc) });
   } catch {

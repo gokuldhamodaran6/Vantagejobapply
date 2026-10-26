@@ -20,4 +20,5 @@ delete from public.inbox_messages m
 where m.kind = 'other'
   and m.application_id is null
   and m.code is null
-  and (coalesce(m.from_addr, '') || ' ' || coalesce(m.from_name, '')) !~* '(greenhouse|lever|ashbyhq|myworkday|workday|icims|taleo|successfactors|smartrecruiters|workable|recruitee|jobvite|bamboohr|breezy|jazzhr|oraclecloud|avature|eightfold|phenom|gem\.com|rippling|teamtailor|personio|pinpointhq)';
+  and (coalesce(m.from_addr, '') || ' ' || coalesce(m.from_name, '')) !~* '(greenhouse|lever\.co|ashbyhq|myworkday|workday|icims|taleo|successfactors|smartrecruiters|workable|recruitee|jobvite|bamboohr|breezy|jazzhr|applytojob|oraclecloud|avature|eightfold|phenom|gem\.com|rippling|teamtailor|personio|pinpointhq|dover|hirebridge|paylocity|paycom|ukg|ultipro|adp\.com|amazon\.jobs|hirevue|codesignal|hackerrank)'
+  and coalesce(m.subject, '') !~* '(application|applied|candidate|career|recruit|talent|hiring|\mjob|position|interview|offer letter)';

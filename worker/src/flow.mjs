@@ -2,7 +2,7 @@ import { call, log, update } from "./api.mjs";
 import { ACCOUNT_GATE, codeChallenge, declineCookies, enterCode, extractFields, findAccountButton, findVerify, isCodeField, fillField, findEntry, findNext, findSubmit, human, humanCheckVisible, isConfirmation, pageText, readComboOptions, visibleErrors } from "./forms.mjs";
 import { live } from "./live.mjs";
 import { allowedUrl, baseDomain } from "./guard.mjs";
-import { BOT_WALL, NO_AUTOMATION, siteKey } from "./sites.mjs";
+import { BOT_WALL, CHALLENGE, NO_AUTOMATION, siteKey } from "./sites.mjs";
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const TASK_BUDGET_MS = 9 * 60 * 1000; // active work, excluding time spent waiting for the user
@@ -12,19 +12,34 @@ const HARD_CAP_MS = 25 * 60 * 1000; // everything included
  * Kill switch. If an employer's site refuses the visitor (403/429/451 or a block page) or its form says automated
  * applications aren't allowed, Vantage stops applying there for everyone and hands the job to the person.
  */
-async function stopIfRefused(bundle, page, text) {
+async function stopIfRefused(bundle, page, text, fields = []) {
   const { task } = bundle;
-  const status = bundle.lastStatus || 0;
+  // A human check (CAPTCHA, "press & hold", "just a moment") goes to the person — it is never recorded as a block.
+  if (CHALLENGE.test(text.slice(0, 3000)) || (await humanCheckVisible(page))) return;
+  // Only the status of the page we're actually on counts (not one left over from an earlier navigation).
+  const status = bundle.statusUrl === page.url().split("#")[0] ? bundle.lastStatus || 0 : 0;
   let reason = null;
   if ([401, 403, 429, 451].includes(status) && (BOT_WALL.test(text) || text.length < 4000)) reason = status === 429 ? "rate_limited" : "blocked";
   else if (text.length < 2500 && BOT_WALL.test(text)) reason = "blocked";
-  else if (NO_AUTOMATION.test(text)) reason = "no_automation";
+  else {
+    // "No automation" only counts on an application form: in the form's own questions, or the text of a form page.
+    const labels = fields.map((f) => f.label || "").join("\n");
+    const formPage = fields.filter((f) => !["hidden", "password"].includes(f.type)).length >= 2;
+    if (NO_AUTOMATION.test(labels) || (formPage && NO_AUTOMATION.test(text))) reason = "no_automation";
+  }
   if (!reason) return;
-  const key = siteKey(page.url()) || siteKey(task.url);
-  await call("block", { taskId: task.id, key, reason, status, url: page.url().slice(0, 300), snippet: text.slice(0, 400) }).catch((e) => console.error("block report failed", e.message));
+  // Recorded under the page we landed on and the job's own link (sites redirect), and only when the employer is known.
+  const keys = [...new Set([siteKey(page.url()), siteKey(task.url)].filter(Boolean))];
+  if (keys.length) await call("block", { taskId: task.id, keys, reason, status, url: page.url().slice(0, 300), snippet: text.slice(0, 400) }).catch((e) => console.error("block report failed", e.message));
   const why = reason === "no_automation" ? "asks applicants not to use automated tools" : reason === "rate_limited" ? "is limiting automated visits right now" : "refused automated access";
   throw new Stop("manual", `${task.job.company}'s careers site ${why}, so Vantage has stopped applying there. Open the job link to apply yourself — the Vantage Chrome extension can fill the form while you press Submit.`);
 }
+
+// Buttons that send the application even when they aren't labelled "Submit".
+const FINAL_NEXT = /\b(apply|submit|send|finish|complete|confirm)\b/i;
+
+/** What the person saw in the review step, keyed the same way on the next run. */
+const normLabel = (l) => String(l || "").toLowerCase().replace(/\s+/g, " ").trim().slice(0, 300);
 
 class Stop extends Error {
   constructor(status, message, extra = {}) {
@@ -57,16 +72,31 @@ export async function runTask(bundle, browser) {
   context.on("page", (p) => (page = p)); // follow "Apply" links that open a new tab
   live.attach(task.id, () => page);
   const filled = {};
+  bundle.filledRef = filled;
   const seen = new Set();
   const clock = { started, waited: 0 };
   bundle.clock = clock;
   // Test mode: fill everything, never create accounts, never submit. Used to check real careers sites safely.
   bundle.dry = task.mode === "dry_run";
   bundle.dryMissing = [];
+  // After the person approved the review, the same answers are used again, matched by question and position.
+  bundle.reviewed = task.userInput?.review_ok && task.userInput?.reviewed && typeof task.userInput.reviewed === "object" ? task.userInput.reviewed : null;
+  // Status of the latest top-level page load (also after clicks), so a block page is recognised wherever it appears.
+  context.on("response", (r) => {
+    try {
+      if (r.request().isNavigationRequest() && !r.frame().parentFrame()) {
+        bundle.lastStatus = r.status();
+        bundle.statusUrl = r.url().split("#")[0];
+      }
+    } catch {}
+  });
   const goto = async (url) => {
     if (!(await allowedUrl(url))) throw new Stop("failed", "This link isn't a public web page, so your agent won't open it.");
     const resp = await page.goto(url, { waitUntil: "domcontentloaded", timeout: 45_000 });
-    bundle.lastStatus = resp ? resp.status() : 0;
+    if (resp) {
+      bundle.lastStatus = resp.status();
+      bundle.statusUrl = resp.url().split("#")[0];
+    }
   };
   bundle.goto = goto;
 
@@ -85,14 +115,16 @@ export async function runTask(bundle, browser) {
       }
       const text = await pageText(page);
       if (isConfirmation(page.url(), text)) break;
-      await stopIfRefused(bundle, page, text);
 
       if (await humanCheckVisible(page)) {
         if (bundle.dry) throw new Stop("manual", "Dry run: the site showed a human check");
         await waitForHuman(task, page, clock);
+        await settle(page);
+        continue;
       }
 
       const fields = await extractFields(page);
+      await stopIfRefused(bundle, page, text, fields);
       if (process.env.AGENT_DEBUG) console.log("[step]", step, page.url(), fields.map((f) => `${f.type}:${(f.label || "").slice(0, 30)}`).join(" | "));
       // The site emailed a code (Greenhouse's "security code" after Submit): read it from the inbox and enter it.
       const challenge = await codeChallenge(page, fields);
@@ -156,6 +188,8 @@ export async function runTask(bundle, browser) {
       // 4) Next step or submit.
       const submit = await findSubmit(page);
       const next = submit ? null : await findNext(page);
+      const nextText = next ? ((await next.innerText().catch(() => "")) || (await next.getAttribute("value").catch(() => "")) || "").trim() : "";
+      const finalStep = Boolean(submit) || FINAL_NEXT.test(nextText);
       if (!submit && !next) {
         if (step > 0 && formish.length === 0) {
           // A "Verify" page whose code box is a custom component we can't read (Amazon A to Z sign-in):
@@ -187,15 +221,23 @@ export async function runTask(bundle, browser) {
         return "manual";
       }
       // First application on this kind of careers site: stop before Submit so the person can check every answer.
-      if (submit && task.review && !task.userInput?.review_ok) {
+      // Also stops before a final button labelled "Apply", "Send" or "Finish", and again if the form now holds answers
+      // the person didn't see (a new question, or one that couldn't be matched to what they approved).
+      const changed = Object.values(filled).filter((x) => !x.reviewed && !x.info);
+      if (finalStep && task.review && (!bundle.reviewed || changed.length)) {
+        if (bundle.reviewed && (task.userInput?.review_round || 0) >= 3) {
+          throw new Stop("manual", "This form kept changing after you reviewed it, so your agent didn't send it. Open the job link to check and submit it yourself.");
+        }
         const shotFull = await page.screenshot({ type: "jpeg", quality: 55, fullPage: true }).catch(() => null);
-        const review = Object.entries(filled).slice(0, 80).map(([label, value], i) => ({ id: `r${i}`, qkey: "", label, type: "review", value }));
+        const review = Object.entries(filled).slice(0, 250).map(([rkey, x], i) => ({ id: `r${i}`, qkey: "", rkey, label: x.label, type: "review", value: x.value, info: x.info || undefined, changed: bundle.reviewed && !x.reviewed && !x.info ? true : undefined }));
         await update(task.id, {
           status: "awaiting_approval",
-          step: "Ready for your review — nothing has been sent yet",
-          needs: review.length ? review : [{ id: "r0", qkey: "", label: "Application form", type: "review", value: "Filled and ready" }],
+          step: bundle.reviewed ? "The form asked something new — check it before it's sent" : "Ready for your review — nothing has been sent yet",
+          needs: review.length ? review : [{ id: "r0", qkey: "", rkey: "", label: "Application form", type: "review", value: "Filled and ready", info: true }],
           proof: shotFull ? shotFull.toString("base64") : undefined,
-          log: `Filled ${task.job.company}'s form and stopped before Submit so you can review your first application on this site`,
+          log: bundle.reviewed
+            ? `Stopped before sending: ${changed.length} answer${changed.length > 1 ? "s" : ""} on ${task.job.company}'s form weren't in what you approved`
+            : `Filled ${task.job.company}'s form and stopped before Submit so you can review your first application on this site`,
         });
         return "awaiting_approval";
       }
@@ -231,7 +273,8 @@ export async function runTask(bundle, browser) {
     const finalText = await pageText(page);
     if (!isConfirmation(page.url(), finalText)) throw new Stop("manual", "The site didn't confirm the submission. Open the job link to check and finish it.");
     const shot = await page.screenshot({ type: "jpeg", quality: 55 }).catch(() => null);
-    await update(task.id, { status: "submitted", step: "Applied", needs: [], log: `Applied to ${task.job.title} at ${task.job.company}`, proof: shot ? shot.toString("base64") : undefined, answers: filled });
+    const answers = Object.fromEntries(Object.values(filled).filter((x) => !x.info).map((x) => [x.label.slice(0, 120), x.value.slice(0, 500)]));
+    await update(task.id, { status: "submitted", step: "Applied", needs: [], log: `Applied to ${task.job.title} at ${task.job.company}`, proof: shot ? shot.toString("base64") : undefined, answers });
     return "submitted";
   } catch (e) {
     const shot = await page.screenshot({ type: "jpeg", quality: 50 }).catch(() => null);
@@ -266,6 +309,18 @@ async function settle(page, extra = 700) {
   await sleep(extra);
 }
 
+/** Stable key for a field across runs: its question plus which occurrence of that question it is (repeated work-history boxes). */
+function rkeyOf(bundle, fieldKey, label) {
+  const ord = bundle.ord || (bundle.ord = { byKey: new Map(), count: new Map() });
+  if (!ord.byKey.has(fieldKey)) {
+    const l = normLabel(label);
+    const n = (ord.count.get(l) || 0) + 1;
+    ord.count.set(l, n);
+    ord.byKey.set(fieldKey, `${l}#${n}`);
+  }
+  return ord.byKey.get(fieldKey);
+}
+
 /** Fill every known field on the page. Returns required fields still unknown (only when collectMissing). */
 async function fillPage(bundle, page, filled, seen, collectMissing = false) {
   const { task, files } = bundle;
@@ -282,7 +337,21 @@ async function fillPage(bundle, page, filled, seen, collectMissing = false) {
     for (const f of fresh) {
       if (f.type === "combobox" && !f.options?.length) f.options = await readComboOptions(page, f);
     }
-    const plan = await planInChunks(task.id, fresh);
+    // Answers the person approved in the review are used exactly as they saw them; only the rest go to the planner.
+    const direct = [];
+    const toPlan = [];
+    for (const f of fresh) {
+      const v = bundle.reviewed && f.type !== "file" ? bundle.reviewed[rkeyOf(bundle, key(f), f.label)] : undefined;
+      if (typeof v === "string") direct.push(f.type === "checkbox" ? { id: f.id, check: v === "Checked", fromReview: true } : { id: f.id, value: v, fromReview: true });
+      else toPlan.push(f);
+    }
+    const plan = toPlan.length ? await planInChunks(task.id, toPlan) : { fills: [], missing: [] };
+    plan.fills = [...direct.filter((d) => d.check !== false), ...(plan.fills || [])];
+    const record = (f, fill, value) => {
+      if (value === undefined || value === null || value === "") return;
+      filled[rkeyOf(bundle, key(f), f.label)] = { label: String(f.label || "").slice(0, 300), value: String(value).slice(0, 4000), reviewed: Boolean(fill?.fromReview), info: f.type === "file" || undefined };
+    };
+    const shown = (f, fill) => (f.type === "file" ? (fill.file === "cover_letter" ? "Cover letter attached" : "Resume attached") : f.type === "checkbox" ? (fill.check ? "Checked" : "") : fill.value);
     const byId = new Map(fresh.map((f) => [f.id, f]));
     if (process.env.AGENT_DEBUG) console.log("[plan]", JSON.stringify(plan).slice(0, 600));
     for (const fill of plan.fills || []) {
@@ -291,13 +360,14 @@ async function fillPage(bundle, page, filled, seen, collectMissing = false) {
       // Don't overwrite what the site already prefilled correctly from the resume.
       if (f.value && !fill.file && f.type !== "checkbox" && String(f.value).trim().toLowerCase() === String(fill.value || "").trim().toLowerCase()) {
         seen.add(key(f));
+        record(f, fill, f.value);
         continue;
       }
       const ok = await fillField(page, f, fill, files);
       if (process.env.AGENT_DEBUG) console.log("[fill]", f.label.slice(0, 30), ok);
       if (ok) {
         seen.add(key(f));
-        if (fill.value && f.type !== "file") filled[f.label.slice(0, 120)] = String(fill.value).slice(0, 500);
+        record(f, fill, shown(f, fill));
       } else if (f.required && f.type === "file") {
         throw new Stop("manual", "This site wouldn't take the resume upload. Open the job link to finish.");
       } else if (f.required) {
@@ -314,7 +384,7 @@ async function fillPage(bundle, page, filled, seen, collectMissing = false) {
       const ok = await fillField(page, again, fill, files);
       if (ok) {
         seen.add(key(f));
-        if (fill.value) filled[f.label.slice(0, 120)] = String(fill.value).slice(0, 500);
+        record(f, fill, shown(f, fill));
       } else {
         // The site wouldn't take the answer (none of its options matched). Ask the user to pick from the site's own options.
         failed.push({ id: f.id, label: again.label.replace(/\s*no (states?|provinces?|options|results)[^]*$/i, "").trim() || f.label, type: f.type, options: again.options?.length ? again.options : undefined, required: true, tried: String(fill.value || "").slice(0, 80) });
@@ -336,7 +406,7 @@ async function fillPage(bundle, page, filled, seen, collectMissing = false) {
         if (f && (await fillField(page, f, fill, files))) {
           seen.add(key(f));
           plan.missing = (plan.missing || []).filter((m) => m.id !== f.id);
-          if (fill.value) filled[f.label.slice(0, 120)] = String(fill.value).slice(0, 500);
+          record(f, fill, shown(f, fill));
         }
       }
     }
@@ -429,7 +499,7 @@ async function handleAccount(bundle, page, fields, allPasswords) {
   if (emailField) await fillField(page, emailField, { value: cred.login }, {});
   for (const p of passwords) await fillField(page, p, { value: cred.password }, {});
   const termsBoxes = fields.filter((x) => x.type === "checkbox" && /agree|terms|privacy|consent|acknowledge/i.test(x.label));
-  if (termsBoxes.length && !task.consent) {
+  if (termsBoxes.length && !task.consent && !task.userInput?.terms_ok) {
     throw new Stop("needs_user", `${task.job.company}'s careers site asks you to agree to its terms before it creates your account`, {
       needs: termsBoxes.map((f) => ({ id: f.id, qkey: "", label: f.label, type: "checkbox", required: true, kind: "consent" })),
     });
@@ -439,14 +509,16 @@ async function handleAccount(bundle, page, fields, allPasswords) {
     const links = await page.$$eval("a[href]", (as) => as.filter((a) => /terms|privacy|conditions|policy|notice|consent/i.test(a.textContent || "")).slice(0, 8).map((a) => ({ text: (a.textContent || "").trim().slice(0, 120), href: a.href }))).catch(() => []);
     await call("terms", { taskId: task.id, key: siteKey(page.url()), url: page.url().slice(0, 300), items: termsBoxes.map((f) => f.label.slice(0, 600)), links }).catch(() => {});
   }
-  for (const f of termsBoxes) await fillField(page, f, { check: true }, {});
+  for (const f of termsBoxes) {
+    if (await fillField(page, f, { check: true }, {})) bundle.filledRef[`account:${normLabel(f.label)}`] = { label: `Careers-site account: ${f.label.slice(0, 260)}`, value: "Agreed", info: true };
+  }
   // Other simple sign-up fields (first/last name, phone, country) go through the planner.
   const others = fields.filter((f) => !["password", "checkbox"].includes(f.type) && f !== emailField);
   if (others.length) {
     const plan = await planInChunks(task.id, others);
     for (const fill of plan.fills || []) {
       const f = others.find((x) => x.id === fill.id);
-      if (f) await fillField(page, f, fill, bundle.files);
+      if (f && (await fillField(page, f, fill, bundle.files)) && fill.value) bundle.filledRef[`account:${normLabel(f.label)}`] = { label: `Careers-site account: ${f.label.slice(0, 260)}`, value: String(fill.value).slice(0, 4000), info: true };
     }
   }
   const byName = async (re) => {

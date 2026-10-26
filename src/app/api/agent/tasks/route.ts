@@ -3,7 +3,8 @@ import { jobFromLink } from "@/lib/agent/jobs";
 import { prepareAndQueue } from "@/lib/agent/prepare";
 import { rpcExt, wakeWorker } from "@/lib/agent/svc";
 import { matchJob } from "@/lib/jobs/match";
-import { dailyLimit } from "@/lib/access";
+import { dailyLimit, PER_EMPLOYER_30D, recentByEmployer } from "@/lib/access";
+import { normCompany } from "@/lib/jobs/signals";
 import { ingestSecret, supabaseAnon } from "@/lib/supabase/server";
 import type { Job, LetterTone, ResumeContent, ResumeStyle } from "@/lib/types";
 
@@ -48,6 +49,11 @@ export async function POST(req: Request) {
     const limit = dailyLimit(ctx.profile as { daily_limit?: number; high_volume_ok?: boolean }, ctx.plan);
     if ((sentToday || 0) + (inLine || 0) >= limit) {
       return json({ error: `You've reached today's limit of ${limit} applications by your agent. Save it for tomorrow, apply yourself with the Chrome extension, or raise the limit in Settings.` }, 429);
+    }
+    // No more than a few applications to the same employer in 30 days, so no company is flooded.
+    const recent = await recentByEmployer(ctx.supabase);
+    if ((recent.get(normCompany(job.company)) || 0) >= PER_EMPLOYER_30D) {
+      return json({ error: `Your agent has already sent ${PER_EMPLOYER_30D} applications to ${job.company} in the last 30 days. Apply to this one yourself with the Chrome extension, or pick the role that fits best.` }, 429);
     }
   }
 

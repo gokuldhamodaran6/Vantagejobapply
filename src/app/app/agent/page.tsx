@@ -487,28 +487,33 @@ function ReviewCard({ t, head, busy, act }: { t: AgentTask; head: ReactNode; bus
   useEffect(() => {
     supabaseBrowser().from("agent_proofs").select("image").eq("task_id", t.id).maybeSingle().then(({ data }) => setShot((data as { image: string } | null)?.image || null));
   }, [t.id]);
-  const rows = (t.needs || []).filter((n) => n.type === "review") as (AgentTask["needs"][number] & { value?: string })[];
+  const rows = (t.needs || []).filter((n) => n.type === "review") as (AgentTask["needs"][number] & { value?: string; info?: boolean; changed?: boolean })[];
+  const changed = rows.filter((r) => r.changed).length;
   const legal = (l: string) => /authori[sz]|sponsor|citizen|visa|convict|criminal|veteran|disab|gender|race|ethnic|hispanic|salary|certify|attest|agree|consent|true and (complete|correct)/i.test(l);
   return (
     <div className="card border-brand/30 p-5">
       {head}
       <p className="mt-2 text-sm">
-        <span className="font-semibold">Your first application on {t.job.company}&apos;s kind of careers site is filled in and waiting — nothing has been sent.</span>{" "}
-        Check the answers below. Whatever is submitted is a statement in your name.
+        <span className="font-semibold">
+          {changed
+            ? `${t.job.company}'s form asked ${changed} thing${changed > 1 ? "s" : ""} you hadn't seen yet — nothing has been sent.`
+            : `Your first application on ${t.job.company}'s kind of careers site is filled in and waiting — nothing has been sent.`}
+        </span>{" "}
+        Check the answers below{changed ? " (new ones are marked)" : ""}. Whatever is submitted is a statement in your name.
       </p>
       <div className="mt-3 max-h-80 overflow-auto rounded-xl border border-line">
         <table className="w-full text-sm">
           <tbody>
             {rows.map((r) => (
               <tr key={r.id} className={`border-b border-line last:border-0 ${legal(r.label) ? "bg-orange/5" : ""}`}>
-                <td className="w-1/2 px-3 py-2 align-top text-muted">{r.label}</td>
-                <td className="px-3 py-2 align-top font-medium">{r.value}</td>
+                <td className="w-1/2 px-3 py-2 align-top text-muted">{r.changed && <span className="mr-1 rounded bg-brand/10 px-1.5 py-0.5 text-[11px] font-semibold text-brand-ink">New</span>}{r.label}</td>
+                <td className={`px-3 py-2 align-top ${r.info ? "text-muted" : "font-medium"} whitespace-pre-wrap break-words`}>{r.value}</td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
-      <p className="mt-2 text-xs text-muted">Highlighted rows are eligibility or legal statements. Files (resume, cover letter) are attached as shown in the buttons below.</p>
+      <p className="mt-2 text-xs text-muted">Highlighted rows are eligibility or legal statements. Ticked boxes show as “Checked”. Files are the resume and cover letter in the buttons below.</p>
       {shot && (
         <details className="mt-3">
           <summary className="cursor-pointer text-sm font-semibold text-brand-ink">See the filled form</summary>

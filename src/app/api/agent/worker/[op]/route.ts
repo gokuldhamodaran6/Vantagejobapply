@@ -1,7 +1,7 @@
 import { agentSecretOk, rpc } from "@/lib/agent/svc";
 import { filesFor, loadBundle } from "@/lib/agent/bundle";
 import { ensureFreshTailoring } from "@/lib/agent/prepare";
-import { planFields, qkeyOf, type FormField } from "@/lib/agent/fields";
+import { planFields, type FormField } from "@/lib/agent/fields";
 import { ingestSecret, supabaseAnon } from "@/lib/supabase/server";
 import { syncAccount } from "@/lib/agent/mailsync";
 import { encryptFor, generatePassword } from "@/lib/vault";
@@ -12,10 +12,6 @@ import { siteKey } from "@/lib/agent/sites";
 
 export const maxDuration = 120;
 
-function reviewedAnswers(input: Record<string, unknown> | null | undefined) {
-  const r = (input?.reviewed || {}) as Record<string, string>;
-  return Object.entries(r).map(([question, answer]) => ({ qkey: qkeyOf(question), question, answer: String(answer) }));
-}
 
 const j = (d: unknown, status = 200) => new Response(JSON.stringify(d), { status, headers: { "Content-Type": "application/json", "Cache-Control": "no-store" } });
 
@@ -38,6 +34,25 @@ export async function POST(req: Request, { params }: { params: Promise<{ op: str
         await rpc("update", { task_id: t.id, status: "failed", error: "No resume on file. Upload your resume in Vantage." });
         return j({ task: null });
       }
+      // Adults only, and not yet in Québec. These checks come before any re-tailoring, so a task that can't run costs nothing.
+      const prof = (b.raw.profile || {}) as { adult_confirmed_at?: string | null; region?: string | null; home_country?: string | null };
+      const app = (b.raw.applicant || {}) as { state?: string | null; country?: string | null };
+      const quebec = prof.region === "QC" || ((prof.home_country === "CA" || /canada/i.test(app.country || "")) && /^(qc|qu[eé]bec)$/i.test(String(app.state || "").trim()));
+      if (!prof.adult_confirmed_at || quebec) {
+        await rpc("update", { task_id: t.id, status: "manual", error: quebec ? "Vantage's agent isn't available in Québec yet." : "Confirm you're 18 or older on the Your agent page, then press Try again." });
+        return j({ task: null, retry: true });
+      }
+      // Kill switch: an employer whose site refused automated access (or asked for no automation) gets no more bot visits.
+      const keys = [...new Set([siteKey(b.target.url), siteKey(b.task.apply_url || ""), siteKey(b.task.job.url || "")].filter(Boolean))];
+      let blocked: string | null = null;
+      for (const k of keys) {
+        blocked = await supabaseAnon().rpc("site_blocked", { secret: ingestSecret(), p_key: k }).then((r) => (r.data as string | null) || null, () => null);
+        if (blocked) break;
+      }
+      if (blocked) {
+        await rpc("update", { task_id: t.id, status: "manual", error: `${b.task.job.company}'s careers site doesn't accept automated applications (${blocked}). Open the job link to apply yourself — the Vantage Chrome extension can fill the form while you press Submit.` });
+        return j({ task: null, retry: true });
+      }
       // Quality gate: never send a broken or stale resume.
       if (b.task.mode !== "dry_run") {
         const fresh = await ensureFreshTailoring({
@@ -49,20 +64,6 @@ export async function POST(req: Request, { params }: { params: Promise<{ op: str
           if (nb) Object.assign(b, nb);
         }
       }
-      // Adults only, and not yet in Québec.
-      const prof = (b.raw.profile || {}) as { adult_confirmed_at?: string | null; region?: string | null; home_country?: string | null };
-      const app = (b.raw.applicant || {}) as { state?: string | null; country?: string | null };
-      const quebec = prof.region === "QC" || ((prof.home_country === "CA" || /canada/i.test(app.country || "")) && /^(qc|qu[eé]bec)$/i.test(String(app.state || "").trim()));
-      if (!prof.adult_confirmed_at || quebec) {
-        await rpc("update", { task_id: t.id, status: "manual", error: quebec ? "Vantage's agent isn't available in Québec yet." : "Confirm you're 18 or older on the Your agent page, then press Try again." });
-        return j({ task: null, retry: true });
-      }
-      // Kill switch: an employer whose site refused automated access (or asked for no automation) gets no more bot visits.
-      const blocked = await supabaseAnon().rpc("site_blocked", { secret: ingestSecret(), p_key: siteKey(b.target.url) }).then((r) => (r.data as string | null) || null, () => null);
-      if (blocked) {
-        await rpc("update", { task_id: t.id, status: "manual", error: `${b.task.job.company}'s careers site doesn't accept automated applications (${blocked}). Open the job link to apply yourself — the Vantage Chrome extension can fill the form while you press Submit.` });
-        return j({ task: null, retry: true });
-      }
       if (!(await isSafePublicUrl(b.target.url, { httpsOnly: true }))) {
         await rpc("update", { task_id: t.id, status: "failed", error: "This application link isn't a public https page, so your agent won't open it." });
         return j({ task: null });
@@ -70,9 +71,11 @@ export async function POST(req: Request, { params }: { params: Promise<{ op: str
       const files = await filesFor(b);
       // The first application on each kind of careers site waits for the person's review before Submit.
       const reviewFirst = (b.raw.profile as { review_first?: boolean | null } | null)?.review_first !== false;
-      const review = reviewFirst && !b.task.user_input?.review_ok
-        ? await supabaseAnon().rpc("review_needed", { secret: ingestSecret(), p_user: b.task.user_id, p_ats: b.target.ats }).then((r) => r.data !== false, () => true)
-        : false;
+      // Each company's own careers site counts as its own kind of site. After an approval the review stays on, so the agent
+      // stops again if the form shows anything the person didn't see.
+      const site = b.target.ats && b.target.ats !== "generic" ? null : hostOf(b.target.url).replace(/^www\./, "");
+      const review = !reviewFirst ? false : b.task.user_input?.review_ok ? true
+        : await supabaseAnon().rpc("review_needed_site", { secret: ingestSecret(), p_user: b.task.user_id, p_ats: b.target.ats || "generic", p_site: site }).then((r) => r.data !== false, () => true);
       return j({
         task: { id: b.task.id, ats: b.target.ats, url: b.target.url, host: b.host, job: b.task.job, attempts: b.task.attempts, userInput: b.task.user_input, mode: b.task.mode, review, consent: Boolean(b.raw.applicant?.agent_consent) },
         identity: { email: b.identity, name: b.facts.full_name, firstName: b.facts.first_name, lastName: b.facts.last_name, phone: b.facts.phone },
@@ -88,8 +91,8 @@ export async function POST(req: Request, { params }: { params: Promise<{ op: str
       const consent = Boolean(b.raw.applicant?.agent_consent);
       const out = await planFields(((body.fields as FormField[]) || []).slice(0, 80), {
         facts: b.facts,
-        // Answers the person approved in the review step come first, so the submitted form matches what they saw.
-        answers: [...reviewedAnswers(b.task.user_input), ...b.raw.answers],
+        // Answers approved in the review step are applied by the worker itself (exact question + position), never sent here.
+        answers: b.raw.answers,
         job: { title: b.task.job.title, company: b.task.job.company },
         resume: b.resume,
         coverLetter: b.task.cover_letter,
@@ -99,8 +102,8 @@ export async function POST(req: Request, { params }: { params: Promise<{ op: str
     }
 
     if (op === "block") {
-      const key = String(body.key || "").slice(0, 200);
-      if (key) {
+      const keys = [...new Set([...((body.keys as string[]) || []), String(body.key || "")].map((k) => String(k).slice(0, 200)).filter(Boolean))].slice(0, 3);
+      for (const key of keys) {
         await supabaseAnon().rpc("block_site", {
           secret: ingestSecret(), p_key: key, p_reason: String(body.reason || "blocked").slice(0, 40), p_status: Number(body.status || 0),
           p_detail: `${String(body.url || "").slice(0, 300)} — ${String(body.snippet || "").replace(/\s+/g, " ").slice(0, 300)}`, p_task: taskId || null,

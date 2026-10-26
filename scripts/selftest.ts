@@ -9,7 +9,9 @@ import { parseResumeText, scoreResume, extractKeywords } from "../src/lib/ats";
 import { readFileSync } from "fs";
 import { workAuthAnswers } from "../src/lib/answers";
 import { roleSimilarity } from "../src/lib/jobs/roles";
-import { bestOption, bestName, qkeyOf, buildFacts, coreLabel, placeFromResume, planFields } from "../src/lib/agent/fields";
+import { bestOption, bestName, qkeyOf, buildFacts, coreLabel, placeFromResume, planFields, lockedKind } from "../src/lib/agent/fields";
+import { siteKey } from "../src/lib/agent/sites";
+import { isJobMail } from "../src/lib/agent/mailsync";
 import { isPrivateIp } from "../src/lib/net";
 import { parseEventText, parseIcs } from "../src/lib/mail-event";
 import { resumeIssues, tidyResume } from "../src/lib/resume/health";
@@ -189,6 +191,20 @@ ok(isPrivateIp("10.1.2.3") && isPrivateIp("169.254.169.254") && isPrivateIp("::1
 
 // Cover letter quality checks.
 ok(lintLetter("I am writing to express my interest. I am passionate!", "Acme").length >= 3, "letter lint catches clichés and length");
+
+// Safety: kill-switch keys never cover a whole careers platform.
+ok(siteKey("https://boards.greenhouse.io/embed/job_app?for=acme") === "greenhouse.io/acme" && siteKey("https://job-boards.greenhouse.io/acme/jobs/1") === "greenhouse.io/acme", "greenhouse block key is per employer, embed or not");
+ok(siteKey("https://apply.workable.com/j/ABC") === "" && siteKey("https://recruiting.paylocity.com/Recruiting/Jobs/Details/1") === "", "unknown employer on a shared host records no block");
+ok(siteKey("https://career2.successfactors.com/career?company=Acme") === "successfactors/acme" && siteKey("https://workforcenow.adp.com/x.html?cid=abc") === "adp.com/abc", "query-string tenants");
+
+// Safety: experience questions are not age questions.
+ok(lockedKind("Are you at least 18 years of age?") === "age" && lockedKind("Are you 18 or older?") === "age", "age questions are locked");
+ok(!lockedKind("Have you worked over 18 months in a startup?") && !lockedKind("Can you work at least 16 hours a week?"), "durations aren't age questions");
+
+// Safety: only job mail is kept.
+ok(!isJobMail({ kind: "verification", from_addr: "alerts@chase.com", subject: "Your verification code" }, [], ["amazon"]), "bank codes are not kept");
+ok(isJobMail({ kind: "verification", from_addr: "no-reply@portal-na.idprism-auth.amazon.dev", subject: "Your verification code" }, [], ["amazon"]), "codes from a site the agent is applying on are kept");
+ok(isJobMail({ kind: "other", from_addr: "no-reply@us.greenhouse-mail.io", subject: "Thanks" }, []) && !isJobMail({ kind: "other", from_addr: "news@cleverbridge.com", subject: "Sale" }, []), "careers senders match as whole names");
 
 plannerChecks().then(() => {
   console.log(fail ? `\n${fail} failed` : "\nAll checks passed");

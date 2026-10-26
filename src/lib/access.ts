@@ -1,3 +1,4 @@
+import { normCompany as normCompanyName } from "@/lib/jobs/signals";
 // Early access: everyone uses Vantage free with generous limits.
 // Kept separate from plans.ts so no pricing ever ships to the browser.
 export const EARLY_ACCESS = true;
@@ -21,9 +22,23 @@ export const HIGH_VOLUME_MAX = 200;
 /** At most this many applications to the same employer in 30 days (the agent never floods one company). */
 export const PER_EMPLOYER_30D = 3;
 
+/** How many applications the person's agent sent (or has lined up) per employer in the last 30 days. */
+export async function recentByEmployer(supabase: { from: (t: string) => any }): Promise<Map<string, number>> { // eslint-disable-line @typescript-eslint/no-explicit-any
+  const since = new Date(Date.now() - 30 * 86400_000).toISOString();
+  const { data } = await supabase.from("agent_tasks").select("job,status").gte("created_at", since)
+    .in("status", ["submitted", "queued", "running", "waiting_code", "needs_human", "needs_user", "awaiting_approval"]).limit(5000);
+  const m = new Map<string, number>();
+  for (const t of (data as { job: { company?: string } }[] | null) || []) {
+    const co = normCompanyName(t.job?.company || "");
+    if (co) m.set(co, (m.get(co) || 0) + 1);
+  }
+  return m;
+}
+
 export function dailyLimit(profile: { daily_limit?: number | null; high_volume_ok?: boolean | null } | null | undefined, plan: EffectivePlan): number {
   const cap = profile?.high_volume_ok ? Math.min(HIGH_VOLUME_MAX, plan.limits.autoApplyPerDay) : Math.min(DEFAULT_DAILY, plan.limits.autoApplyPerDay);
-  return Math.max(0, Math.min(profile?.daily_limit || DEFAULT_DAILY, cap));
+  const chosen = typeof profile?.daily_limit === "number" && Number.isFinite(profile.daily_limit) ? profile.daily_limit : DEFAULT_DAILY;
+  return Math.max(0, Math.min(chosen, cap));
 }
 
 /** The owner and admins test without limits. */

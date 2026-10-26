@@ -1,6 +1,7 @@
 import { json, loadUserContext } from "@/lib/server-user";
 import { wakeWorker } from "@/lib/agent/svc";
-import { dailyLimit } from "@/lib/access";
+import { dailyLimit, PER_EMPLOYER_30D, recentByEmployer } from "@/lib/access";
+import { normCompany } from "@/lib/jobs/signals";
 
 /**
  * Put cancelled or unfinished jobs back in line in one go ("Apply to all again").
@@ -25,7 +26,18 @@ export async function POST(req: Request) {
   // Skip jobs that were already sent (same posting, or the same title at the same company).
   const { data: sent } = await ctx.supabase.from("agent_tasks").select("job_id,job").eq("status", "submitted").limit(5000);
   const sentKey = new Set((sent || []).flatMap((t) => [t.job_id as string, `${(t.job as { company: string }).company}|${(t.job as { title: string }).title}`.toLowerCase()]));
-  const ids = (rows || []).filter((r) => !sentKey.has(r.job_id as string) && !sentKey.has(`${(r.job as { company: string }).company}|${(r.job as { title: string }).title}`.toLowerCase())).map((r) => r.id as string);
+  // Same per-employer cap as the agent: at most a few applications to one company in 30 days.
+  const perEmployer = await recentByEmployer(ctx.supabase);
+  const ids = (rows || [])
+    .filter((r) => !sentKey.has(r.job_id as string) && !sentKey.has(`${(r.job as { company: string }).company}|${(r.job as { title: string }).title}`.toLowerCase()))
+    .filter((r) => {
+      const co = normCompany((r.job as { company: string }).company);
+      const n = perEmployer.get(co) || 0;
+      if (n >= PER_EMPLOYER_30D) return false;
+      perEmployer.set(co, n + 1);
+      return true;
+    })
+    .map((r) => r.id as string);
   if (!ids.length) return json({ ok: true, queued: 0 });
   const { data: n, error } = await ctx.supabase.rpc("requeue_tasks", { p_ids: ids });
   if (error) return json({ error: error.message }, 500);

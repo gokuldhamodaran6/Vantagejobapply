@@ -32,6 +32,11 @@ export type LockedKind = "citizenship" | "work_auth" | "sponsorship" | "convicti
  * person, so the agent never infers or rewords these: it uses only the answer the person confirmed for the same wording,
  * and asks them for anything worded differently.
  */
+// "Are you at least 18?" / "18 years of age or older" — but not "over 18 months in a startup" or "at least 16 hours a week".
+const NOT_AGE = String.raw`(?![0-9])(?!\s*\+?\s*(months?|mos?\b|hours?|hrs?\b|weeks?|days?|yrs\b|years? (of (?!age)|in |experience|exp\b|working|at |with |as )))`;
+const AGE_Q = new RegExp(String.raw`(at least|over|older than|under|younger than) (the age of )?1[68]${NOT_AGE}|\b1[68] years (of age|old)|\b1[68] or (older|over)|\b1[68]\+? years? or (older|over)|legal (working )?age|age of majority|minimum age|\bage requirement`);
+const ADULT_Q = new RegExp(String.raw`(at least|over|older than) (the age of )?18${NOT_AGE}|\b18 years (of age )?or (older|over)|\b18 or (older|over)|legal (working )?age|age of majority`);
+
 const LOCKED: [LockedKind, RegExp][] = [
   ["sponsorship", /sponsor/],
   ["work_auth", /authori[sz]ed to work|authori[sz]ation to work|eligib(le|ility) to work|right to work|legally (able|permitted|allowed|entitled|eligible) to (work|be employed)|work permit|employment authori[sz]ation|work visa|visa status|immigration status/],
@@ -39,7 +44,7 @@ const LOCKED: [LockedKind, RegExp][] = [
   ["conviction", /convict|criminal|felon|misdemeanou?r|arrested|offen[cs]e|pending charges|guilty/],
   ["salary_history", /(current|present|previous|prior|last|most recent) (base |annual |total )?(salary|compensation|pay|wage|ctc)|salary history|compensation history|pay history/],
   ["clearance", /security clearance|clearance level|active clearance|\bitar\b|export control|\bu\.?s\.? person\b/],
-  ["age", /(at least|over|older than|under|younger than) (the age of )?1[68]\b|\b1[68] years|legal (working )?age|age of majority|minimum age/],
+  ["age", AGE_Q],
 ];
 
 export function lockedKind(label: string): LockedKind | null {
@@ -308,7 +313,7 @@ export async function planFields(
     if (lk) {
       // Exact wording only — never the fuzzy saved-answer match, never a rule, never AI.
       let v = bank.get(qkeyOf(f.label)) || null;
-      if (!v && lk === "age" && ctx.facts.adult === "Yes" && /(at least|over|older than) (the age of )?18\b|\b18 years (of age )?or older|18 or (older|over)|legal (working )?age|age of majority/.test(label) && !/under|younger/.test(label)) v = "Yes";
+      if (!v && lk === "age" && ctx.facts.adult === "Yes" && ADULT_Q.test(label) && !/under|younger/.test(label)) v = "Yes";
       const opt = v && f.options?.length ? bestOption(f.options, v) : null;
       if (v && f.options?.length && opt) fills.push({ id: f.id, value: opt });
       else if (v && !f.options?.length && f.type === "checkbox") {
@@ -462,7 +467,7 @@ function suggestLocked(kind: LockedKind, label: string, f: FormField, facts: Fac
       const full = yesOpts.find((o) => /no restriction|without (any )?(restriction|sponsorship)|unrestricted|citizen|permanent/i.test(o));
       v = (needs ? limited : full) || null;
     }
-  } else if (kind === "age" && facts.adult === "Yes" && !/under|younger/.test(label)) v = "Yes";
+  } else if (kind === "age" && facts.adult === "Yes" && ADULT_Q.test(label) && !/under|younger/.test(label)) v = "Yes";
   if (!v) return null;
   return f.options?.length ? bestOption(f.options, v) : v;
 }
@@ -484,9 +489,15 @@ function aiResume(r: ResumeContent | null) {
   return rest;
 }
 
+// Contact and identity details never go to the AI, whatever the question shares with them.
+const CONTACT_Q = /e-?mail|phone|mobile|telephone|address|street|zip|postal|post ?code|linkedin|github|website|portfolio url|first name|last name|full name|legal name|preferred name|surname|date of birth|birth ?date|\bdob\b|social security|\bssn\b|national (id|insurance)|passport|pronoun/;
+
 /** Only saved answers that share meaningful words with the fields being asked go to the AI. */
 function relevantAnswers(answers: { qkey: string; question: string; answer: string }[], fields: FormField[]) {
   const stop = new Set(["you", "your", "have", "are", "the", "and", "for", "with", "what", "this", "that", "will", "any", "how", "did", "please", "describe"]);
   const words = new Set(fields.flatMap((f) => qkeyOf(f.label).split(" ")).filter((w) => w.length > 3 && !stop.has(w)));
-  return answers.filter((a) => !SENSITIVE.test(a.qkey) && !/sponsor|visa|citizen|veteran|disabilit|gender|race|ethnic|hispanic|salary/.test(a.qkey) && a.qkey.split(" ").some((w) => words.has(w))).slice(0, 12);
+  return answers
+    .filter((a) => !SENSITIVE.test(a.qkey) && !lockedKind(a.question || a.qkey) && !CONTACT_Q.test(`${a.qkey} ${a.question || ""}`.toLowerCase()))
+    .filter((a) => !/sponsor|visa|citizen|veteran|disabilit|gender|race|ethnic|hispanic|salary|nationality|resident|clearance|immigra/.test(a.qkey) && a.qkey.split(" ").some((w) => words.has(w)))
+    .slice(0, 12);
 }
