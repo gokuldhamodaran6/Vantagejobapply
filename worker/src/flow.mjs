@@ -134,6 +134,9 @@ export async function runTask(bundle, browser) {
       const next = submit ? null : await findNext(page);
       if (!submit && !next) {
         if (step > 0 && formish.length === 0) {
+          // A "Verify" page whose code box is a custom component we can't read (Amazon A to Z sign-in):
+          // take the newest code the site emailed and type it in.
+          if (await blindCode(bundle, page)) continue;
           // After signing in or creating an account, sites often land on a dashboard: go back to the job and press Apply.
           if (!bundle.backToJob && page.url().split("#")[0] !== task.url.split("#")[0]) {
             bundle.backToJob = true;
@@ -473,6 +476,50 @@ async function passCode(bundle, page, ch, purpose = "application") {
   } finally {
     if (bundle.clock) bundle.clock.waited += Date.now() - waitStart;
   }
+}
+
+async function blindCode(bundle, page) {
+  const { task } = bundle;
+  const verify = await findVerify(page);
+  if (!verify || !/verif|code|confirm/i.test((await verify.innerText().catch(() => "")) || "") || (bundle.blindTries || 0) >= 3) return false;
+  bundle.blindTries = (bundle.blindTries || 0) + 1;
+  const company = cleanCo(task.job.company);
+  const sentTo = bundle.identity.email;
+  const waitStart = Date.now();
+  const since = new Date(waitStart - 120_000).toISOString();
+  await update(task.id, {
+    status: "waiting_code",
+    step: bundle.hasMailbox ? `Reading the sign-in code ${company} emailed to ${sentTo}` : `Enter the code ${company} emailed to ${sentTo}`,
+    needs: [{ kind: "site_code", system: `${company}'s careers site`, company, sentTo, length: 6, auto: bundle.hasMailbox, purpose: "account", startedAt: new Date(waitStart).toISOString(), expiresAt: new Date(waitStart + 5 * 60_000).toISOString() }],
+    log: `${company} emailed a sign-in code to ${sentTo}`,
+  });
+  let code = null;
+  try {
+    while (Date.now() - waitStart < 5 * 60_000) {
+      const r = await call("poll", { taskId: task.id, since, checkMail: bundle.hasMailbox, pageHost: new URL(page.url()).hostname }).catch(() => ({}));
+      if (r.cancelled) throw new Stop("cancelled", "Cancelled");
+      code = r.userInput?.code ? String(r.userInput.code).trim() : r.code ? String(r.code) : null;
+      if (code && !(bundle.usedCodes || []).includes(code)) break;
+      code = null;
+      await sleep(2500);
+    }
+  } finally {
+    if (bundle.clock) bundle.clock.waited += Date.now() - waitStart;
+  }
+  if (!code) return false;
+  bundle.usedCodes = [...(bundle.usedCodes || []), code];
+  await update(task.id, { status: "running", step: "Entering the sign-in code", clearInput: true, log: `Found the code in ${sentTo} — entering it` });
+  // Focus the code box (Playwright reaches open shadow roots); otherwise the page has already focused it.
+  const box = page.locator("input:not([type=hidden]):not([type=checkbox]):not([type=radio]):visible").first();
+  if (await box.count().catch(() => 0)) {
+    await box.click().catch(() => {});
+    await box.fill("").catch(() => {});
+  }
+  await page.keyboard.type(code, { delay: 90 });
+  await human(300, 600);
+  await verify.click({ timeout: 8000 }).catch(() => verify.click({ force: true }).catch(() => {}));
+  await settle(page, 2500);
+  return true;
 }
 
 /** Pause for the user to complete a human check in the live view. The agent never solves these itself. */
