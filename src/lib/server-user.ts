@@ -1,6 +1,6 @@
 import "server-only";
 import { supabaseServer } from "@/lib/supabase/server";
-import { PLAN_BY_ID } from "@/lib/plans";
+import { effectivePlan } from "@/lib/access";
 import type { Profile, TargetPrefs, TargetRole, WorkAuth } from "@/lib/types";
 
 export async function loadUserContext() {
@@ -15,7 +15,7 @@ export async function loadUserContext() {
     supabase.from("work_auth").select("*").eq("user_id", uid),
   ]);
   const profile = p.data as Profile;
-  const plan = PLAN_BY_ID[profile?.plan || "free"];
+  const plan = effectivePlan(profile?.plan);
   return {
     supabase,
     user: u.user,

@@ -440,7 +440,7 @@ export default function OnboardingPage() {
                   <p className="label">How should the agent apply?</p>
                   <ChoiceCard selected={autonomy === "approve_all"} onClick={() => setAutonomy("approve_all")} title="Approve every application" body="Nothing is sent until you approve." />
                   <ChoiceCard selected={autonomy === "approve_important"} onClick={() => setAutonomy("approve_important")} title="Approve important ones only" body="Routine applications go ahead; target companies and top matches come to you." />
-                  <ChoiceCard selected={autonomy === "fully_automatic"} onClick={() => setAutonomy("fully_automatic")} title="Fully automatic" body="The agent prepares and queues everything inside your rules. Available on Autopilot." />
+                  <ChoiceCard selected={autonomy === "fully_automatic"} onClick={() => setAutonomy("fully_automatic")} title="Fully automatic" body="The agent prepares and queues everything inside your rules." />
                 </div>
               </div>
             )}

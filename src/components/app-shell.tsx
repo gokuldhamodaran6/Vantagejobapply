@@ -8,7 +8,6 @@ import {
 import { LogoMark } from "@/components/brand";
 import { useMe } from "@/lib/me";
 import { supabaseBrowser } from "@/lib/supabase/client";
-import { PLAN_BY_ID } from "@/lib/plans";
 import { hardNavigate } from "@/lib/nav";
 
 const NAV = [
@@ -82,12 +81,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               <span className="live-dot h-2 w-2 rounded-full bg-green" /> Agent is active
             </div>
             <p className="mt-1 text-xs text-muted">
-              {PLAN_BY_ID[profile.plan]?.name} plan ·{" "}
+              Early access ·{" "}
               {profile.autonomy === "fully_automatic" ? "Fully automatic" : profile.autonomy === "approve_all" ? "Approve every application" : "Approve important ones"}
             </p>
-            {profile.plan === "free" && (
-              <Link href="/app/settings#billing" className="mt-2.5 inline-flex text-xs font-semibold text-brand-ink">Upgrade</Link>
-            )}
           </div>
         )}
         <button onClick={signOut} className="flex min-h-10 w-full items-center gap-3 rounded-lg px-2.5 text-sm font-medium text-ink-2 hover:bg-canvas">

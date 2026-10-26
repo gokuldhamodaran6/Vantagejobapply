@@ -18,7 +18,7 @@ export async function POST(req: Request) {
     for (const c of body.apply) {
       if (c.type === "add_role") {
         if (ctx.roles.length >= ctx.plan.limits.roles) {
-          done.push(`Couldn't add ${c.title}: your ${ctx.plan.name} plan allows ${ctx.plan.limits.roles} role${ctx.plan.limits.roles > 1 ? "s" : ""}.`);
+          done.push(`Couldn't add ${c.title}: early access allows up to ${ctx.plan.limits.roles} target roles. Pause or remove one first.`);
           continue;
         }
         const { data: role } = await ctx.supabase.from("target_roles").insert({ user_id: ctx.user.id, title: c.title, levels: c.levels, priority: 2 }).select().single();
@@ -39,7 +39,7 @@ export async function POST(req: Request) {
       } else if (c.type === "add_country") {
         if (!(prefs.countries || []).includes(c.code)) {
           if ((prefs.countries || []).length >= ctx.plan.limits.countries) {
-            done.push(`Couldn't add that country: your plan includes ${ctx.plan.limits.countries}.`);
+            done.push(`Couldn't add that country: early access allows up to ${ctx.plan.limits.countries} countries.`);
             continue;
           }
           await ctx.supabase.from("target_prefs").update({ countries: [...(prefs.countries || []), c.code] }).eq("user_id", ctx.user.id);

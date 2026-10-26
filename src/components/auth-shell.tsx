@@ -34,6 +34,7 @@ export function AuthAside() {
         <li>Visa-aware filtering for the US, UK, Canada and Australia</li>
         <li>Live jobs from employer sites and job boards</li>
         <li>Honest answers on every application</li>
+        <li>Free for everyone during early access</li>
       </ul>
     </>
   );

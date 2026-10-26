@@ -7,7 +7,7 @@ import { LogoMark } from "@/components/brand";
 import { Segmented, Toast } from "@/components/ui";
 import { useMe } from "@/lib/me";
 import { supabaseBrowser } from "@/lib/supabase/client";
-import { PLANS, PLAN_BY_ID } from "@/lib/plans";
+const PLAN_OPTIONS = [["free", "Free"], ["pro", "Pro"], ["autopilot", "Autopilot"]];
 import { COUNTRY_BY_CODE } from "@/lib/countries";
 import { timeAgo } from "@/lib/format";
 
@@ -89,7 +89,6 @@ export default function AdminPage() {
     load();
   }
 
-  const mrr = PLANS.reduce((sum, p) => sum + (stats?.plans?.[p.id] || 0) * p.prices.std.month, 0);
   const maxDay = Math.max(1, ...(stats?.signups_by_day || []).map((d) => d.n));
 
   return (
@@ -112,8 +111,8 @@ export default function AdminPage() {
               {[
                 ["Users", stats.users, `+${stats.users_7d} this week`],
                 ["Active (7 days)", stats.active_7d, `${stats.onboarded} finished setup`],
-                ["Paying users", (stats.plans.pro || 0) + (stats.plans.autopilot || 0), `Pro ${stats.plans.pro || 0} · Autopilot ${stats.plans.autopilot || 0}`],
-                ["Est. monthly revenue", `$${mrr.toLocaleString()}`, "List price, before discounts"],
+                ["Early access members", stats.users, `${stats.users ? Math.round((stats.onboarded / stats.users) * 100) : 0}% finished setup`],
+                ["Searches & tailoring", "Free", "Early access — no billing"],
                 ["Applications", stats.applied, `${stats.applications} tracked in total`],
                 ["Interviews", stats.interviews, stats.applied ? `${Math.round((stats.interviews / stats.applied) * 100)}% of applications` : "—"],
                 ["Live jobs", stats.jobs.toLocaleString(), `${stats.jobs_24h.toLocaleString()} refreshed in 24 h`],
@@ -186,7 +185,7 @@ export default function AdminPage() {
                       <td className="px-4 py-3"><p className="font-semibold">{u.full_name || "—"} {u.role === "admin" && <span className="pill ml-1 bg-pink-tint text-pink-ink">admin</span>}</p><p className="text-xs text-muted">{u.email}</p></td>
                       <td className="px-4 py-3">
                         <select aria-label={`Plan for ${u.email}`} className="rounded-md border border-line px-2 py-1 text-sm" value={u.plan} onChange={(e) => setPlan(u.id, e.target.value)}>
-                          {PLANS.map((p) => <option key={p.id} value={p.id}>{PLAN_BY_ID[p.id].name}</option>)}
+                          {PLAN_OPTIONS.map(([id, name]) => <option key={id} value={id}>{name}</option>)}
                         </select>
                       </td>
                       <td className="px-4 py-3">{u.citizenship || "—"}</td>

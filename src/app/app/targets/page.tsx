@@ -7,7 +7,7 @@ import { ChoiceCard, Segmented, TagInput, Toast, Toggle } from "@/components/ui"
 import { useMe } from "@/lib/me";
 import { supabaseBrowser } from "@/lib/supabase/client";
 import { COUNTRIES, COUNTRY_BY_CODE, INDUSTRIES } from "@/lib/countries";
-import { PLAN_BY_ID } from "@/lib/plans";
+import { effectivePlan } from "@/lib/access";
 import type { ApplyScope, TargetPrefs, TargetRole, WorkAuth, WorkStatus } from "@/lib/types";
 
 const LEVELS = ["intern", "entry", "mid", "senior", "lead"];
@@ -20,7 +20,7 @@ type Board = { id: number; name: string; ats: string; last_count: number | null;
 
 export default function TargetsPage() {
   const { profile, prefs, roles, auth, userId, refresh } = useMe();
-  const plan = PLAN_BY_ID[profile?.plan || "free"];
+  const plan = effectivePlan(profile?.plan);
   const [p, setP] = useState<TargetPrefs | null>(null);
   const [rs, setRs] = useState<TargetRole[]>([]);
   const [as, setAs] = useState<WorkAuth[]>([]);
@@ -69,7 +69,7 @@ export default function TargetsPage() {
     const t = newRole.trim();
     if (!t) return;
     if (rs.length >= plan.limits.roles) {
-      setToast(`The ${plan.name} plan includes ${plan.limits.roles} target role${plan.limits.roles > 1 ? "s" : ""}. Upgrade to add more.`);
+      setToast(`You can have up to ${plan.limits.roles} target roles. Pause or remove one to add another.`);
       return;
     }
     setRs((x) => [...x, { id: `new-${Date.now()}`, title: t, levels: ["entry", "mid"], keywords: [], priority: 2, active: true }]);
@@ -80,7 +80,7 @@ export default function TargetsPage() {
   function toggleCountry(code: string) {
     const on = p!.countries.includes(code);
     if (!on && p!.countries.length >= plan.limits.countries) {
-      setToast(`The ${plan.name} plan includes ${plan.limits.countries} countr${plan.limits.countries > 1 ? "ies" : "y"}. Upgrade to add more.`);
+      setToast(`You can target up to ${plan.limits.countries} countries at once.`);
       return;
     }
     set({ countries: on ? p!.countries.filter((c) => c !== code) : [...p!.countries, code] });
@@ -150,7 +150,7 @@ export default function TargetsPage() {
         <section className="card p-5 sm:p-6" aria-labelledby="roles-h">
           <div className="flex flex-wrap items-baseline justify-between gap-2">
             <h2 id="roles-h" className="text-lg font-bold">Target roles</h2>
-            <span className="text-sm text-muted">{rs.length} of {plan.limits.roles >= 100 ? "unlimited" : plan.limits.roles} on {plan.name}</span>
+            <span className="text-sm text-muted">{rs.length} of {plan.limits.roles}</span>
           </div>
           <ul className="mt-4 space-y-3">
             {rs.map((r) => (

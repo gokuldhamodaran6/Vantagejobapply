@@ -8,7 +8,7 @@ const LINKS = [
   { href: "#how", label: "How it works" },
   { href: "#countries", label: "Countries" },
   { href: "#features", label: "Features" },
-  { href: "#pricing", label: "Pricing" },
+  { href: "#early-access", label: "Early access" },
   { href: "#faq", label: "FAQ" },
 ];
 
@@ -39,7 +39,7 @@ export function LandingNav() {
         </ul>
         <div className="ml-auto hidden items-center gap-2 sm:flex">
           <Link href="/login" className="btn-ghost">Log in</Link>
-          <Link href="/signup" className="btn-primary">Create free account</Link>
+          <Link href="/signup" className="btn-primary">Join early access</Link>
         </div>
         <button
           type="button"
@@ -64,7 +64,7 @@ export function LandingNav() {
           </ul>
           <div className="grid grid-cols-2 gap-2">
             <Link href="/login" className="btn-secondary">Log in</Link>
-            <Link href="/signup" className="btn-primary">Sign up free</Link>
+            <Link href="/signup" className="btn-primary">Join free</Link>
           </div>
         </div>
       )}

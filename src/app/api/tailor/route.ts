@@ -21,7 +21,7 @@ export async function POST(req: Request) {
     .eq("type", "tailor")
     .gte("created_at", monthStart.toISOString());
   if ((count || 0) >= ctx.plan.limits.tailorsPerMonth) {
-    return json({ error: `You've used all ${ctx.plan.limits.tailorsPerMonth} tailored applications on the ${ctx.plan.name} plan this month.`, upgrade: true }, 402);
+    return json({ error: `You've reached this month's limit of ${ctx.plan.limits.tailorsPerMonth} tailored applications. It resets on the 1st.` }, 429);
   }
 
   let job = body.job as Job | undefined;

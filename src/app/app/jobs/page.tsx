@@ -12,7 +12,7 @@ import { money, timeAgo, tintFor, initials } from "@/lib/format";
 import type { Job, MatchResult } from "@/lib/types";
 
 type Item = { job: Job; match: MatchResult };
-type Resp = { results: Item[]; meta: { sources: Record<string, number>; hidden: number; total: number; refreshed: number; sponsorCheck?: boolean }; tookMs: number; error?: string; upgrade?: boolean };
+type Resp = { results: Item[]; meta: { sources: Record<string, number>; hidden: number; total: number; refreshed: number; sponsorCheck?: boolean }; tookMs: number; error?: string };
 
 const SOURCE_LABEL: Record<string, string> = {
   greenhouse: "Greenhouse", lever: "Lever", ashby: "Ashby", workday: "Workday", smartrecruiters: "SmartRecruiters", workable: "Workable", recruitee: "Recruitee",
@@ -115,7 +115,7 @@ export default function JobsPage() {
 
       {data?.error && (
         <div className="card mb-4 border-[#fbd9bc] bg-[#fff8f1] p-4 text-sm">
-          {data.error} {data.upgrade && <Link href="/app/settings#billing" className="font-semibold text-brand-ink">See plans</Link>}
+          {data.error}
         </div>
       )}
 

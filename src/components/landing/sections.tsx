@@ -160,10 +160,10 @@ export function FinalCta() {
         <h2 className="mx-auto max-w-2xl text-3xl font-bold tracking-tight text-white sm:text-4xl">
           Stop applying to jobs that were never going to sponsor you.
         </h2>
-        <p className="mx-auto mt-4 max-w-xl text-lg text-[#c9cedb]">Create your account, set your status, and see which live jobs fit you today.</p>
+        <p className="mx-auto mt-4 max-w-xl text-lg text-[#c9cedb]">Join free during early access, set your status, and see which live jobs fit you today.</p>
         <div className="mt-8 flex flex-wrap justify-center gap-3">
-          <Link href="/signup" className="btn min-h-12 bg-white px-6 text-[15px] text-ink hover:bg-canvas">Create free account</Link>
-          <a href="#pricing" className="btn min-h-12 border border-white/25 px-6 text-[15px] text-white hover:bg-white/10">Compare plans</a>
+          <Link href="/signup" className="btn min-h-12 bg-white px-6 text-[15px] text-ink hover:bg-canvas">Join early access</Link>
+          <a href="#how" className="btn min-h-12 border border-white/25 px-6 text-[15px] text-white hover:bg-white/10">See how it works</a>
         </div>
       </div>
     </section>

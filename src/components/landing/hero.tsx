@@ -116,7 +116,7 @@ export function Hero() {
             className="mb-6 inline-flex items-center gap-2 rounded-full border border-line bg-white px-3 py-1.5 text-[13px] font-medium text-ink-2"
           >
             <ShieldCheck size={15} className="text-brand" />
-            Visa rules built in for the US, UK, Canada and Australia
+            Free during early access · Visa rules built in for the US, UK, Canada and Australia
           </motion.div>
           <motion.h1
             initial={{ opacity: 0, y: 16 }}
@@ -141,11 +141,11 @@ export function Hero() {
             transition={{ duration: 0.6, delay: 0.2 }}
             className="mt-8 flex flex-wrap gap-3"
           >
-            <Link href="/signup" className="btn-primary min-h-12 px-6 text-[15px]">Create free account</Link>
+            <Link href="/signup" className="btn-primary min-h-12 px-6 text-[15px]">Join early access — it&apos;s free</Link>
             <a href="#how" className="btn-secondary min-h-12 px-6 text-[15px]">See how it works</a>
           </motion.div>
           <ul className="mt-8 flex flex-wrap gap-x-6 gap-y-2 text-sm text-ink-2">
-            {["No credit card", "Honest answers on every form", "Cancel anytime"].map((t) => (
+            {["Free during early access", "No credit card", "Honest answers on every form"].map((t) => (
               <li key={t} className="flex items-center gap-2">
                 <Check size={16} className="text-green" strokeWidth={2.5} /> {t}
               </li>

@@ -9,9 +9,6 @@ export async function GET(req: NextRequest) {
   const sp = req.nextUrl.searchParams;
   const allowedCountries = (ctx.prefs?.countries || []).slice(0, ctx.plan.limits.countries);
   const country = (sp.get("country") || allowedCountries[0] || "US").toUpperCase();
-  if (allowedCountries.length && !allowedCountries.includes(country) && ctx.plan.id === "free") {
-    return json({ error: "Your Free plan searches your first target country. Upgrade to search more countries.", upgrade: true }, 402);
-  }
 
   const started = Date.now();
   try {

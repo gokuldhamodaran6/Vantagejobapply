@@ -50,7 +50,7 @@ export default function SignupPage() {
   }
 
   return (
-    <AuthShell title="Create your account" subtitle="Free to start. No credit card needed." aside={<AuthAside />}>
+    <AuthShell title="Join early access" subtitle="Free during early access. No credit card needed." aside={<AuthAside />}>
       <GoogleButton label="Sign up with Google" />
       <form onSubmit={onSubmit} noValidate>
         <FormError message={error} />

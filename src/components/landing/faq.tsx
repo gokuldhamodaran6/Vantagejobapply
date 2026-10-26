@@ -3,6 +3,10 @@ import { Logo } from "@/components/brand";
 
 const FAQ = [
   {
+    q: "Is Vantage free?",
+    a: "Yes. Vantage is free for everyone during early access, with every feature unlocked and no credit card. If that ever changes, members will hear about it well in advance.",
+  },
+  {
     q: "Can someone from India apply for sponsored jobs in the UK, US, Canada or Australia?",
     a: "Yes. You set your citizenship and where you want to work, and Vantage only shows jobs that can legally hire you — for example, UK employers on the licensed sponsor register for degree-level roles. If your occupation isn't eligible for sponsorship in that country (UK lorry drivers, for instance), Vantage tells you plainly instead of wasting your applications.",
   },
@@ -20,7 +24,7 @@ const FAQ = [
   },
   {
     q: "Does the agent apply for me automatically?",
-    a: "On Autopilot, the agent prepares and queues applications for you every day — tailored resume, cover letter and answers — and you choose whether it submits on its own or waits for your approval. On Pro, you submit with one click.",
+    a: "The agent prepares each application for you — tailored resume, cover letter and truthful answers — and opens the employer's official form. You choose how independent it is: approve every application, approve only important ones, or fully automatic. Automatic form-filling on employer sites is rolling out during early access.",
   },
   {
     q: "Is this immigration advice?",
@@ -63,7 +67,7 @@ export function Footer() {
         <nav aria-label="Footer" className="grid grid-cols-2 gap-x-12 gap-y-2 text-sm">
           <a href="#features" className="text-ink-2 hover:text-ink">Features</a>
           <Link href="/legal/terms" className="text-ink-2 hover:text-ink">Terms</Link>
-          <a href="#pricing" className="text-ink-2 hover:text-ink">Pricing</a>
+          <a href="#early-access" className="text-ink-2 hover:text-ink">Early access</a>
           <Link href="/legal/privacy" className="text-ink-2 hover:text-ink">Privacy</Link>
           <a href="#countries" className="text-ink-2 hover:text-ink">Countries</a>
           <Link href="/login" className="text-ink-2 hover:text-ink">Log in</Link>
