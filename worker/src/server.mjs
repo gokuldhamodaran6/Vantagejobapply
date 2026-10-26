@@ -98,7 +98,7 @@ if (process.env.PILOT_SELFTEST === "1") {
     } catch (e) {
       console.error("[selftest] crashed", e);
     }
-  }, 8000);
+  }, Number(process.env.PILOT_SELFTEST_DELAY || 150_000)); // give the app time to finish deploying
 }
 // Safety net: check the queue every minute while recently busy.
 setInterval(() => {
