@@ -15,7 +15,12 @@ export async function storeJobs(jobs: Job[]) {
   let total = 0;
   for (let i = 0; i < jobs.length; i += 300) {
     const chunk = jobs.slice(i, i + 300).map((j) => ({ ...j, description: (j.description || "").slice(0, 15000) }));
-    const { data, error } = await supa.rpc("ingest_jobs", { secret: ingestSecret(), rows: chunk });
+    let res = await supa.rpc("ingest_jobs", { secret: ingestSecret(), rows: chunk });
+    if (res.error) {
+      await new Promise((r) => setTimeout(r, 1500));
+      res = await supa.rpc("ingest_jobs", { secret: ingestSecret(), rows: chunk });
+    }
+    const { data, error } = res;
     if (error) console.error("ingest_jobs failed", error.message);
     else total += (data as number) || 0;
   }

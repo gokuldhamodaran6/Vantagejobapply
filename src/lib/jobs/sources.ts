@@ -77,7 +77,11 @@ type GhJob = { id: number; title: string; absolute_url: string; location?: { nam
 const decode = (s: string) => s.replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, "&");
 
 async function greenhouse(b: Board): Promise<Job[] | null> {
-  const data = await getJson<{ jobs: GhJob[] }>(`https://boards-api.greenhouse.io/v1/boards/${b.token}/jobs?content=true`, {}, 20000);
+  const base = `https://boards-api.greenhouse.io/v1/boards/${b.token}/jobs`;
+  // Large employers publish multi-MB feeds with full descriptions; fall back to the light list if that is slow.
+  const data =
+    (await getJson<{ jobs: GhJob[] }>(`${base}?content=true`, {}, 45000)) ||
+    (await getJson<{ jobs: GhJob[] }>(base, {}, 20000));
   if (!data) return null;
   return data.jobs.map((j) => {
     const loc = j.location?.name || null;
