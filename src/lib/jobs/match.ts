@@ -1,49 +1,11 @@
 import { analyzeText, normCompany } from "./signals";
+import { roleSimilarity } from "./roles";
+import { stateHit } from "./places";
+import { authorisedNow, needsSponsorshipLater } from "@/lib/answers";
 import { occupationCheck } from "@/lib/countries";
 import type { Job, MatchResult, TargetPrefs, TargetRole, WorkAuth } from "@/lib/types";
 
-const STOP = new Set(["and", "or", "the", "of", "a", "an", "for", "to", "in", "with", "&", "-", "i", "ii", "iii", "jr", "sr", "senior", "junior", "lead", "staff", "principal", "remote", "hybrid"]);
-
-const SYNONYMS: Record<string, string[]> = {
-  developer: ["engineer", "programmer", "swe", "dev"],
-  engineer: ["developer", "swe"],
-  software: ["backend", "frontend", "full", "stack", "fullstack", "web", "application"],
-  analyst: ["analytics", "analysis"],
-  analytics: ["analyst", "bi", "intelligence"],
-  driver: ["hgv", "lgv", "cdl", "trucker", "lorry", "truck", "delivery", "haulage"],
-  truck: ["hgv", "lgv", "lorry", "cdl", "trucking", "haulage"],
-  nurse: ["rn", "nursing", "midwife"],
-  data: ["analytics", "bi"],
-  designer: ["design", "ux", "ui", "product"],
-  manager: ["management", "lead", "head"],
-  accountant: ["accounting", "finance", "bookkeeper"],
-  marketing: ["growth", "brand", "digital", "seo"],
-  sales: ["account", "business", "development", "bdr", "sdr"],
-};
-
-function tokens(s: string): string[] {
-  return (s || "")
-    .toLowerCase()
-    .replace(/[^a-z0-9+#. ]/g, " ")
-    .split(/\s+/)
-    .map((t) => t.replace(/\.$/, ""))
-    .filter((t) => t && !STOP.has(t));
-}
-
-function expand(ts: string[]): Set<string> {
-  const out = new Set(ts);
-  ts.forEach((t) => (SYNONYMS[t] || []).forEach((s) => out.add(s)));
-  return out;
-}
-
-export function roleSimilarity(roleTitle: string, jobTitle: string): number {
-  const r = tokens(roleTitle);
-  if (!r.length) return 0;
-  const j = expand(tokens(jobTitle));
-  const hits = r.filter((t) => j.has(t) || (SYNONYMS[t] || []).some((s) => j.has(s))).length;
-  const exact = jobTitle.toLowerCase().includes(roleTitle.toLowerCase()) ? 0.25 : 0;
-  return Math.min(1, hits / r.length + exact);
-}
+export { roleSimilarity } from "./roles";
 
 const LEVEL_ORDER = ["intern", "entry", "mid", "senior", "lead"];
 
@@ -61,6 +23,7 @@ export function matchJob(job: Job, ctx: MatchCtx): MatchResult {
   const warnings: string[] = [];
   const blockers: string[] = [];
   const signals = analyzeText(job.title, job.description);
+  let tooSenior = false;
 
   // 1. Role fit
   let best: TargetRole | undefined;
@@ -92,8 +55,9 @@ export function matchJob(job: Job, ctx: MatchCtx): MatchResult {
       score += 4;
       warnings.push(`Stretch: listed as ${signals.level}`);
     } else {
-      score -= 10;
-      warnings.push(`Level mismatch: ${signals.level}`);
+      score -= 12;
+      warnings.push(`Level mismatch: listed as ${signals.level}`);
+      if (got > Math.max(...want)) tooSenior = true;
     }
   } else {
     score += 6;
@@ -108,10 +72,10 @@ export function matchJob(job: Job, ctx: MatchCtx): MatchResult {
       warnings.push("Outside your target countries");
     } else {
       const loc = (job.location || "").toLowerCase();
-      const cityHit = prefs.locations.some((l) => l.country === job.country && l.city && loc.includes(l.city.toLowerCase()));
+      const cityHit = prefs.locations.some((l) => l.country === job.country && ((l.city && loc.includes(l.city.toLowerCase())) || (l.state && stateHit(loc, l.state))));
       if (cityHit) {
         score += 12;
-        reasons.push("In one of your target cities");
+        reasons.push("In one of your target locations");
       } else if (job.remote && prefs.remote_ok) {
         score += 10;
         reasons.push("Remote");
@@ -157,10 +121,12 @@ export function matchJob(job: Job, ctx: MatchCtx): MatchResult {
   // 5. Work authorization & sponsorship (decides eligibility)
   const auth = ctx.auth.find((a) => a.country === job.country);
   const citizenLike = auth ? CITIZEN_LIKE.has(auth.status) : false;
-  const needsNow = auth ? auth.needs_sponsorship_now && !citizenLike : true;
-  const needsLater = auth ? auth.needs_sponsorship_future && !citizenLike : true;
+  const needsNow = !authorisedNow(auth);
+  const needsLater = needsSponsorshipLater(auth);
   const scope = auth?.apply_scope ?? "sponsor_or_silent";
   const restrictions = job.restrictions?.length ? job.restrictions : signals.restrictions;
+  const knownSponsor = job.sponsor_registered;
+  const sponsorLabel = job.country === "US" ? "Has sponsored H-1B visas before" : job.country === "GB" ? "Licensed UK visa sponsor" : "Known visa sponsor";
 
   if (!citizenLike) {
     if (restrictions.includes("Citizens only") || restrictions.includes("Citizens/PR only") || restrictions.includes("US persons only")) {
@@ -177,9 +143,9 @@ export function matchJob(job: Job, ctx: MatchCtx): MatchResult {
   }
   if (needsNow) {
     if (sponsorship === "no") blockers.push("Says it can't sponsor visas");
-    else if (sponsorship === "offers" || job.sponsor_registered) {
+    else if (sponsorship === "offers" || knownSponsor) {
       score += 10;
-      reasons.push(job.sponsor_registered ? "Employer is a licensed visa sponsor" : "Offers visa sponsorship");
+      reasons.push(sponsorship === "offers" ? "Offers visa sponsorship" : sponsorLabel);
     } else if (scope === "sponsor_only") {
       blockers.push("Sponsorship not confirmed (you chose sponsor-only)");
     } else if (job.country === "GB" && ctx.sponsorsLoaded?.has("GB")) {
@@ -191,14 +157,18 @@ export function matchJob(job: Job, ctx: MatchCtx): MatchResult {
     if (sponsorship === "no") {
       if (scope === "any_legal") warnings.push("Won't sponsor later — fine for now only");
       else blockers.push("Won't sponsor in the future");
-    } else if (sponsorship === "offers" || job.sponsor_registered) {
-      score += 6;
-      reasons.push("Sponsors visas — good long-term fit");
+    } else if (sponsorship === "offers" || knownSponsor) {
+      score += 8;
+      reasons.push(sponsorship === "offers" ? "Offers visa sponsorship" : sponsorLabel);
+    } else if (scope === "sponsor_only") {
+      blockers.push("Sponsorship not confirmed (you chose sponsor-only)");
+    } else {
+      warnings.push("You can start now; future sponsorship not mentioned");
     }
   }
 
   score = Math.max(0, Math.min(100, score));
   const eligible = blockers.length === 0;
   const verdict: MatchResult["verdict"] = !eligible ? "blocked" : score >= 75 ? "great" : score >= 55 ? "good" : "stretch";
-  return { score: eligible ? score : Math.min(score, 30), eligible, verdict, reasons, warnings, blockers, role: best };
+  return { score: eligible ? score : Math.min(score, 30), eligible, verdict, reasons, warnings, blockers, role: best, tooSenior, roleFit: roleScore };
 }

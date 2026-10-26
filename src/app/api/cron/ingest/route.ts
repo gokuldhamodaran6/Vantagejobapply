@@ -102,6 +102,12 @@ export async function POST(req: NextRequest) {
     if (task === "boards" || task === "all") out.boards = await ingestBoards(deadline);
     if (task === "enrich" || task === "all") out.enrich = await enrichDescriptions(deadline);
     if (task === "uk_sponsors" || task === "all") out.uk = await ingestUkSponsors();
+    if (task === "agent") {
+      const { syncAll } = await import("@/lib/agent/mailsync");
+      const { autoSource } = await import("@/lib/agent/auto");
+      out.mail = await syncAll(started + 90_000).catch((e) => ({ error: String(e) }));
+      out.auto = await autoSource(deadline).catch((e) => ({ error: String(e) }));
+    }
     if (task === "prune" || task === "all") out.pruned = (await supabaseAnon().rpc("prune_jobs", { secret: ingestSecret(), days: 45 })).data;
   } catch (e) {
     out.error = e instanceof Error ? e.message : String(e);

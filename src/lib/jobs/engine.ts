@@ -3,6 +3,8 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { fetchBoard, type Board } from "./sources";
 import { matchJob } from "./match";
 import { normCompany } from "./signals";
+import { searchVariants } from "./roles";
+import { inPreferredPlace } from "./places";
 import { ingestSecret, supabaseAnon } from "@/lib/supabase/server";
 import type { Job, MatchResult, TargetPrefs, TargetRole, WorkAuth } from "@/lib/types";
 
@@ -61,21 +63,20 @@ async function loadedSponsorCountries(supabase: SupabaseClient): Promise<Set<str
   return set;
 }
 
-const SWAPS: [RegExp, string][] = [
-  [/\bengineer\b/i, "developer"], [/\bdeveloper\b/i, "engineer"], [/\banalyst\b/i, "analytics"],
-  [/\bhgv\b/i, "lgv"], [/\btruck driver\b/i, "cdl driver"], [/\bregistered nurse\b/i, "rn"], [/\bnurse\b/i, "nursing"],
-  [/\bux designer\b/i, "product designer"], [/\bsoftware\b/i, "backend"],
-];
 /** Title plus a few common variants, so "Software Engineer" also finds "Software Developer". */
 export function titleVariants(title: string): string[] {
-  const out = [title];
-  for (const [re, rep] of SWAPS) if (re.test(title)) out.push(title.replace(re, rep));
-  return [...new Set(out.map((t) => t.trim()))].slice(0, 3);
+  return searchVariants(title, 3);
 }
 
-function toQuery(title: string) {
-  return title.toLowerCase().replace(/[^a-z0-9 ]/g, " ").split(/\s+/).filter((w) => w.length > 1).join(" ");
+/** Build a title-weighted OR query: each phrase must appear in the job title, in order. */
+export function titleTsQuery(phrases: string[]): string {
+  const parts = phrases
+    .map((p) => p.toLowerCase().replace(/[^a-z0-9 ]/g, " ").split(/\s+/).filter((w) => w.length > 1 && !TS_STOP.has(w)))
+    .filter((ws) => ws.length)
+    .map((ws) => (ws.length === 1 ? `${ws[0]}:A` : `(${ws.map((w) => `${w}:A`).join(" <-> ")})`));
+  return [...new Set(parts)].join(" | ");
 }
+const TS_STOP = new Set(["and", "or", "the", "of", "a", "an", "for", "to", "in", "with", "at", "on", "by", "is", "be", "as"]);
 
 export type SearchInput = {
   country: string;
@@ -100,8 +101,8 @@ export async function searchForUser(
   const maxDays = input.maxDaysOld ?? 60;
   const activeRoles = ctx.roles.filter((r) => r.active).slice(0, ctx.roleLimit);
   const roles = input.roleId ? activeRoles.filter((r) => r.id === input.roleId) : activeRoles;
-  const queries = input.q ? [input.q] : [...new Set(roles.flatMap((r) => titleVariants(r.title)))];
-  if (!queries.length) return { results: [] as ScoredJob[], meta: { sources: {}, hidden: 0, total: 0, refreshed: 0, sponsorCheck: false } };
+  const phrases = input.q ? searchVariants(input.q, 6) : [...new Set(roles.flatMap((r) => searchVariants(r.title, 10)))];
+  if (!phrases.length) return { results: [] as ScoredJob[], meta: { sources: {}, hidden: 0, hiddenBy: {}, total: 0, refreshed: 0, sponsorCheck: false } };
 
   // 1) Keep target companies real-time: refresh their feeds if older than 20 minutes.
   let refreshed = 0;
@@ -117,49 +118,58 @@ export async function searchForUser(
     }
   }
 
-  // 2) Search stored jobs from official employer feeds.
+  // 2) One ranked, title-weighted search over stored jobs from official employer feeds.
   const since = new Date(Date.now() - maxDays * 864e5).toISOString();
-  const tasks = queries.slice(0, 9).map((q) =>
-    supabase
-      .from("jobs")
-      .select(JOB_COLS)
-      .eq("country", country)
-      .neq("source", "adzuna")
-      .or(`posted_at.gte."${since}",posted_at.is.null`)
-      .textSearch("fts", toQuery(q), { type: "websearch", config: "english" })
-      .order("posted_at", { ascending: false, nullsFirst: false })
-      .limit(250),
-  );
-  const [dbRes, sponsorsLoaded] = await Promise.all([Promise.all(tasks), loadedSponsorCountries(supabase)]);
+  const [dbRes, sponsorsLoaded] = await Promise.all([
+    supabase.rpc("search_jobs", { p_country: country, p_tsquery: titleTsQuery(phrases), p_since: since, p_limit: 500 }),
+    loadedSponsorCountries(supabase),
+  ]);
+  if (dbRes.error) throw new Error(dbRes.error.message);
 
   const byKey = new Map<string, Job>();
-  dbRes.forEach((r) =>
-    ((r.data as Job[] | null) || []).forEach((j) => {
-      const k = `${normCompany(j.company)}|${j.title.toLowerCase().trim()}|${(j.location || "").toLowerCase().split(",")[0]}`;
-      if (!byKey.has(k)) byKey.set(k, j);
-    }),
-  );
+  ((dbRes.data as Job[] | null) || []).forEach((j) => {
+    if (j.source === "adzuna") return;
+    const k = `${normCompany(j.company)}|${j.title.toLowerCase().trim()}|${(j.location || "").toLowerCase().split(",")[0]}`;
+    if (!byKey.has(k)) byKey.set(k, j);
+  });
 
   let hidden = 0;
+  const hiddenBy: Record<string, number> = {};
   const sources: Record<string, number> = {};
   const results: ScoredJob[] = [];
-  const cities = (ctx.prefs?.locations || []).filter((l) => l.country === country).map((l) => l.city.toLowerCase());
+  const hasPlaces = (ctx.prefs?.locations || []).some((l) => l.country === country);
   for (const job of byKey.values()) {
     if (input.remoteOnly && !job.remote) continue;
     if (input.city && !(job.location || "").toLowerCase().includes(input.city.toLowerCase())) continue;
     sources[job.source] = (sources[job.source] || 0) + 1;
     const match = matchJob(job, { roles: ctx.roles, prefs: ctx.prefs, auth: ctx.auth, sponsorsLoaded });
-    if (!match.eligible) hidden += 1;
-    if (!match.eligible && !input.showBlocked) continue;
+    const hideReason = !match.eligible ? hiddenCategory(match.blockers[0]) : match.tooSenior && !input.showBlocked && !input.q ? "Too senior for your levels" : null;
+    if (hideReason) {
+      hidden += 1;
+      hiddenBy[hideReason] = (hiddenBy[hideReason] || 0) + 1;
+      if (!input.showBlocked) continue;
+    }
+    if (!input.q && (match.roleFit ?? 1) < 0.45) continue;
     if (!input.q && match.score < 30) continue;
     // If the user picked cities, keep jobs in those cities, remote, or anywhere when the location is unknown.
-    if (cities.length && !input.city && !job.remote && job.location && !cities.some((c) => job.location!.toLowerCase().includes(c)) && match.score < 70) continue;
+    if (hasPlaces && !input.city && !inPreferredPlace(job, ctx.prefs) && match.score < 70) continue;
     results.push({ job, match });
   }
   results.sort((a, b) => b.match.score - a.match.score || (Date.parse(b.job.posted_at || "") || 0) - (Date.parse(a.job.posted_at || "") || 0));
 
   return {
     results: results.slice(0, 150),
-    meta: { sources, hidden, total: byKey.size, refreshed, sponsorCheck: sponsorsLoaded.has(country) },
+    meta: { sources, hidden, hiddenBy, total: byKey.size, refreshed, sponsorCheck: sponsorsLoaded.has(country) },
   };
+}
+
+function hiddenCategory(blocker: string | undefined): string {
+  const b = (blocker || "").toLowerCase();
+  if (b.includes("sponsor-only")) return "Don't confirm sponsorship";
+  if (b.includes("can't sponsor") || b.includes("won't sponsor")) return "Say they won't sponsor";
+  if (b.includes("citizens") || b.includes("residents")) return "Citizens or residents only";
+  if (b.includes("clearance")) return "Need security clearance";
+  if (b.includes("register")) return "Not a licensed sponsor";
+  if (b.includes("never-apply")) return "On your never-apply list";
+  return "Other visa rules";
 }

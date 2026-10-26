@@ -12,7 +12,7 @@ import { money, timeAgo, tintFor, initials } from "@/lib/format";
 import type { Job, MatchResult } from "@/lib/types";
 
 type Item = { job: Job; match: MatchResult };
-type Resp = { results: Item[]; meta: { sources: Record<string, number>; hidden: number; total: number; refreshed: number; sponsorCheck?: boolean }; tookMs: number; error?: string };
+type Resp = { results: Item[]; meta: { sources: Record<string, number>; hidden: number; hiddenBy?: Record<string, number>; total: number; refreshed: number; sponsorCheck?: boolean }; tookMs: number; error?: string };
 
 const SOURCE_LABEL: Record<string, string> = {
   greenhouse: "Greenhouse", lever: "Lever", ashby: "Ashby", workday: "Workday", smartrecruiters: "SmartRecruiters", workable: "Workable", recruitee: "Recruitee",
@@ -104,13 +104,26 @@ export default function JobsPage() {
       </div>
 
       {data && !data.error && (
-        <p className="mb-4 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted">
-          <span className="font-semibold text-ink">{data.results.length} jobs fit you</span>
-          {data.meta.hidden > 0 && <span>· {data.meta.hidden} hidden because they can&apos;t hire you</span>}
-          {sourcesText && <span>· from {sourcesText}</span>}
-          {data.meta.sponsorCheck && <span className="inline-flex items-center gap-1 text-green-ink"><ShieldCheck size={14} /> Sponsor register checked</span>}
-          <span>· {Math.max(1, Math.round(data.tookMs))} ms</span>
-        </p>
+        <div className="mb-4 space-y-2">
+          <p className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted">
+            <span className="font-semibold text-ink">{data.results.length} {data.results.length === 1 ? "job fits" : "jobs fit"} you</span>
+            {sourcesText && <span>· from {sourcesText}</span>}
+            {data.meta.sponsorCheck && <span className="inline-flex items-center gap-1 text-green-ink"><ShieldCheck size={14} /> Sponsor register checked</span>}
+            <span>· {Math.max(1, Math.round(data.tookMs))} ms</span>
+          </p>
+          {data.meta.hidden > 0 && !showBlocked && (
+            <div className="flex flex-wrap items-center gap-2 rounded-xl border border-line bg-white px-3.5 py-2.5 text-sm">
+              <span className="font-semibold">{data.meta.hidden} hidden:</span>
+              {Object.entries(data.meta.hiddenBy || {}).sort((a, b) => b[1] - a[1]).map(([k, v]) => (
+                <span key={k} className="chip bg-canvas text-ink-2">{v} · {k}</span>
+              ))}
+              <button className="ml-auto text-sm font-semibold text-brand-ink" onClick={() => setShowBlocked(true)}>Show them</button>
+              {(data.meta.hiddenBy?.["Don't confirm sponsorship"] || 0) > 0 && (
+                <Link href="/app/targets" className="text-sm font-semibold text-brand-ink">Change sponsorship filter</Link>
+              )}
+            </div>
+          )}
+        </div>
       )}
 
       {data?.error && (

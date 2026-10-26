@@ -1,0 +1,7 @@
+<!doctype html><html><body><h1>Data Analyst</h1>
+<form onsubmit="event.preventDefault(); if(!window.human){ document.getElementById('cap').style.display='block'; return;} document.body.innerHTML='<h1>Thank you for applying</h1>';">
+<label for="n">Full name *</label><input id="n" required>
+<label for="e">Email *</label><input id="e" type="email" required>
+<label for="r">Resume *</label><input id="r" type="file">
+<div id="cap" style="display:none;border:1px solid #ccc;padding:20px;width:300px;height:120px">Please verify you are human. <label><input type="checkbox" onclick="window.human=true; document.getElementById('cap').innerText='Verified';"> I'm not a robot</label></div>
+<button type="submit">Submit application</button></form></body></html>

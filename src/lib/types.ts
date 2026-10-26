@@ -53,7 +53,7 @@ export type TargetRole = {
 
 export type TargetPrefs = {
   countries: string[];
-  locations: { country: string; city: string; radius_km: number }[];
+  locations: { country: string; city: string; state?: string; radius_km: number }[];
   remote_ok: boolean;
   industries: string[];
   industry_mode: "only" | "prefer" | "all";
@@ -125,6 +125,8 @@ export type ResumeContent = {
   projects?: { name: string; tech?: string; bullets: string[] }[];
   education?: { degree: string; school: string; location?: string; end?: string; details?: string }[];
   certifications?: string[];
+  awards?: string[];
+  additional?: string[];
 };
 
 export type Resume = {
@@ -133,6 +135,7 @@ export type Resume = {
   name: string;
   is_master: boolean;
   level_format: string;
+  style?: ResumeStyle | null;
   content: ResumeContent;
   ats_score: number | null;
   updated_at: string;
@@ -146,4 +149,9 @@ export type MatchResult = {
   warnings: string[];
   blockers: string[];
   role?: TargetRole;
+  tooSenior?: boolean;
+  roleFit?: number;
 };
+
+export type ResumeStyle = "classic" | "modern" | "compact" | "executive";
+export type LetterTone = "confident" | "warm" | "bold" | "formal";

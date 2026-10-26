@@ -8,7 +8,7 @@ export type EffectivePlan = { id: string; name: string; limits: Limits };
 export const EARLY_ACCESS_PLAN: EffectivePlan = {
   id: "early",
   name: "Early access",
-  limits: { roles: 10, countries: 6, tailorsPerMonth: 300, autoApplyPerDay: 25, trackLimit: 100000 },
+  limits: { roles: 10, countries: 6, tailorsPerMonth: 6000, autoApplyPerDay: 200, trackLimit: 100000 },
 };
 
 /** Limits for the current user. During early access everyone gets the same. */

@@ -225,7 +225,11 @@ export default function TargetsPage() {
                         </label>
                         {a.status !== "citizen" && a.status !== "permanent_resident" && (
                           <>
-                            <div className="flex items-center justify-between gap-3 text-sm"><span className="font-medium">Need sponsorship to start</span><Toggle checked={a.needs_sponsorship_now} onChange={(v) => setAuth(code, { needs_sponsorship_now: v })} label="Need sponsorship to start" /></div>
+                            {a.status === "post_study_work" ? (
+                              <p className="rounded-lg bg-green-tint px-3 py-2 text-sm text-green-ink">You can start now on this permit — no sponsorship needed to start.</p>
+                            ) : (
+                              <div className="flex items-center justify-between gap-3 text-sm"><span className="font-medium">Need sponsorship to start</span><Toggle checked={a.needs_sponsorship_now} onChange={(v) => setAuth(code, { needs_sponsorship_now: v })} label="Need sponsorship to start" /></div>
+                            )}
                             <div className="flex items-center justify-between gap-3 text-sm"><span className="font-medium">Need sponsorship later</span><Toggle checked={a.needs_sponsorship_future} onChange={(v) => setAuth(code, { needs_sponsorship_future: v })} label="Need sponsorship later" /></div>
                             <select aria-label="Which jobs" className="input" value={a.apply_scope} onChange={(e) => setAuth(code, { apply_scope: e.target.value as ApplyScope })}>
                               <option value="sponsor_or_silent">Jobs that sponsor + jobs that don&apos;t mention it</option>

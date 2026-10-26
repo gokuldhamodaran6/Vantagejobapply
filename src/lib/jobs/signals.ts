@@ -57,11 +57,14 @@ export function analyzeText(title: string, description: string | null | undefine
   const remote = /\bremote\b|work from home|wfh|anywhere in/.test(t) || /\bfully remote\b|100% remote|remote-first/.test(d);
 
   let level: TextSignals["level"] = null;
-  if (/\bintern(ship)?\b|\bco-?op\b|placement year/.test(t)) level = "intern";
-  else if (/\b(junior|jr\.?|graduate|grad|entry[- ]level|associate|trainee|apprentice|new grad)\b|\b(i|1)\b$/.test(t)) level = "entry";
-  else if (/\b(lead|principal|staff|head of|director|manager|vp)\b/.test(t)) level = "lead";
-  else if (/\b(senior|sr\.?|iii|3)\b/.test(t)) level = "senior";
-  else if (/\b(ii|2|mid)\b/.test(t)) level = "mid";
+  if (/\bintern(ship)?\b|\bco-?op\b|placement year|working student/.test(t)) level = "intern";
+  if (!level) {
+    if (/\b(director|head of|vp|vice president|chief|principal|staff|senior manager|sr\.? manager|group product manager|general manager)\b/.test(t)) level = "lead";
+    else if (/\b(lead|team lead|tech lead)\b/.test(t)) level = "lead";
+    else if (/\b(senior|sr\.?|iii|iv)\b/.test(t)) level = "senior";
+    else if (/\b(junior|jr\.?|graduate|grad|entry[- ]level|associate|trainee|apprentice|new grad|early career)\b|\b(i|1)\b$/.test(t)) level = "entry";
+    else if (/\b(ii|2|mid[- ]level)\b/.test(t)) level = "mid";
+  }
 
   let yearsRequired: number | null = null;
   const m = d.match(/(\d{1,2})\+?\s*(?:-|to|–)?\s*(?:\d{1,2})?\s*\+?\s*years?(?:'|’)?\s*(?:of\s+)?(?:relevant |professional |industry |hands-on |work )?experience/);

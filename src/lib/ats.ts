@@ -14,6 +14,24 @@ const SKILLS = [
   "patient care", "nursing", "icu", "emergency", "medication administration", "ehr", "epic", "bls", "acls", "nmc", "nclex",
   "hgv", "class 1", "class 2", "cdl", "tachograph", "cpc", "forklift", "logistics", "warehouse", "route planning",
   "customer service", "sales", "negotiation", "communication", "leadership", "teaching", "curriculum", "electrical", "plumbing",
+  // Marketing & growth
+  "marketing automation", "demand generation", "lifecycle marketing", "email marketing", "paid social", "paid search", "paid media", "ppc",
+  "google ads", "meta ads", "linkedin ads", "facebook ads", "tiktok ads", "programmatic", "marketo", "braze", "iterable", "klaviyo", "mailchimp",
+  "salesforce marketing cloud", "pardot", "amplitude", "mixpanel", "segment", "ga4", "google analytics 4", "google tag manager", "looker studio",
+  "attribution", "cac", "ltv", "roas", "cpa", "cpl", "ctr", "conversion rate optimization", "cro", "landing pages", "copywriting", "brand marketing",
+  "content strategy", "social media", "influencer marketing", "partnerships", "go-to-market", "gtm", "product marketing", "positioning", "messaging",
+  "market research", "competitive analysis", "customer segmentation", "account-based marketing", "abm", "lead generation", "pipeline", "b2b", "b2c",
+  "saas", "events", "webinars", "public relations", "communications", "canva", "adobe creative suite", "photoshop", "illustrator", "premiere pro",
+  "video editing", "wordpress", "webflow", "semrush", "ahrefs", "keyword research", "technical seo", "growth marketing", "performance marketing",
+  "campaign management", "budget management", "marketing analytics", "brand strategy", "community management", "newsletter", "crm",
+  // Product
+  "product strategy", "user research", "customer discovery", "prd", "requirements", "prioritization", "okrs", "kpis", "experimentation",
+  "roadmapping", "cross-functional", "user stories", "backlog", "discovery", "product launch", "pricing", "product analytics", "confluence",
+  "wireframes", "usability testing", "customer journey", "stakeholder", "data-driven", "api", "platform",
+  // Business, ops, finance, people
+  "operations", "process improvement", "vendor management", "supply chain", "procurement", "inventory", "fp&a", "variance analysis",
+  "power query", "vba", "sap s/4hana", "netsuite", "workday", "recruiting", "sourcing", "onboarding", "hris", "payroll", "compliance", "risk management",
+  "customer success", "account management", "retention", "churn", "upselling", "cold outreach", "salesforce crm", "zendesk", "intercom",
 ];
 
 const SECTION_CHECKS = ["summary", "skills", "experience", "education"] as const;
@@ -34,6 +52,8 @@ export function resumeText(c: ResumeContent): string {
     ...(c.projects || []).flatMap((p) => [p.name, p.tech || "", ...p.bullets]),
     ...(c.education || []).flatMap((e) => [e.degree, e.school, e.details || ""]),
     ...(c.certifications || []),
+    ...(c.awards || []),
+    ...(c.additional || []),
   ].filter(Boolean).join(" \n ");
 }
 
@@ -58,11 +78,15 @@ export function scoreResume(c: ResumeContent, targetKeywords: string[] = []): At
     experience: Boolean(c.experience?.length),
     education: Boolean(c.education?.length),
   };
+  const pronouns = bullets.filter((b) => /\b(i|me|my|we|our)\b/i.test(b)).length;
+  const weak = bullets.filter((b) => /^(responsible for|duties included|worked on|helped|assisted with|tasked with)\b/i.test(b.trim())).length;
   const checks = [
     { ok: Boolean(c.email && (c.phone || c.location)), title: "Contact details", detail: c.email ? "Email and location or phone are present" : "Add your email and phone or city" },
     ...SECTION_CHECKS.map((s) => ({ ok: has[s], title: `${s[0].toUpperCase()}${s.slice(1)} section`, detail: has[s] ? "Present with a standard heading" : `Add a ${s} section` })),
     { ok: bullets.length >= 4, title: "Bullet points", detail: `${bullets.length} bullet points across your experience` },
     { ok: bullets.length === 0 || quantified / bullets.length >= 0.5, title: "Measurable results", detail: `${quantified} of ${bullets.length} bullets include a number` },
+    { ok: pronouns === 0, title: "No first-person words", detail: pronouns ? `${pronouns} bullet${pronouns > 1 ? "s use" : " uses"} I/my/we — recruiters expect implied first person` : "Bullets use implied first person" },
+    { ok: weak === 0, title: "Strong opening verbs", detail: weak ? `${weak} bullet${weak > 1 ? "s start" : " starts"} with weak phrases like “Responsible for”` : "Bullets open with action verbs" },
     { ok: words >= 200 && words <= 900, title: "Length", detail: words < 200 ? "A bit short — add detail to your experience" : words > 900 ? "Long — trim to the most relevant points" : `${words} words — a good length` },
   ];
   if (targetKeywords.length) {
@@ -75,59 +99,4 @@ export function scoreResume(c: ResumeContent, targetKeywords: string[] = []): At
   return { score: Math.max(0, Math.min(100, score)), matched, missing, checks };
 }
 
-/* ---------- Plain-text resume → structured content (no AI needed) ---------- */
-const HEADINGS: [RegExp, keyof ResumeContent | "ignore"][] = [
-  [/^(professional )?(summary|profile|objective|about me)\b/i, "summary"],
-  [/^(technical |core |key )?skills|^technologies|^competencies/i, "skills"],
-  [/^(work |professional |employment )?(experience|history)\b/i, "experience"],
-  [/^projects?\b/i, "projects"],
-  [/^education\b|^academic/i, "education"],
-  [/^certifications?|^licen[cs]es/i, "certifications"],
-];
-
-export function parseResumeText(raw: string, fallbackName = ""): ResumeContent {
-  const lines = raw.replace(/\r/g, "").split("\n").map((l) => l.trim()).filter(Boolean);
-  const email = raw.match(/[\w.+-]+@[\w-]+\.[\w.-]+/)?.[0];
-  const phone = raw.match(/\+?\d[\d\s().-]{8,}\d/)?.[0];
-  const links = raw.match(/(https?:\/\/)?(www\.)?(linkedin\.com|github\.com)\/[^\s,|]+/gi) || [];
-  const c: ResumeContent = { name: fallbackName || lines[0] || "", email, phone, links, skills: [], experience: [], projects: [], education: [], certifications: [] };
-
-  let section: keyof ResumeContent | "ignore" | null = null;
-  const summary: string[] = [];
-  for (const line of lines.slice(1)) {
-    const heading = line.length < 40 ? HEADINGS.find(([re]) => re.test(line.replace(/[:•\-–]/g, "").trim())) : undefined;
-    if (heading) {
-      section = heading[1];
-      continue;
-    }
-    const isBullet = /^[•\-*–▪●◦]\s*/.test(line);
-    const text = line.replace(/^[•\-*–▪●◦]\s*/, "");
-    if (section === "summary" || section === null) {
-      if (!email || !line.includes(email)) summary.push(text);
-    } else if (section === "skills") {
-      const [group, rest] = text.includes(":") ? [text.split(":")[0], text.split(":").slice(1).join(":")] : ["Skills", text];
-      c.skills!.push({ group: group.trim(), items: rest.split(/[,|;•]/).map((s) => s.trim()).filter(Boolean) });
-    } else if (section === "experience") {
-      if (isBullet && c.experience!.length) c.experience![c.experience!.length - 1].bullets.push(text);
-      else if (!isBullet) {
-        const dates = text.match(/((\w{3,9}\.? )?\d{4})\s*[-–to]+\s*((\w{3,9}\.? )?\d{4}|present|current|now)/i);
-        const head = dates ? text.replace(dates[0], "").replace(/[|,–-]\s*$/, "").trim() : text;
-        const [title, company] = head.split(/\s+[|@–—-]\s+|,\s+| at /i);
-        if (dates || !c.experience!.length || c.experience![c.experience!.length - 1].bullets.length) {
-          c.experience!.push({ title: (title || head).trim(), company: (company || "").trim(), start: dates?.[1], end: dates?.[3], bullets: [] });
-        } else c.experience![c.experience!.length - 1].bullets.push(text);
-      }
-    } else if (section === "projects") {
-      if (isBullet && c.projects!.length) c.projects![c.projects!.length - 1].bullets.push(text);
-      else c.projects!.push({ name: text, bullets: [] });
-    } else if (section === "education") {
-      const year = text.match(/\b(19|20)\d{2}\b/)?.[0];
-      const [degree, school] = text.split(/\s+[|–—-]\s+|,\s+/);
-      c.education!.push({ degree: (degree || text).trim(), school: (school || "").trim(), end: year });
-    } else if (section === "certifications") {
-      c.certifications!.push(text);
-    }
-  }
-  c.summary = summary.join(" ").slice(0, 900);
-  return c;
-}
+export { parseResumeText } from "@/lib/resume/parse";

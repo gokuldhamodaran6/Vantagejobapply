@@ -299,10 +299,14 @@ export default function OnboardingPage() {
                       </div>
                       {!citizenLike && (
                         <div className="mt-5 space-y-4">
-                          <Question q="Do you need visa sponsorship to start a job?">
-                            <Segmented label="Sponsorship now" value={a.now ? "yes" : "no"} onChange={(v) => updateAuth(c, { now: v === "yes" })}
-                              options={[{ value: "no", label: "No" }, { value: "yes", label: "Yes" }]} />
-                          </Question>
+                          {a.status === "post_study_work" ? (
+                            <p className="rounded-xl bg-green-tint px-4 py-3 text-sm text-green-ink">You can start work now on this permit without sponsorship. Employers will see &ldquo;Yes&rdquo; to &ldquo;Are you authorised to work?&rdquo;</p>
+                          ) : (
+                            <Question q="Can you start a job without a new visa? (No = you need sponsorship to start)">
+                              <Segmented label="Sponsorship now" value={a.now ? "yes" : "no"} onChange={(v) => updateAuth(c, { now: v === "yes" })}
+                                options={[{ value: "no", label: "Yes, I can start" }, { value: "yes", label: "No, I need sponsorship" }]} />
+                            </Question>
+                          )}
                           <Question q="Will you need sponsorship later (for example H-1B or Skilled Worker)?">
                             <Segmented label="Sponsorship later" value={a.later ? "yes" : "no"} onChange={(v) => updateAuth(c, { later: v === "yes" })}
                               options={[{ value: "no", label: "No" }, { value: "yes", label: "Yes" }]} />

@@ -1,0 +1,14 @@
+{
+  "name": "vantage-agent-worker",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Applies to jobs on official careers sites on behalf of Vantage users.",
+  "scripts": {
+    "start": "node src/server.mjs"
+  },
+  "engines": { "node": ">=20" },
+  "dependencies": {
+    "playwright": "1.63.0"
+  }
+}
