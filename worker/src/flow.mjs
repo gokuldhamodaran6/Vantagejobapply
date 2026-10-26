@@ -359,7 +359,9 @@ async function handleAccount(bundle, page, fields, allPasswords) {
   const creating = passwords.length >= 2 || (!cred && createBtn && !signInBtn);
 
   bundle.signIns = (bundle.signIns || 0) + (creating ? 0 : 1);
-  if (!creating && cred && bundle.signIns > 1) {
+  // Slow sign-in pages can show the password box again for a moment: only give up after a real error or 3 tries.
+  const loginError = /incorrect|invalid (email|password|credentials)|wrong password|doesn.?t match|not recogni[sz]ed/.test(text);
+  if (!creating && cred && bundle.signIns > 1 && (loginError || bundle.signIns > 3)) {
     // The saved login didn't work: try creating the account once (it may not exist here), then stop.
     const create = page.getByText(/create (an |your )?account|sign up|register|new user/i).first();
     if (bundle.signIns === 2 && (await create.isVisible().catch(() => false))) {
