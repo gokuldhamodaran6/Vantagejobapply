@@ -1,0 +1,41 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Account Executive - Initrode</title>
+<style>body{font-family:serif;max-width:760px;margin:20px auto}.application-question{list-style:none;margin:16px 0}.dropdown-results div{padding:6px;cursor:pointer;border-bottom:1px solid #eee}
+#cookie{position:fixed;left:0;right:0;bottom:0;background:#333;color:#fff;padding:14px;z-index:10}</style></head>
+<body>
+<h2>Account Executive</h2>
+<form id="f" onsubmit="return send(event)">
+ <ul>
+  <li class="application-question"><div class="application-label">Resume/CV <span class="required">✱</span></div><div class="application-field"><input type="file" name="resume" id="resume-upload-input"></div></li>
+  <li class="application-question"><div class="application-label">Full name <span class="required">✱</span></div><div class="application-field"><input type="text" name="name" required></div></li>
+  <li class="application-question"><div class="application-label">Pronouns</div><div class="application-field"><ul>
+   <li><label><input type="checkbox" name="pronouns" value="He/him"> He/him</label></li><li><label><input type="checkbox" name="pronouns" value="She/her"> She/her</label></li><li><label><input type="checkbox" name="pronouns" value="They/them"> They/them</label></li></ul></div></li>
+  <li class="application-question"><div class="application-label">Email <span class="required">✱</span></div><div class="application-field"><input type="email" name="email" required></div></li>
+  <li class="application-question"><div class="application-label">Current location <span class="required">✱</span></div><div class="application-field">
+   <input type="text" name="location" id="location-input" class="location-input" autocomplete="off" required>
+   <input type="hidden" name="selectedLocation" id="selected-location">
+   <div class="dropdown-container"><div class="dropdown-results" id="results"></div></div></div></li>
+  <li class="application-question"><div class="application-label">Have you ever been previously employed by Initrode? <span class="required">✱</span></div><div class="application-field"><ul>
+   <li><label><input type="checkbox" name="cards[abc][field0]" value="No"> No</label></li>
+   <li><label><input type="checkbox" name="cards[abc][field0]" value="Yes - Intern"> Yes - Intern</label></li>
+   <li><label><input type="checkbox" name="cards[abc][field0]" value="Yes - Full Time Employment"> Yes - Full Time Employment</label></li></ul></div></li>
+  <li class="application-question"><div class="application-label">What is your location?</div><div class="application-field"><select name="eeo[location]"><option value="">Select...</option><option>Afghanistan</option><option>United States</option></select></div></li>
+ </ul>
+ <button type="submit" class="template-btn-submit">Submit application</button>
+ <p id="err" role="alert"></p>
+</form>
+<div id="cookie">Privacy Notice — we use cookies. <button type="button" onclick="this.parentNode.remove()">deny</button> <button type="button" onclick="this.parentNode.remove()">accept</button></div>
+<script>
+const CITIES=["Chicago, Illinois, United States","Chicago Heights, Illinois, United States","Chico, California, United States"];
+const inp=document.getElementById('location-input'), res=document.getElementById('results'), sel=document.getElementById('selected-location');
+inp.addEventListener('input',()=>{ sel.value=''; res.innerHTML=''; const q=inp.value.toLowerCase(); if(q.length<2) return;
+  setTimeout(()=>{ CITIES.filter(c=>c.toLowerCase().includes(q.split(',')[0].trim())).forEach(c=>{const d=document.createElement('div');d.className='dropdown-location';d.textContent=c;d.onclick=()=>{inp.value=c;sel.value=c;res.innerHTML='';};res.appendChild(d);}); },300); });
+// Lever clears a typed location that wasn't picked from the list.
+inp.addEventListener('blur',()=>setTimeout(()=>{ if(!sel.value) inp.value=''; },200));
+function send(e){ e.preventDefault();
+  if(document.getElementById('cookie')) { document.getElementById('err').textContent='Cookie banner still open'; return false; }
+  const f=new FormData(e.target); const prev=f.getAll('cards[abc][field0]');
+  const miss=[]; if(!f.get('name'))miss.push('name'); if(!f.get('email'))miss.push('email'); if(!sel.value)miss.push('location'); if(prev.length!==1)miss.push('previous'); if(!document.getElementById('resume-upload-input').files.length)miss.push('resume');
+  if(miss.length){document.getElementById('err').textContent='Please complete: '+miss.join(', ');return false;}
+  document.body.innerHTML='<h2>Application submitted!</h2><p>Thank you for applying. '+[f.get('name'),sel.value,prev[0]].join(' | ')+'</p>'; return false; }
+</script></body></html>

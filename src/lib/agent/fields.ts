@@ -7,7 +7,7 @@ import type { ResumeContent, WorkAuth } from "@/lib/types";
 export type FormField = {
   id: string; // worker-assigned handle
   label: string;
-  type: "text" | "email" | "tel" | "url" | "number" | "date" | "textarea" | "select" | "combobox" | "radio" | "checkbox" | "file" | "password" | "buttons";
+  type: "text" | "email" | "tel" | "url" | "number" | "date" | "textarea" | "select" | "combobox" | "radio" | "checkbox" | "checkboxes" | "file" | "password" | "buttons";
   name?: string;
   required?: boolean;
   options?: string[];
@@ -320,7 +320,17 @@ export async function planFields(
       } else if (key !== "resume" && key !== "cover_letter" && key !== "full_or_first") {
         value = ctx.facts[key] || null;
         if (key === "sponsorship") value = sponsorshipFor(label, ctx.facts);
-        if (key === "work_authorized" && f.options?.length && value) value = /^yes/i.test(value) ? "Yes" : "No";
+        if (key === "work_authorized" && f.options?.length && value) {
+          value = /^yes/i.test(value) ? "Yes" : "No";
+          // "Yes, no restriction" vs "Yes, but I need sponsorship": pick the one that's true for this person, or ask.
+          const yesOpts = f.options.filter((o) => /^yes\b/i.test(o.trim()));
+          if (value === "Yes" && yesOpts.length > 1) {
+            const needs = ctx.facts.sponsorship_future === "Yes" || ctx.facts.sponsorship_now === "Yes";
+            const limited = yesOpts.find((o) => /sponsor|visa|restrict|temporar|require|permit|\bopt\b|\bead\b|limited/i.test(o) && !/no restriction|without (any )?(restriction|sponsorship)|unrestricted/i.test(o));
+            const full = yesOpts.find((o) => /no restriction|without (any )?(restriction|sponsorship)|unrestricted|citizen|permanent/i.test(o));
+            value = (needs ? limited : full) || null;
+          }
+        }
       }
     }
 
@@ -344,7 +354,7 @@ export async function planFields(
   let aiAnswers: Record<string, string> = {};
   // Certifications, legal, eligibility and identity questions are never answered by AI: only by the user's own saved answers.
   const isConsent = (f: FormField) => /privacy|consent|i agree|acknowledge|terms|certify|attest|accurate and complete|true and correct|data (processing|retention)|i understand/.test(f.label.toLowerCase());
-  const NO_AI = /authori[sz]ed to work|eligible to work|right to work|sponsor|visa|citizen|immigration|green card|clearance|export control|itar|us person|veteran|disabilit|gender|\brace\b|ethnic|hispanic|pronoun|salary|compensation/;
+  const NO_AI = /cities|city|location|relocat|on-?site|in the office|commut|travel|authori[sz]ed to work|eligible to work|right to work|sponsor|visa|citizen|immigration|green card|clearance|export control|itar|us person|veteran|disabilit|gender|\brace\b|ethnic|hispanic|pronoun|salary|compensation/;
   const askable = open.filter((f) => !SENSITIVE.test(f.label.toLowerCase()) && !NO_AI.test(f.label.toLowerCase()) && !isConsent(f));
   if (aiConfigured() && askable.length) {
     const out = await claude(

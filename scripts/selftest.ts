@@ -89,6 +89,14 @@ async function plannerChecks() {
   ], { facts, answers: [], job: { title: "PM", company: "Datadog" }, resume: null, coverLetter: null, consent: false });
   const v = Object.fromEntries(plan.fills.map((x) => [x.id, x.value]));
   ok(v.a === "Yes" && v.b === "United States" && v.c === "Datadog Careers Page" && v.d === "Dhamodaran" && plan.missing.length === 0, "real Greenhouse questions answered (work auth, country, source, last name)");
+  const p2 = await planFields([
+    { id: "e", label: "Are you legally authorised to work full-time in the country where this job is based?*", type: "combobox", options: ["Yes, no restriction.", "Yes, but I will require sponsorship in the future", "No"], required: true },
+    { id: "f", label: "Will you now require immigration sponsorship (e.g., H-1B, STEM OPT, or any immigration work authorization)?*", type: "combobox", options: ["Yes", "No"], required: true },
+    { id: "g", label: "Will you in the future require immigration sponsorship (e.g., H-1B, STEM OPT)?*", type: "combobox", options: ["Yes", "No"], required: true },
+    { id: "h", label: "Have you ever been previously employed by Datadog?*", type: "checkboxes", options: ["No", "Yes - Intern", "Yes - Full Time Employment"], required: true },
+  ], { facts, answers: [], job: { title: "PM", company: "Datadog" }, resume: { name: "x", experience: [{ title: "Analyst", company: "Kaar Tech", start: "2021", end: "2024", bullets: [] }] } as never, coverLetter: null, consent: false });
+  const w = Object.fromEntries(p2.fills.map((x) => [x.id, x.value]));
+  ok(w.e === "Yes, but I will require sponsorship in the future" && w.f === "No" && w.g === "Yes" && w.h === "No", "OPT: authorised now with future sponsorship, never 'no restriction'");
 }
 
 // Interview times from emails.

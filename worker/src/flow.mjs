@@ -1,5 +1,5 @@
 import { call, log, update } from "./api.mjs";
-import { extractFields, fillField, findEntry, findNext, findSubmit, human, humanCheckVisible, isConfirmation, pageText, readComboOptions, visibleErrors } from "./forms.mjs";
+import { declineCookies, extractFields, fillField, findEntry, findNext, findSubmit, human, humanCheckVisible, isConfirmation, pageText, readComboOptions, visibleErrors } from "./forms.mjs";
 import { live } from "./live.mjs";
 import { allowedUrl, baseDomain } from "./guard.mjs";
 
@@ -54,6 +54,7 @@ export async function runTask(bundle, browser) {
     await log(task.id, `Opening ${task.job.company}'s application`, "Opening the application");
     await goto(task.url);
     await settle(page);
+    if (await declineCookies(page)) await settle(page, 600);
 
     for (let step = 0; step < 14; step++) {
       if (Date.now() - started - clock.waited > TASK_BUDGET_MS || Date.now() - started > HARD_CAP_MS) throw new Stop("failed", "Took too long on this site. You can finish it yourself from the job link.");

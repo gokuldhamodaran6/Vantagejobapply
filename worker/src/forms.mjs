@@ -6,7 +6,15 @@ export const human = (min = 120, max = 420) => sleep(min + Math.random() * (max 
 /** Runs inside the page: find every fillable control, give it a stable handle, and describe it. */
 function extractInPage() {
   const W = window;
-  const text = (el) => (el ? (el.innerText || el.textContent || "") : "").replace(/\s+/g, " ").trim();
+  const text = (el) => {
+    if (!el) return "";
+    if (el.querySelector && el.querySelector("select, option, [role='listbox'], [role='option']")) {
+      const c = el.cloneNode(true);
+      c.querySelectorAll("select, option, [role='listbox'], [role='option'], ul[class*='dropdown' i]").forEach((n) => n.remove());
+      return (c.textContent || "").replace(/\s+/g, " ").trim();
+    }
+    return (el.innerText || el.textContent || "").replace(/\s+/g, " ").trim();
+  };
   const visible = (el) => {
     const r = el.getBoundingClientRect();
     const s = getComputedStyle(el);
@@ -77,6 +85,16 @@ function extractInPage() {
     }
     const label = labelOf(el);
     if (type === "checkbox") {
+      // Several checkboxes sharing one name are one question with options (e.g. Lever: "Previously employed? No / Yes - Intern").
+      const group = el.name ? [...document.querySelectorAll(`input[type='checkbox'][name="${CSS.escape(el.name)}"]`)] : [];
+      if (group.length >= 2) {
+        if (seenGroups.has(`cb:${el.name}`)) continue;
+        seenGroups.add(`cb:${el.name}`);
+        const box = el.closest("fieldset, [role='group'], ul, ol") || el.parentElement?.parentElement || el;
+        const gl = (box.tagName === "FIELDSET" && text(box.querySelector("legend"))) || containerLabel(box) || el.name;
+        fields.push({ id: tag(el), type: "checkboxes", label: gl, name: el.name, required: group.some((c) => c.required) || /\*/.test(gl), options: group.map((c) => labelOf(c) || c.value), value: group.filter((c) => c.checked).map((c) => labelOf(c) || c.value).join("; ") });
+        continue;
+      }
       fields.push({ id: tag(el), type: "checkbox", label, name: el.name, required: required(el, label), checked: el.checked });
       continue;
     }
@@ -166,6 +184,13 @@ async function ownOptions(fr, el) {
 
 const cleanOpt = (o) => o.replace(/\s+/g, " ").trim();
 
+/** Suggestions under a type-ahead text box (Lever locations, Google Places, ARIA listboxes). */
+async function suggestions(fr, el) {
+  const own = await ownOptions(fr, el);
+  if (await own.count().catch(() => 0)) return own;
+  return fr.locator(".pac-item:visible, [class*='dropdown-results' i] > *:visible, [class*='dropdown-location' i]:visible, [class*='suggestion' i]:visible, [class*='autocomplete' i] li:visible, [class*='typeahead' i] li:visible");
+}
+
 const STATE_NAMES = { AL: "alabama", AK: "alaska", AZ: "arizona", AR: "arkansas", CA: "california", CO: "colorado", CT: "connecticut", DE: "delaware", DC: "district of columbia", FL: "florida", GA: "georgia", HI: "hawaii", ID: "idaho", IL: "illinois", IN: "indiana", IA: "iowa", KS: "kansas", KY: "kentucky", LA: "louisiana", ME: "maine", MD: "maryland", MA: "massachusetts", MI: "michigan", MN: "minnesota", MS: "mississippi", MO: "missouri", MT: "montana", NE: "nebraska", NV: "nevada", NH: "new hampshire", NJ: "new jersey", NM: "new mexico", NY: "new york", NC: "north carolina", ND: "north dakota", OH: "ohio", OK: "oklahoma", OR: "oregon", PA: "pennsylvania", RI: "rhode island", SC: "south carolina", SD: "south dakota", TN: "tennessee", TX: "texas", UT: "utah", VT: "vermont", VA: "virginia", WA: "washington", WV: "west virginia", WI: "wisconsin", WY: "wyoming", ON: "ontario", BC: "british columbia", QC: "quebec", AB: "alberta" };
 
 /** The option that means the same as the answer: exact, then prefix, then "City, ST" → "City, State, Country". */
@@ -228,6 +253,22 @@ export async function fillField(page, f, fill, files) {
       if (!opt) return false;
       await el.selectOption({ label: opt }, { timeout: 4000 }).catch(() => el.selectOption(opt));
       return true;
+    }
+    if (f.type === "checkboxes") {
+      const wants = String(fill.value || "").split(/;\s*/).map(norm).filter(Boolean);
+      const boxes = fr.locator(`input[type='checkbox'][name="${f.name}"]`);
+      const n = await boxes.count();
+      let hit = 0;
+      for (let i = 0; i < n; i++) {
+        const b = boxes.nth(i);
+        const id = await b.getAttribute("id");
+        const lab = (id ? await fr.locator(`label[for="${id}"]`).first().innerText().catch(() => "") : "") || (await b.evaluate((x) => x.closest("label")?.innerText || x.value || "").catch(() => ""));
+        if (wants.some((w) => norm(lab) === w || norm(lab).startsWith(w))) {
+          if (!(await b.isChecked().catch(() => false))) await b.check({ force: true, timeout: 4000 }).catch(() => b.click({ force: true }));
+          hit++;
+        }
+      }
+      return hit > 0;
     }
     if (f.type === "radio") {
       const name = f.name;
@@ -298,6 +339,28 @@ export async function fillField(page, f, fill, files) {
       v = d.toISOString().slice(0, 10);
     }
     await el.click({ timeout: 4000 }).catch(() => {});
+    const auto = await el.evaluate((n) => Boolean(n.getAttribute("aria-autocomplete") || n.getAttribute("list") || n.getAttribute("aria-controls") || /location|city|autocomplete|places|typeahead/i.test(`${n.id} ${n.name} ${n.className}`))).catch(() => false);
+    if (auto) {
+      // Type like a person so the site's suggestions appear, then choose the one that matches.
+      await el.fill("").catch(() => {});
+      for (const q of [...new Set([v, v.split(",")[0].trim()])]) {
+        await el.fill("").catch(() => {});
+        await el.pressSequentially(q.slice(0, 60), { delay: 40 });
+        await sleep(1300);
+        const opts = await suggestions(fr, el);
+        const texts = (await opts.allInnerTexts().catch(() => [])).map(cleanOpt).filter(Boolean);
+        const pick = chooseOption(texts, v);
+        if (pick) {
+          await opts.nth(texts.indexOf(pick)).click({ timeout: 4000 }).catch(() => {});
+          await sleep(300);
+          return true;
+        }
+        if (!texts.length) break; // a plain text box after all
+      }
+      if (!(await el.inputValue().catch(() => ""))) await el.fill(v).catch(() => {});
+      await el.dispatchEvent("blur").catch(() => {});
+      return true;
+    }
     await el.fill(v, { timeout: 5000 });
     await el.dispatchEvent("blur").catch(() => {});
     return true;
@@ -343,7 +406,31 @@ export async function findSubmit(page) {
   return null;
 }
 export const findNext = (page) => buttonByText(page, NEXT);
-export const findEntry = (page) => buttonByText(page, ENTRY);
+export async function findEntry(page) {
+  // A "Start your application" dialog (Workday and others): pick "Apply manually" so every field stays under our control.
+  for (const frame of page.frames()) {
+    const dlg = frame.locator("[role='dialog']:visible, [aria-modal='true']:visible, [data-automation-id*='Modal' i]:visible").first();
+    if (await dlg.count().catch(() => 0)) {
+      const manual = dlg.getByRole("button", { name: /apply manually/i }).first();
+      if (await manual.isVisible().catch(() => false)) return manual;
+      const link = dlg.getByText(/^apply manually$/i).first();
+      if (await link.isVisible().catch(() => false)) return link;
+    }
+  }
+  return buttonByText(page, ENTRY);
+}
+
+/** Decline optional cookies when a banner covers the form (privacy-preserving choice, and it can block clicks). */
+export async function declineCookies(page) {
+  for (const frame of page.frames()) {
+    const btn = frame.getByRole("button", { name: /^(deny|reject|reject all|decline|decline all|only necessary|necessary only|use necessary cookies only|reject non-essential|refuse)$/i }).first();
+    if (await btn.isVisible().catch(() => false)) {
+      await btn.click({ timeout: 3000 }).catch(() => {});
+      return true;
+    }
+  }
+  return false;
+}
 
 export async function pageText(page) {
   const parts = [];

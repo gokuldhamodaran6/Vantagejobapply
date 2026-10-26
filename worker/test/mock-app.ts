@@ -22,6 +22,7 @@ const tasks: T[] = [
   { id: "t-wd", ats: "workday", url: `${BASE}/fx/workday.html`, job: { title: "Brand Marketing Specialist", company: "Globex", country: "US" }, status: "queued", log: [], userInput: {}, attempts: 0 },
   { id: "t-ghnew", ats: "greenhouse", url: `${BASE}/fx/gh-new.html`, job: { title: "Senior Analyst", company: "Umbrella", country: "US" }, status: "queued", log: [], userInput: {}, attempts: 0 },
   { id: "t-react", ats: "greenhouse", url: `${BASE}/fx/gh-react.html`, job: { title: "Senior Analyst", company: "Umbrella", country: "US" }, status: "queued", log: [], userInput: {}, attempts: 0 },
+  { id: "t-lever", ats: "lever", url: `${BASE}/fx/lever.html`, job: { title: "Account Executive", company: "Initrode", country: "US" }, status: "queued", log: [], userInput: {}, attempts: 0 },
   { id: "t-cap", ats: "generic", url: `${BASE}/fx/captcha.html`, job: { title: "Data Analyst", company: "Hooli", country: "US" }, status: "queued", log: [], userInput: {}, attempts: 0 },
 ];
 const vault: Record<string, { login: string; password: string }> = {};
