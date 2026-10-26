@@ -49,7 +49,7 @@ const sig = (snap) => JSON.stringify([snap.url, snap.items.map((i) => [i.kind, i
  *  { status: "ask", ask }                        questions only the person can answer
  *  { status: "stuck", say }
  */
-export async function pilotPage({ page, task, files, call, log, record, maxTurns = 8 }) {
+export async function pilotPage({ page, task, files, call, log, record, maxTurns = 14 }) {
   task.pilotHistory ||= [];
   let lastSig = "";
   let same = 0;

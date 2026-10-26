@@ -193,7 +193,12 @@
       }
       if (isFile) {
         const box = el.closest("[data-automation-id*='attachment' i], [data-automation-id*='file' i], [class*='upload' i], [class*='drop' i], [class*='file' i], fieldset, section") || el.parentElement;
-        const shown = box ? [...box.querySelectorAll("[data-automation-id*='file-upload-item' i], [data-automation-id*='fileName' i], [class*='file-name' i], [class*='filename' i], [class*='attachment' i] a, [class*='chip' i]")].map(text).filter((t) => /\.\w{2,4}\b/.test(t)).join(", ") : "";
+        // The attached file's name is often shown beside the drop zone, not inside it: look a few levels up.
+        const FILE_ITEMS = "[data-automation-id*='file-upload-item' i], [data-automation-id*='fileName' i], [data-automation-id*='uploaded' i], [class*='file-name' i], [class*='filename' i], [class*='attachment' i] a, [class*='chip' i], [class*='uploaded' i]";
+        let shown = "";
+        for (let p = el.parentElement, k = 0; p && k < 5 && !shown; p = p.parentElement, k++) {
+          shown = [...p.querySelectorAll(FILE_ITEMS)].map(text).filter((t) => /\.(pdf|docx?|rtf|txt|odt|pages)\b/i.test(t)).join(", ");
+        }
         const l = label || (box && text(box).slice(0, 120)) || "File upload";
         add(el, { kind: "file", label: l, value: shown || (el.files?.length ? [...el.files].map((f) => f.name).join(", ") : ""), required: isRequired(el, l), section: sectionOf(el), error: errorOf(el), accept: el.getAttribute("accept") || "" });
         continue;
@@ -335,11 +340,20 @@
     fire(t, "keyup", { key: k, code: k, keyCode: code, which: code });
   }
 
+  // Common equivalents in answer lists (degrees, yes/no wording, countries).
+  const canon = (s) => norm(s)
+    .replace(/\bmaster of business administration\b|\bm b a\b/g, "mba")
+    .replace(/\bbachelor s degree\b|\bbachelors? (of|in) [a-z ]+$|\bbachelors? degree\b|\bb ?(sc|s|a|e|tech|com)\b/g, "bachelor")
+    .replace(/\bmaster s degree\b|\bmasters? (of|in) [a-z ]+$|\bmasters? degree\b|\bm ?(sc|s|a|e|tech)\b/g, "master")
+    .replace(/\bdoctor of philosophy\b|\bph ?d\b|\bdoctorate\b/g, "doctorate")
+    .replace(/\b(united states of america|united states|usa|u s a|u s)\b/g, "us")
+    .replace(/\b(united kingdom|great britain|uk)\b/g, "uk");
   // How well an option's text matches the answer (1 = same).
   function score(opt, want) {
     const o = norm(opt), w = norm(want);
     if (!o || !w) return 0;
     if (o === w) return 1;
+    if (canon(opt) === canon(want)) return 0.95;
     if (o.startsWith(w) || w.startsWith(o) && o.length > 3) return 0.92;
     if (o.includes(w)) return 0.85;
     if (w.includes(o) && o.length > 3) return 0.8;

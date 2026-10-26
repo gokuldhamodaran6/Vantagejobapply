@@ -22,7 +22,7 @@ export async function selftest(browser, name = "wd-real.html") {
   try {
     await page.goto("https://pilot-test.example.com/apply");
     for (let step = 0; step < 24; step++) {
-      const r = await pilotPage({ page, task, files, call: callT, log: async (s) => console.log("[selftest] say:", s), record: (it, v) => { recorded[`${it.section || ""} | ${it.label}`] = v; }, maxTurns: 6 });
+      const r = await pilotPage({ page, task, files, call: callT, log: async (s) => console.log("[selftest] say:", s), record: (it, v) => { recorded[`${it.section || ""} | ${it.label}`] = v; }, maxTurns: 14 });
       const st = await page.evaluate(() => window.__state?.page).catch(() => "?");
       console.log("[selftest] page", st, "→", r.status, r.say || "", r.ask ? JSON.stringify(r.ask.map((q) => q.label)) : "");
       if (r.status === "ask") {
