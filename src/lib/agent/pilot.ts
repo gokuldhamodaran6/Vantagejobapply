@@ -345,13 +345,15 @@ export function __validate(p: { say?: string; actions?: PilotAction[]; status?: 
         continue;
       }
       const opts = target.options?.length ? target.options : snap.items.filter((x) => x.kind === "option" && x.of === target.i).map((x) => x.label);
-      const same = proposed !== null && (proposed.trim().toLowerCase() === allowed.trim().toLowerCase() || (opts.length > 0 && bestOption(opts, allowed) === proposed));
+      // "Decline to self-identify" and "I do not wish to answer" are the same answer in different words.
+      const declines = (x: string) => /\b(decline|do not wish|don.?t wish|prefer not|choose not|do not want to|not to (answer|disclose|self.identify)|rather not)\b/i.test(x);
+      const same = proposed !== null && (proposed.trim().toLowerCase() === allowed.trim().toLowerCase() || (opts.length > 0 && bestOption(opts, allowed) === proposed) || (declines(allowed) && declines(proposed)));
       if (it.kind === "option") {
         if (same) actions.push({ do: "click", i: it.i });
         else notes.push(`option "${it.label.slice(0, 40)}" isn't the applicant's answer`);
         continue;
       }
-      actions.push({ do: a.do === "fill" && target.kind !== "text" && target.kind !== "textarea" ? "set" : a.do, i: target.i, value: allowed });
+      actions.push({ do: a.do === "fill" && target.kind !== "text" && target.kind !== "textarea" ? "set" : a.do, i: target.i, value: same && proposed ? proposed : allowed });
       if (!same) notes.push(`used the applicant's own answer for "${coreLabel(target.label).slice(0, 60)}"`);
       continue;
     }

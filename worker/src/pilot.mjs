@@ -109,6 +109,10 @@ export async function pilotPage({ page, task, files, call, log, record, maxTurns
     if (plan.status === "next" || page.url() !== startUrl) {
       await page.waitForLoadState("domcontentloaded", { timeout: 15_000 }).catch(() => {});
       await sleep(1600);
+      // Only count it as moving on if the page really changed; if the form refused (errors), keep working here.
+      const after = await readPage(page);
+      const where = (x) => JSON.stringify([x?.url, x?.headings, x?.step]);
+      if (after.snap && where(after.snap) === where(snap) && after.snap.errors?.length) continue;
       return { status: "advanced" };
     }
     await sleep(500);

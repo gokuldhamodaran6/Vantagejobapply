@@ -347,7 +347,9 @@
     .replace(/\bmaster s degree\b|\bmasters? (of|in) [a-z ]+$|\bmasters? degree\b|\bm ?(sc|s|a|e|tech)\b/g, "master")
     .replace(/\bdoctor of philosophy\b|\bph ?d\b|\bdoctorate\b/g, "doctorate")
     .replace(/\b(united states of america|united states|usa|u s a|u s)\b/g, "us")
-    .replace(/\b(united kingdom|great britain|uk)\b/g, "uk");
+    .replace(/\b(united kingdom|great britain|uk)\b/g, "uk")
+    // Every way forms say "I'd rather not say".
+    .replace(/^.*\b(decline|do not wish|don t wish|dont wish|prefer not|choose not|do not want to (answer|disclose|identify|say)|not to (answer|disclose|self identify)|rather not)\b.*$/, "decline");
   // How well an option's text matches the answer (1 = same).
   function score(opt, want) {
     const o = norm(opt), w = norm(want);
