@@ -1,4 +1,5 @@
 import { createHash } from "crypto";
+import { after } from "next/server";
 import { extJson, extRpc, extUser } from "@/lib/ext";
 import { jobFromLink, cleanCompany } from "@/lib/agent/jobs";
 import { prepareAndQueue } from "@/lib/agent/prepare";
@@ -44,9 +45,15 @@ export async function POST(req: Request) {
   if (existing && existing.status !== "cancelled") return extJson({ taskId: existing.id, job: { title: job.title, company: job.company }, ghost, reused: true });
 
   const match = matchJob(job, { roles: u.roles, prefs: u.prefs, auth: u.auth });
-  const r = await prepareAndQueue({ userId: u.user_id, name: u.profile?.full_name || "", job, roleId: match.role?.id || null, match: match.score, status: "extension", priority: 9 });
+  // Filling starts right away; the resume and cover letter for this job are written meanwhile (~30 s) and attached
+  // when the form reaches the upload.
+  const r = await prepareAndQueue({ userId: u.user_id, name: u.profile?.full_name || "", job, roleId: match.role?.id || null, match: match.score, status: "extension", priority: 9, deferTailoring: true });
   if (r.error) return extJson({ error: r.error }, 400);
   const t = await extRpc<{ id: string } | null>("find_task", { user_id: u.user_id, job_id: job.id });
   if (!t) return extJson({ error: "Couldn't start this application." }, 500);
-  return extJson({ taskId: t.id, job: { title: job.title, company: job.company }, ghost, match: match.score, role: match.role?.title || null });
+  if (r.tailor) {
+    const tailor = r.tailor;
+    after(() => tailor(t.id).catch((e) => console.error("extension tailoring failed", e)));
+  }
+  return extJson({ taskId: t.id, job: { title: job.title, company: job.company }, ghost, match: match.score, role: match.role?.title || null, tailoring: Boolean(r.tailor) });
 }

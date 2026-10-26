@@ -9,6 +9,7 @@ import type { MailAccount } from "@/lib/mail";
 import { baseDomain, isSafePublicUrl } from "@/lib/net";
 import { hostOf } from "@/lib/agent/bundle";
 import { siteKey } from "@/lib/agent/sites";
+import { cleanSnapshot, pilotCtx, pilotStep, type PilotHistory } from "@/lib/agent/pilot";
 
 export const maxDuration = 120;
 
@@ -99,6 +100,26 @@ export async function POST(req: Request, { params }: { params: Promise<{ op: str
         consent,
       });
       return j(out);
+    }
+
+    if (op === "pilot") {
+      const b = await loadBundle(taskId);
+      if (!b) return j({ error: "task not found" }, 404);
+      const snap = cleanSnapshot(body.snapshot);
+      if (!snap) return j({ error: "no page" }, 400);
+      const ui = (b.task.user_input || {}) as { review_ok?: boolean; reviewed?: Record<string, string> };
+      const turn = await pilotStep(snap, Array.isArray(body.history) ? (body.history as PilotHistory).slice(-4) : [], pilotCtx(b, "agent", ui.review_ok ? ui.reviewed || null : null));
+      return j(turn);
+    }
+
+    if (op === "pilot_test") {
+      // The worker's self-test against a copy of a real careers site, with a made-up applicant.
+      if (process.env.PILOT_SELFTEST !== "1") return j({ error: "self-test is off" }, 403);
+      const { testCtx } = await import("@/lib/agent/pilot-test");
+      const snap = cleanSnapshot(body.snapshot);
+      if (!snap) return j({ error: "no page" }, 400);
+      const turn = await pilotStep(snap, Array.isArray(body.history) ? (body.history as PilotHistory).slice(-4) : [], testCtx((body.answers as Record<string, string>) || {}));
+      return j(turn);
     }
 
     if (op === "block") {

@@ -23,7 +23,7 @@ async function api(path, { method = "GET", body } = {}) {
 }
 
 async function inject(tabId) {
-  await chrome.scripting.executeScript({ target: { tabId, allFrames: true }, files: ["content.js"] }).catch(() => {});
+  await chrome.scripting.executeScript({ target: { tabId, allFrames: true }, files: ["pilot.js", "content.js"] }).catch(() => {});
 }
 async function inFrames(tabId, func, args = [], frameIds) {
   const target = frameIds ? { tabId, frameIds } : { tabId, allFrames: true };
@@ -35,41 +35,128 @@ async function top(tabId, func, args = []) {
   return r?.result;
 }
 const showPanel = (tabId, state) => top(tabId, (s) => window.__vantage?.panel(s), [state]);
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-const STEPS = ["Read the job", "Write your tailored resume and cover letter", "Fill the form", "You review and press Submit"];
+const STEPS = ["Read the job", "Fill every page of the form", "You check it and press Submit"];
 const steps = (at) => STEPS.map((text, i) => ({ text, state: i < at ? "done" : i === at ? "now" : "" }));
+const FIELD = new Set(["text", "email", "tel", "url", "number", "date", "month", "textarea", "select", "combobox", "radio", "checkbox", "checkboxes", "file"]);
 
-async function run(tabId, { force = false } = {}) {
-  await inject(tabId);
-  const info = await top(tabId, () => window.__vantage?.info());
-  if (!info) return;
-  let st = { steps: steps(0) };
-  await showPanel(tabId, st);
-  try {
-    st = { ...st, steps: steps(1), note: "Writing a resume and cover letter for this exact job — about 30 seconds the first time.", noteTone: "ok" };
-    await showPanel(tabId, st);
-    const start = await api("/api/ext/start", { method: "POST", body: { ...info, force } });
-    if (start.alreadyApplied) {
-      return showPanel(tabId, { job: start.job, ghost: start.ghost, note: "You already applied to this job — Vantage won't send it twice.", noteTone: "warn", buttons: [{ text: "Fill anyway", action: "force" }, { text: "Close", action: "close", ghost: true }] });
-    }
-    const base = { job: start.job, ghost: start.ghost, match: start.match };
-    await store.setTab(tabId, { taskId: start.taskId, job: start.job, url: info.url, at: Date.now() });
-    st = { ...base, steps: steps(2) };
-    await showPanel(tabId, st);
-    const done = new Set();
-    const missing = await fillPass(tabId, start.taskId, done);
-    // Answers can reveal follow-up questions: one more pass for anything new.
-    const more = await fillPass(tabId, start.taskId, done);
-    const left = dedupe([...missing, ...more]);
-    await store.setTab(tabId, { taskId: start.taskId, job: start.job, url: info.url, at: Date.now(), missing: left });
-    await showPanel(tabId, {
-      ...base, steps: steps(3), missing: left,
-      note: left.length ? null : "Everything is filled. Check it over, then press Submit on the page — Vantage adds it to your Applications automatically.",
-      buttons: left.length ? [{ text: "Save answers & fill", action: "answers" }, { text: "I submitted it", action: "submitted", ghost: true }] : [{ text: "I submitted it", action: "submitted", ghost: true }, { text: "Fill again", action: "refill", ghost: true }],
-    });
-  } catch (e) {
-    await showPanel(tabId, { ...st, note: e.code === 401 ? "Connect the extension to your Vantage account: click the Vantage icon → Connect." : e.message, noteTone: "warn", buttons: [{ text: "Try again", action: "refill" }, { text: "Close", action: "close", ghost: true }] });
+/** The frame with the application form (the page itself, or an embedded form) and what's on it. */
+async function readTab(tabId) {
+  const frames = await inFrames(tabId, () => window.__vp?.snapshot() || null);
+  let best = null;
+  for (const f of frames) {
+    if (!f.result) continue;
+    const n = f.result.items.filter((x) => FIELD.has(x.kind)).length + (f.frameId === 0 ? 0.5 : 0);
+    if (!best || n > best.n) best = { n, frameId: f.frameId, snap: f.result };
   }
+  return best;
+}
+
+async function run(tabId, { force = false, resume = false } = {}) {
+  await inject(tabId);
+  let t = await store.tab(tabId);
+  let base = t?.base || {};
+  if (!resume || !t?.taskId) {
+    const info = await top(tabId, () => window.__vp?.info() || window.__vantage?.info());
+    if (!info) return;
+    await showPanel(tabId, { steps: steps(0), note: "Reading the job…", noteTone: "ok" });
+    try {
+      const start = await api("/api/ext/start", { method: "POST", body: { ...info, force } });
+      if (start.alreadyApplied) {
+        return showPanel(tabId, { job: start.job, ghost: start.ghost, note: "You already applied to this job — Vantage won't send it twice.", noteTone: "warn", buttons: [{ text: "Fill anyway", action: "force" }, { text: "Close", action: "close", ghost: true }] });
+      }
+      base = { job: start.job, ghost: start.ghost, match: start.match };
+      t = { taskId: start.taskId, job: start.job, url: info.url, at: Date.now(), base, history: [] };
+      await store.setTab(tabId, t);
+    } catch (e) {
+      return showPanel(tabId, { note: e.code === 401 ? "Connect the extension to your Vantage account: click the Vantage icon → Connect." : e.message, noteTone: "warn", buttons: [{ text: "Try again", action: "refill" }, { text: "Close", action: "close", ghost: true }] });
+    }
+  }
+  await pilotLoop(tabId, t);
+}
+
+/** The pilot: read the page, let Vantage decide, act like a person, check, repeat — page after page. */
+async function pilotLoop(tabId, t) {
+  const files = {};
+  const history = t.history || [];
+  let lastSig = "";
+  let same = 0;
+  await store.setTab(tabId, { ...t, paused: false });
+  for (let turn = 0; turn < 70; turn++) {
+    const cur = await store.tab(tabId);
+    if (!cur || cur.paused) return;
+    await inject(tabId);
+    const page = await readTab(tabId);
+    if (!page) { await sleep(1000); continue; }
+    const sig = JSON.stringify([page.snap.url, page.snap.items.map((x) => [x.kind, x.label, x.value]), page.snap.errors]);
+    same = sig === lastSig ? same + 1 : 0;
+    lastSig = sig;
+    if (same >= 3) return stuck(tabId, t, "The page isn't changing. Finish this step yourself, then press Continue.");
+    let plan;
+    try {
+      plan = await api("/api/ext/pilot", { method: "POST", body: { taskId: t.taskId, snapshot: page.snap, history: history.slice(-4) } });
+    } catch (e) {
+      if (e.code === 404 || e.code === 405) return legacyFill(tabId, t); // an older Vantage server
+      return stuck(tabId, t, e.message);
+    }
+    await showPanel(tabId, { ...t.base, steps: steps(1), note: plan.say, noteTone: "ok", buttons: [{ text: "Pause", action: "pause", ghost: true }] });
+    const results = [];
+    for (const a of plan.actions || []) {
+      if ((await store.tab(tabId))?.paused) return;
+      let r;
+      if (a.do === "upload") {
+        const kind = a.file === "cover_letter" ? "cover_letter" : "resume";
+        if (!files[kind]) {
+          await showPanel(tabId, { ...t.base, steps: steps(1), note: kind === "resume" ? "Attaching the resume written for this job…" : "Attaching your cover letter…", noteTone: "ok", buttons: [{ text: "Pause", action: "pause", ghost: true }] });
+          files[kind] = await api(`/api/ext/file?taskId=${t.taskId}&kind=${kind}`).catch(() => null);
+        }
+        r = files[kind] ? (await inFrames(tabId, (x) => window.__vp?.act(x), [{ do: "upload", i: a.i, file: files[kind] }], [page.frameId]))[0]?.result : { ok: false, note: "no file" };
+      } else {
+        r = (await inFrames(tabId, (x) => window.__vp?.act(x), [a], [page.frameId]))[0]?.result;
+      }
+      r ||= { ok: false, note: "page changed" };
+      results.push(r);
+      if (r.note === "page changed") break;
+      await sleep(a.do === "click" ? 450 : 120);
+    }
+    history.push({ say: plan.say, actions: plan.actions, results, url: page.snap.url });
+    while (history.length > 10) history.shift();
+    await store.setTab(tabId, { ...t, history });
+
+    if (plan.status === "ready") {
+      return showPanel(tabId, { ...t.base, steps: steps(2), note: "Every page is filled. Check it over, then press Submit on the page — Vantage adds it to your Applications.", noteTone: "ok", buttons: [{ text: "I submitted it", action: "submitted", ghost: true }, { text: "Check again", action: "continue", ghost: true }] });
+    }
+    if (plan.status === "done") return markSubmitted(tabId, "detected");
+    if (plan.status === "ask") {
+      await store.setTab(tabId, { ...t, history, missing: plan.ask });
+      return showPanel(tabId, { ...t.base, steps: steps(1), missing: plan.ask, buttons: [{ text: "Save answers & continue", action: "answers" }, { text: "Pause", action: "pause", ghost: true }] });
+    }
+    if (plan.status === "account") {
+      return showPanel(tabId, { ...t.base, steps: steps(1), note: "This site needs you to sign in or create an account. Vantage never types your password — do it on the page, then press Continue.", noteTone: "ok", buttons: [{ text: "Continue", action: "continue" }] });
+    }
+    if (plan.status === "stuck") return stuck(tabId, t, plan.say);
+    await sleep(plan.status === "next" ? 1500 : 500);
+  }
+  return stuck(tabId, t, "This application is taking longer than expected.");
+}
+
+function stuck(tabId, t, why) {
+  return showPanel(tabId, { ...t.base, steps: steps(1), note: `${why || "Vantage needs a hand here."} Do this step on the page, then press Continue.`, noteTone: "warn", buttons: [{ text: "Continue", action: "continue" }, { text: "I submitted it", action: "submitted", ghost: true }] });
+}
+
+/** Older servers without the pilot: one pass with the field planner. */
+async function legacyFill(tabId, t) {
+  const done = new Set();
+  const missing = await fillPass(tabId, t.taskId, done);
+  const more = await fillPass(tabId, t.taskId, done);
+  const left = dedupe([...missing, ...more]);
+  await store.setTab(tabId, { ...t, missing: left });
+  await showPanel(tabId, {
+    ...t.base, steps: steps(2), missing: left,
+    note: left.length ? null : "Everything is filled. Check it over, then press Submit on the page.",
+    buttons: left.length ? [{ text: "Save answers & fill", action: "answers" }, { text: "I submitted it", action: "submitted", ghost: true }] : [{ text: "I submitted it", action: "submitted", ghost: true }],
+  });
 }
 
 const dedupe = (list) => {
@@ -121,11 +208,16 @@ async function onPanel(tabId, msg) {
   if (msg.action === "force") return run(tabId, { force: true });
   if (msg.action === "refill") return run(tabId);
   if (!t) return;
+  if (msg.action === "pause") {
+    await store.setTab(tabId, { ...t, paused: true });
+    return showPanel(tabId, { ...t.base, steps: steps(1), note: "Paused. Press Continue when you want Vantage to carry on from this page.", noteTone: "ok", buttons: [{ text: "Continue", action: "continue" }, { text: "Close", action: "close", ghost: true }] });
+  }
+  if (msg.action === "continue") return run(tabId, { resume: true });
   if (msg.action === "answers") {
     const answers = (msg.answers || []).filter((a) => String(a.answer || "").trim());
     if (!answers.length) return;
     await api("/api/ext/answers", { method: "POST", body: { taskId: t.taskId, answers: answers.map((a) => ({ label: a.label, type: a.type, answer: a.answer })) } }).catch(() => {});
-    return run(tabId);
+    return run(tabId, { resume: true });
   }
   if (msg.action === "submitted") return markSubmitted(tabId, "manual");
 }

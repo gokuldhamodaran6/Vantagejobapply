@@ -9,6 +9,41 @@ const here = dirname(fileURLToPath(import.meta.url));
 const FX = join(here, "../../worker/test/fixtures");
 const calls = [];
 const ANS = { "first name": "Priya", "last name": "Raman", email: "priya.careers@gmail.com", phone: "(312) 555-0142", "linkedin profile": "https://linkedin.com/in/priya" };
+// A scripted stand-in for the AI pilot, for the Workday copy: checks the extension's loop, actions and uploads.
+const RULES = [
+  [/hear about/i, "choose", "Job Board > LinkedIn Jobs"], [/previously worked/i, "set", "No"], [/^first name/i, "fill", "Priya"], [/^last name/i, "fill", "Raman"],
+  [/address line 1/i, "fill", "1 Main St"], [/^city/i, "fill", "Chicago"], [/^state/i, "choose", "Illinois"], [/postal/i, "fill", "60601"],
+  [/device type/i, "choose", "Mobile"], [/phone code/i, "choose", "United States of America (+1)"], [/phone number/i, "fill", "3125550142"],
+  [/job title/i, "fill", "Senior Marketing Manager"], [/^company/i, "fill", "Brightline"], [/currently work/i, "set", "checked"],
+  [/from month/i, "fill", "03"], [/from year/i, "fill", "2021"], [/upload a file/i, "upload", "resume"],
+  [/legally authorized/i, "choose", "Yes"], [/sponsorship/i, "choose", "Yes"], [/relatives/i, "choose", "No"], [/why are you interested/i, "fill", "I build integrated campaigns for technical products."],
+  [/onsite/i, "choose", "Yes"], [/^gender/i, "choose", "I do not wish to answer"], [/veteran/i, "choose", "I do not wish to answer"], [/consent to the terms/i, "set", "checked"],
+  [/^name/i, "fill", "Priya Raman"], [/^date month/i, "fill", "10"], [/^date year/i, "fill", "2026"], [/check one of the boxes/i, "set", "I do not want to answer"],
+];
+function fakePilot(snap) {
+  const it = snap.items;
+  const link = it.find((x) => /apply manually/i.test(x.label));
+  if (link) return { say: "Starting the application", status: "next", actions: [{ do: "click", i: link.i }] };
+  if (/my experience/i.test(snap.headings.join(" ")) && !it.some((x) => /job title/i.test(x.label))) {
+    const add = it.find((x) => x.kind === "button" && /^add$/i.test(x.label) && /work/i.test(x.section || ""));
+    if (add) return { say: "Adding your work history", status: "continue", actions: [{ do: "click", i: add.i }] };
+  }
+  const actions = [];
+  for (const x of it) {
+    const empty = x.kind === "file" ? !x.value : x.kind === "checkbox" ? x.value !== "checked" : !x.value;
+    if (!empty) continue;
+    const r = RULES.find(([re]) => re.test(x.label));
+    if (!r) continue;
+    actions.push(r[1] === "upload" ? { do: "upload", i: x.i, file: "resume" } : { do: r[1], i: x.i, value: r[2] });
+  }
+  if (actions.length) return { say: "Filling this page", status: "continue", actions };
+  const fin = it.find((x) => x.final);
+  if (fin) return { say: "Ready to submit", status: "ready", actions: [], submit: fin.i };
+  const next = it.find((x) => x.kind === "button" && /save and continue|^next$|continue/i.test(x.label));
+  if (next) return { say: "Next page", status: "next", actions: [{ do: "click", i: next.i }] };
+  return { say: "Nothing to do", status: "stuck", actions: [] };
+}
+
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, "http://x");
   let body = "";
@@ -38,6 +73,11 @@ const server = http.createServer(async (req, res) => {
       }
       return j({ fills, missing });
     }
+    if (url.pathname === "/api/ext/pilot") {
+      if (!process.env.FAKE_PILOT) { res.writeHead(404); return res.end("{}"); }
+      calls.push("pilot");
+      return j(fakePilot(JSON.parse(body).snapshot));
+    }
     if (url.pathname === "/api/ext/file") return j({ name: "Priya_Raman_Resume.pdf", mimeType: "application/pdf", base64: Buffer.from("%PDF-1.4 test").toString("base64") });
     if (url.pathname === "/api/ext/submitted") return j({ ok: true });
     if (url.pathname === "/api/ext/me") return j({ name: "Priya Raman" });
@@ -62,6 +102,11 @@ await page.goto("http://127.0.0.1:4300/fx/" + (process.argv[2] || "greenhouse.ht
 await page.waitForTimeout(800);
 await sw.evaluate(async () => { const [t] = await chrome.tabs.query({ url: "http://127.0.0.1:4300/*" }); await run(t.id); });
 await page.waitForTimeout(1500);
+if (process.env.FAKE_PILOT) {
+  const st = await page.evaluate(() => window.__state && { page: window.__state.page, values: window.__state.values, files: window.__state.files, work: window.__state.work.length, trap: window.__state.trapped || null });
+  console.log("WORKDAY COPY STATE:", JSON.stringify(st, null, 1));
+  console.log("panel text:", await page.evaluate(() => document.getElementById("vantage-panel") ? "present" : "none"));
+}
 const values = await page.evaluate(() => [...document.querySelectorAll("input, select, textarea")].filter((e) => e.type !== "hidden").map((e) => {
   const shell = e.closest("[class*='select__control'], [class*='-control']");
   const shown = shell?.querySelector("[class*='single-value'], [class*='singleValue'], [class*='multi-value__label']")?.textContent;

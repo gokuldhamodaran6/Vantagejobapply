@@ -31,7 +31,15 @@ function extractInPage() {
   const visible = (el) => {
     const r = el.getBoundingClientRect();
     const s = getComputedStyle(el);
-    return r.width > 0 && r.height > 0 && s.visibility !== "hidden" && s.display !== "none" && s.opacity !== "0";
+    if (!(r.width > 0 && r.height > 0 && s.visibility !== "hidden" && s.display !== "none")) return false;
+    // Styled checkboxes/radios (Workday "I agree") keep the real input at opacity 0 under a drawn box.
+    if (el.tagName === "INPUT" && /^(checkbox|radio)$/i.test(el.type)) return r.width >= 8 && r.height >= 8;
+    return s.opacity !== "0";
+  };
+  // Bot traps (Workday's 1-pixel "beecatcher" box, honeypot fields) are never filled.
+  const trap = (el) => {
+    const r = el.getBoundingClientRect();
+    return (el.tagName === "INPUT" && !/^(checkbox|radio|file)$/i.test(el.type) && (r.width < 4 || r.height < 4)) || /honeypot|beecatcher|bot.?trap/i.test(`${el.name} ${el.id} ${el.getAttribute("data-automation-id") || ""}`);
   };
   let n = W.__vantageN || 0;
   const tag = (el) => {
@@ -82,6 +90,7 @@ function extractInPage() {
     if (el.disabled || el.readOnly && type !== "file") continue;
     const isFile = type === "file";
     if (!isFile && type !== "radio" && type !== "checkbox" && !visible(el)) continue;
+    if (!isFile && trap(el)) continue;
     if (el.closest("[aria-hidden='true']") && !isFile) continue;
     // Site search boxes (job keyword / location search in the header) are not part of the application.
     if (el.closest("header, nav, [role='search'], [role='banner'], form[action*='search' i]") || /search|keyword|query/i.test(`${el.id} ${el.name} ${el.getAttribute("placeholder") || ""} ${el.getAttribute("aria-label") || ""}`)) continue;

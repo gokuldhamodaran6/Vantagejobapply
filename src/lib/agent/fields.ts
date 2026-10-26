@@ -473,7 +473,7 @@ function suggestLocked(kind: LockedKind, label: string, f: FormField, facts: Fac
 }
 
 /** Only professional facts go to the AI — never contact details, demographics or immigration status. */
-function aiFacts(f: Facts) {
+export function aiFacts(f: Facts) {
   return {
     current_company: f.current_company, current_title: f.current_title, school: f.school, degree: f.degree, major: f.major, grad_year: f.grad_year,
     years_experience: f.years_experience, city: f.city, state: f.state, country: f.country, relocate: f.relocate, start: f.start, notice: f.notice,
@@ -482,7 +482,7 @@ function aiFacts(f: Facts) {
 }
 
 /** The resume without contact details: the AI only needs the professional history. */
-function aiResume(r: ResumeContent | null) {
+export function aiResume(r: ResumeContent | null) {
   if (!r) return {};
   const { name: _n, email: _e, phone: _p, links: _l, location: _loc, ...rest } = r;
   void _n; void _e; void _p; void _l; void _loc;

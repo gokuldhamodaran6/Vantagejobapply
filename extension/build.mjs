@@ -36,6 +36,9 @@ const content = readFileSync(join(out, "content.js"), "utf8")
   .replace("/* __CHOOSE__ */", `${block("const STATE_NAMES = {")}\n  ${block("export function chooseOption(").replace(/^export /, "")}`);
 writeFileSync(join(out, "content.js"), content);
 
+// The pilot's page reader/actions — the same file the cloud agent uses.
+cpSync(join(here, "../worker/src/pilot/page.js"), join(out, "pilot.js"));
+
 const manifest = JSON.parse(readFileSync(join(here, "manifest.json"), "utf8"));
 writeFileSync(join(out, "manifest.json"), JSON.stringify(manifest, null, 2));
 

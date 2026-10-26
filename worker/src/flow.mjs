@@ -3,6 +3,7 @@ import { ACCOUNT_GATE, codeChallenge, declineCookies, enterCode, extractFields, 
 import { live } from "./live.mjs";
 import { allowedUrl, baseDomain } from "./guard.mjs";
 import { BOT_WALL, CHALLENGE, NO_AUTOMATION, siteKey } from "./sites.mjs";
+import { pilotPage } from "./pilot.mjs";
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const TASK_BUDGET_MS = 9 * 60 * 1000; // active work, excluding time spent waiting for the user
@@ -106,7 +107,10 @@ export async function runTask(bundle, browser) {
     await settle(page);
     if (await declineCookies(page)) await settle(page, 600);
 
-    for (let step = 0; step < 14; step++) {
+    // The pilot reads each page like a person and works through it (any careers site, any widget). If the AI isn't
+    // reachable it falls back to the rule-based filler below.
+    bundle.pilot = process.env.PILOT !== "0";
+    for (let step = 0; step < (bundle.pilot ? 36 : 14); step++) {
       if (Date.now() - started - clock.waited > TASK_BUDGET_MS || Date.now() - started > HARD_CAP_MS) throw new Stop("failed", "Took too long on this site. You can finish it yourself from the job link.");
       // A new visit to a page (even one seen earlier in this run, like a sign-in page) is filled afresh.
       if (page.url() !== bundle.lastUrl) {
@@ -162,35 +166,77 @@ export async function runTask(bundle, browser) {
         }
       }
 
-      // 2) Landing page with an "Apply" button and no form yet.
-      if (formish.filter((f) => f.type !== "checkbox").length < 2) {
-        const entry = await findEntry(page);
-        if (entry) {
-          await log(task.id, "Starting the application", "Starting the application");
-          await entry.click({ timeout: 8000 }).catch(() => {});
-          await settle(page);
-          const manual = await (async () => {
-            const b = await findEntry(page);
-            const t = b ? (await b.innerText().catch(() => "")).toLowerCase() : "";
-            return t.includes("manual") ? b : null;
-          })();
-          if (manual) {
-            await manual.click().catch(() => {});
-            await settle(page);
+      let submit = null;
+      let next = null;
+      let nextText = "";
+      let finalStep = false;
+      let viaPilot = false;
+      if (bundle.pilot) {
+        const r = await pilotPage({
+          page, task, files, call, log: (s) => log(task.id, s, s),
+          record: (it, value, isFile) => {
+            const v = it.kind === "checkbox" ? (/^(checked|true|yes|on|agree)/i.test(value) ? "Checked" : "Unchecked") : String(value);
+            const rk = it.rk || `${it.section || ""} | ${it.label}`;
+            filled[rk] = { label: String(it.label || "").slice(0, 300), value: v.slice(0, 4000), reviewed: Boolean(bundle.reviewed && String(bundle.reviewed[rk] ?? "").trim().toLowerCase() === v.trim().toLowerCase()), info: isFile || undefined };
+          },
+        }).catch((e) => ({ status: "stuck", say: e.message }));
+        if (r.status === "advanced") continue;
+        if (r.status === "done") break;
+        if (r.status === "ask") {
+          if (bundle.dry) throw new Stop("manual", `Dry run: the form needs ${r.ask.length} answer${r.ask.length > 1 ? "s" : ""} only the person can give`, { needs: r.ask });
+          throw new Stop("needs_user", `${r.ask.length} question${r.ask.length > 1 ? "s" : ""} only you can answer — answer once and your agent will remember`, { needs: r.ask });
+        }
+        if (r.status === "account") {
+          const again = await extractFields(page);
+          const pw = again.filter((f) => f.type === "password");
+          if (pw.length) {
+            if (bundle.dry) throw new Stop("manual", "Dry run: stopped at the careers-site account page", { needs: await diagnose(page, bundle) });
+            await handleAccount(bundle, page, again, pw);
+            continue;
           }
-          continue;
+        }
+        if (r.status === "ready") {
+          submit = r.frame.locator(`[data-vp="${r.submit}"]`).first();
+          finalStep = true;
+          viaPilot = true;
+        } else if (r.status === "stuck" || r.status === "account") {
+          // Hand this page to the rule-based filler; if that can't move it either, the person finishes it.
+          await log(task.id, `Trying another way on this page (${String(r.say || "").slice(0, 80)})`);
+          bundle.pilotStuck = (bundle.pilotStuck || 0) + 1;
+          if (bundle.pilotStuck > 3) bundle.pilot = false;
         }
       }
+      if (!viaPilot) {
+        // 2) Landing page with an "Apply" button and no form yet.
+        if (formish.filter((f) => f.type !== "checkbox").length < 2) {
+          const entry = await findEntry(page);
+          if (entry) {
+            await log(task.id, "Starting the application", "Starting the application");
+            await entry.click({ timeout: 8000 }).catch(() => {});
+            await settle(page);
+            const manual = await (async () => {
+              const b = await findEntry(page);
+              const t = b ? (await b.innerText().catch(() => "")).toLowerCase() : "";
+              return t.includes("manual") ? b : null;
+            })();
+            if (manual) {
+              await manual.click().catch(() => {});
+              await settle(page);
+            }
+            continue;
+          }
+        }
 
-      // 3) Fill the form on this page (several passes: answers can reveal follow-up questions).
-      await fillPage(bundle, page, filled, seen);
+        // 3) Fill the form on this page (several passes: answers can reveal follow-up questions).
+        await fillPage(bundle, page, filled, seen);
 
-      // 4) Next step or submit.
-      const submit = await findSubmit(page);
-      const next = submit ? null : await findNext(page);
-      const nextText = next ? ((await next.innerText().catch(() => "")) || (await next.getAttribute("value").catch(() => "")) || "").trim() : "";
-      const finalStep = Boolean(submit) || FINAL_NEXT.test(nextText);
-      if (!submit && !next) {
+        // 4) Next step or submit.
+        submit = await findSubmit(page);
+        next = submit ? null : await findNext(page);
+        nextText = next ? ((await next.innerText().catch(() => "")) || (await next.getAttribute("value").catch(() => "")) || "").trim() : "";
+        finalStep = Boolean(submit) || FINAL_NEXT.test(nextText);
+      }
+      if (!viaPilot && !submit && !next) {
         if (step > 0 && formish.length === 0) {
           // A "Verify" page whose code box is a custom component we can't read (Amazon A to Z sign-in):
           // take the newest code the site emailed and type it in.
@@ -259,7 +305,11 @@ export async function runTask(bundle, browser) {
       if (await codeChallenge(page)) continue; // handled at the top of the loop, without closing the page
       if (page.url() === before) {
         const errs = await visibleErrors(page);
-        if (errs.length) {
+        if (errs.length && viaPilot) {
+          // The pilot reads the errors on the next pass and fixes them.
+          await log(task.id, `The form flagged: ${errs.slice(0, 3).join(" · ")}`);
+          if (/captcha|robot|human|verification failed/i.test(errs.join(" "))) await waitForHuman(task, page, clock);
+        } else if (errs.length) {
           await log(task.id, `The form flagged: ${errs.slice(0, 3).join(" · ")}`);
           if (/captcha|robot|human|verification failed/i.test(errs.join(" "))) await waitForHuman(task, page, clock);
           // Errors usually mean a required field we couldn't fill; the next pass asks the user for it.

@@ -26,7 +26,9 @@ export async function prepareAndQueue(input: {
   style?: ResumeStyle;
   coverLetter?: string;
   resumeId?: string;
-}): Promise<{ taskCreated: boolean; resumeId: string | null; error?: string }> {
+  /** Queue the task at once with the base resume, and return the tailoring to run afterwards (the extension fills meanwhile). */
+  deferTailoring?: boolean;
+}): Promise<{ taskCreated: boolean; resumeId: string | null; error?: string; tailor?: (taskId: string) => Promise<void> }> {
   const { userId, job } = input;
   const target = applyTarget(job);
 
@@ -46,6 +48,26 @@ export async function prepareAndQueue(input: {
       const st = styleStats(apps || []);
       style ||= pickArm(st.styles, STYLE_ARMS, (base.style as ResumeStyle) || "classic");
       tone ||= pickArm(st.tones, TONE_ARMS, "confident");
+    }
+    if (input.deferTailoring) {
+      const res = await rpc<{ inserted: number }>("insert_tasks", {
+        user_id: userId,
+        tasks: [{
+          job_id: job.id,
+          job: { title: job.title, company: job.company, url: job.url, country: job.country, location: job.location, role_id: input.roleId || "", match: input.match ?? "" },
+          ats: target.ats, apply_url: target.url, status: input.status, priority: input.priority ?? 5,
+          resume_id: base.id, resume_style: style || "classic", letter_tone: tone || "confident", cover_letter: "",
+        }],
+      });
+      const s0 = style, t0 = tone;
+      const tailor = async (taskId: string) => {
+        const description = await fullDescription(job).catch(() => job.description);
+        const t = await tailorForJob(base.content, { title: job.title, company: job.company, description, country: job.country, location: job.location }, bestName(input.name, base.content?.name), t0);
+        const report = scoreResume(t.resume, t.keywords);
+        const saved = await rpcExt<{ id: string }>("save_resume", { user_id: userId, role_id: input.roleId || "", name: `${job.title} — ${job.company}`, content: t.resume, ats_score: report.score, style: s0 });
+        await rpc("update", { task_id: taskId, resume_id: saved.id, cover_letter: t.coverLetter, log: "Tailored resume and cover letter ready" });
+      };
+      return { taskCreated: res.inserted > 0, resumeId: base.id, tailor };
     }
     // Tailor against the full posting, read live from the employer (Vantage only stores a summary).
     const description = await fullDescription(job).catch(() => job.description);

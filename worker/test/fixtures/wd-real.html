@@ -1,0 +1,331 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Senior Integrated Marketing Specialist - AI Infrastructure</title>
+<style>
+  body{font-family:Arial,sans-serif;margin:0;background:#f3f4f6}
+  [data-automation-id=header]{background:#fff;padding:14px 30px;border-bottom:1px solid #ddd;display:flex;gap:30px}
+  main{max-width:900px;margin:20px auto;background:#fff;padding:24px 40px}
+  .ff{margin:14px 0;position:relative} .ff label{display:block;font-size:14px;margin-bottom:4px}
+  input[type=text],textarea,input[type=email]{width:360px;padding:8px;border:1px solid #999;border-radius:4px}
+  .err{color:#c00;font-size:12px} .banner{background:#fde8e8;color:#900;padding:8px;margin-bottom:10px}
+  .lst{position:absolute;z-index:5;background:#fff;border:1px solid #888;width:380px;max-height:300px;overflow:auto}
+  .lst [role=option],.lst [data-automation-id=promptOption]{padding:6px 10px;cursor:pointer;display:flex;gap:8px;align-items:center}
+  .lst [role=option]:hover{background:#eef}
+  .cb{position:relative;display:inline-flex;align-items:center;gap:6px}
+  .cb input{opacity:0;position:absolute;width:20px;height:20px;margin:0}
+  .cb .box{width:18px;height:18px;border:2px solid #555;border-radius:3px;display:inline-block}
+  .cb input:checked + .box{background:#0a7}
+  .rad{display:inline-flex;gap:6px;margin-right:16px;position:relative}
+  .rad input{opacity:0;position:absolute;width:18px;height:18px;margin:0}
+  .rad .dot{width:16px;height:16px;border:2px solid #555;border-radius:50%;display:inline-block}
+  .rad input:checked + .dot{background:#0a7}
+  .pill{display:inline-block;background:#e0e7ff;padding:3px 8px;border-radius:10px;margin:2px}
+  .sec{border:1px solid #ddd;padding:12px;margin:10px 0}
+  .spin{width:44px!important}
+  .trap{position:absolute;width:1px;height:0.01px;overflow:hidden}
+</style></head>
+<body>
+<div data-automation-id="header"><b>CAREERS AT Acme Robotics</b><button>Home</button><button>Search for Jobs</button><span>priya.careers@gmail.com</span></div>
+<main id="app"></main>
+<script>
+const S = window.__state = { page: "start", values: {}, files: {}, work: [], edu: [], skills: [], heard: "", submitted: false, errors: [] };
+const STATES = ["Alabama","Alaska","Arizona","California","Colorado","Florida","Georgia","Illinois","Indiana","New York","Texas","Washington"];
+const HEARD = [
+  { label: "Career Fair" }, { label: "Company Website" }, { label: "Employee Referral" },
+  { label: "Job Board", kids: ["104 Job Bank","51 Job","Glassdoor","Indeed","LinkedIn Jobs","Monster","Other Job Board"] },
+  { label: "Social Media", kids: ["Facebook","Instagram","X (Twitter)","YouTube"] },
+  { label: "Other" },
+];
+const SCHOOLS = ["University of Illinois Urbana-Champaign","University of Illinois Chicago","Northwestern University","DePaul University","Loyola University Chicago","Other"];
+const SKILLS = ["Marketing Strategy","Account-Based Marketing","Marketo","HubSpot","Salesforce","Google Analytics","SQL","Content Marketing","Product Marketing","Demand Generation","Campaign Management","Market Research","Python","Tableau","Copywriting","Event Marketing","Integrated Marketing","Go-to-Market Strategy"];
+const PAGES = ["start","info","exp","questions","voluntary","selfid","review"];
+const STEP_NAMES = { info:"My Information", exp:"My Experience", questions:"Application Questions", voluntary:"Voluntary Disclosures", selfid:"Self Identify", review:"Review" };
+let uid = 0;
+const app = document.getElementById("app");
+const h = (html) => { const d = document.createElement("div"); d.innerHTML = html.trim(); return d.firstElementChild; };
+const val = (k, v) => { if (v === undefined) return S.values[k]; S.values[k] = v; };
+
+function closeLists(except) { document.querySelectorAll(".lst").forEach((l) => { if (l !== except) { l.remove(); } }); document.querySelectorAll("[aria-expanded=true]").forEach((b) => b.setAttribute("aria-expanded", "false")); }
+document.addEventListener("click", (e) => { if (!e.target.closest(".lst") && !e.target.closest("[aria-haspopup]") && !e.target.closest("[data-automation-id=multiselectInputContainer]")) closeLists(); });
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeLists(); });
+
+function field(label, req, inner, key) {
+  const id = `input-${++uid}`;
+  const el = h(`<div class="ff" data-automation-id="formField-${key}"><label for="${id}">${label}${req ? '<abbr title="required">*</abbr>' : ""}</label><div class="ctl"></div><div class="err" role="alert" style="display:none"></div></div>`);
+  inner(el.querySelector(".ctl"), id);
+  el.dataset.req = req ? "1" : ""; el.dataset.key = key;
+  return el;
+}
+function text(label, key, req, opts = {}) {
+  return field(label, req, (c, id) => {
+    const i = h(`<input type="text" id="${id}" data-automation-id="${key}" ${opts.ph ? `placeholder="${opts.ph}"` : ""} ${opts.cls ? `class="${opts.cls}"` : ""} ${opts.max ? `maxlength="${opts.max}"` : ""}>`);
+    i.value = val(key) || "";
+    i.addEventListener("input", () => val(key, i.value));
+    i.addEventListener("change", () => val(key, i.value));
+    c.appendChild(i);
+  }, key);
+}
+function area(label, key, req) {
+  return field(label, req, (c, id) => {
+    const i = h(`<textarea id="${id}" rows="4" data-automation-id="${key}"></textarea>`);
+    i.value = val(key) || ""; i.addEventListener("input", () => val(key, i.value)); c.appendChild(i);
+  }, key);
+}
+// Workday-style single select: a button that opens a listbox.
+function dropdown(label, key, req, options) {
+  return field(label, req, (c, id) => {
+    const b = h(`<button type="button" id="${id}" aria-haspopup="listbox" aria-expanded="false" data-automation-id="${key}">${val(key) || "Select One"}</button>`);
+    b.addEventListener("click", () => {
+      if (b.getAttribute("aria-expanded") === "true") return closeLists();
+      closeLists();
+      const lid = `list-${++uid}`;
+      b.setAttribute("aria-controls", lid); b.setAttribute("aria-expanded", "true");
+      const l = h(`<ul class="lst" role="listbox" id="${lid}"></ul>`);
+      for (const o of options) {
+        const li = h(`<li role="option" aria-selected="${val(key) === o}">${o}</li>`);
+        li.addEventListener("click", () => { val(key, o); b.textContent = o; closeLists(); });
+        l.appendChild(li);
+      }
+      c.appendChild(l);
+    });
+    c.appendChild(b);
+  }, key);
+}
+// Workday "prompt": searchable, possibly nested list with pills.
+function prompt(label, key, req, tree, { multi = false } = {}) {
+  return field(label, req, (c, id) => {
+    const box = h(`<div data-automation-id="multiselectInputContainer"><div class="pills"></div><input type="text" id="${id}" data-automation-id="searchBox" placeholder="Search" aria-autocomplete="list"></div>`);
+    const pills = box.querySelector(".pills"); const inp = box.querySelector("input");
+    const cur = () => (multi ? (val(key) || []) : (val(key) ? [val(key)] : []));
+    const drawPills = () => { pills.innerHTML = ""; for (const v of cur()) pills.appendChild(h(`<div class="pill" data-automation-id="selectedItem">${v}</div>`)); };
+    drawPills();
+    const pick = (v) => { if (multi) { const a = cur(); if (!a.includes(v)) a.push(v); val(key, a); } else val(key, v); drawPills(); inp.value = ""; closeLists(); };
+    const show = (items, back) => {
+      closeLists();
+      const l = h(`<div class="lst" data-automation-id="activeListContainer" role="listbox" id="list-${++uid}"></div>`);
+      inp.setAttribute("aria-controls", l.id); inp.setAttribute("aria-expanded", "true");
+      if (back) { const bk = h(`<div class="hdr" style="padding:6px;font-weight:bold"><span data-automation-id="backButton">←</span> ${back}</div>`); bk.addEventListener("click", () => show(tree)); l.appendChild(bk); }
+      if (!items.length) l.appendChild(h(`<div>No Items.</div>`));
+      for (const it of items) {
+        const lab = typeof it === "string" ? it : it.label;
+        const kids = typeof it === "string" ? null : it.kids;
+        const o = h(`<div data-automation-id="promptOption" data-automation-label="${lab}" role="option">${kids ? "" : '<input type="radio" style="opacity:0;width:14px;height:14px">'}<span>${lab}</span>${kids ? '<span data-automation-id="promptIcon">›</span>' : ""}</div>`);
+        o.addEventListener("click", (e) => { e.stopPropagation(); if (kids) show(kids, lab); else pick(lab); });
+        l.appendChild(o);
+      }
+      c.appendChild(l);
+    };
+    inp.addEventListener("click", () => show(tree));
+    inp.addEventListener("keydown", (e) => {
+      if (e.key !== "Enter") return;
+      const q = inp.value.toLowerCase().trim();
+      const leaves = tree.flatMap((t) => (typeof t === "string" ? [t] : t.kids ? t.kids : [t.label]));
+      show(leaves.filter((x) => x.toLowerCase().includes(q)));
+    });
+    c.appendChild(box);
+  }, key);
+}
+function radios(label, key, req, options) {
+  const el = h(`<fieldset class="ff" data-automation-id="formField-${key}" style="border:0;padding:0"><legend>${label}${req ? "*" : ""}</legend><div class="ctl"></div><div class="err" role="alert" style="display:none"></div></fieldset>`);
+  el.dataset.req = req ? "1" : ""; el.dataset.key = key;
+  for (const o of options) {
+    const id = `input-${++uid}`;
+    const r = h(`<span class="rad"><input type="radio" name="${key}" id="${id}" value="${o === "Yes" ? "true" : "false"}"><span class="dot"></span><label for="${id}">${o}</label></span>`);
+    const inp = r.querySelector("input"); inp.checked = val(key) === o;
+    inp.addEventListener("change", () => val(key, o));
+    el.querySelector(".ctl").appendChild(r);
+  }
+  return el;
+}
+function checkbox(label, key, req) {
+  const id = `input-${++uid}`;
+  const el = h(`<div class="ff" data-automation-id="formField-${key}"><span class="cb"><input type="checkbox" id="${id}" data-automation-id="${key}"><span class="box"></span></span> <label for="${id}">${label}${req ? "*" : ""}</label><div class="err" role="alert" style="display:none"></div></div>`);
+  el.dataset.req = req ? "1" : ""; el.dataset.key = key; el.dataset.cb = "1";
+  const i = el.querySelector("input"); i.checked = Boolean(val(key));
+  i.addEventListener("change", () => { val(key, i.checked); if (el.onToggle) el.onToggle(i.checked); });
+  return el;
+}
+function date(label, key, req, withMonth = true) {
+  return field(label, req, (c) => {
+    const w = h(`<div data-automation-id="dateInputWrapper" style="display:flex;gap:4px"></div>`);
+    const parts = withMonth ? [["Month", "MM"], ["Year", "YYYY"]] : [["Year", "YYYY"]];
+    for (const [n, ph] of parts) {
+      const i = h(`<input type="text" role="spinbutton" class="spin" aria-label="${n}" placeholder="${ph}" data-automation-id="dateSection${n}-input">`);
+      i.value = val(`${key}.${n}`) || "";
+      i.addEventListener("input", () => val(`${key}.${n}`, i.value.replace(/\D/g, "")));
+      w.appendChild(i);
+    }
+    c.appendChild(w);
+  }, key);
+}
+function upload(label, key, req) {
+  const el = h(`<div class="ff" data-automation-id="formField-${key}"><label>${label}${req ? "*" : ""}</label><div data-automation-id="file-upload-drop-zone" style="border:2px dashed #aaa;padding:20px;text-align:center">Drop file here or <button type="button" data-automation-id="select-files">Select file</button><input type="file" data-automation-id="file-upload-input-ref" style="display:none"></div><div class="files"></div><div class="err" role="alert" style="display:none"></div></div>`);
+  el.dataset.req = req ? "1" : ""; el.dataset.key = key; el.dataset.file = "1";
+  const inp = el.querySelector("input[type=file]");
+  el.querySelector("button").addEventListener("click", () => inp.click());
+  const draw = () => { el.querySelector(".files").innerHTML = S.files[key] ? `<div data-automation-id="file-upload-item">${S.files[key]} <button type="button">Delete</button></div>` : ""; };
+  inp.addEventListener("change", () => { if (inp.files.length) { S.files[key] = inp.files[0].name; draw(); } });
+  draw();
+  return el;
+}
+function footer(nextLabel = "Save and Continue") {
+  const f = h(`<div style="display:flex;gap:10px;justify-content:flex-end;margin-top:20px"><button type="button" data-automation-id="pageFooterBackButton">Back</button><button type="button" data-automation-id="pageFooterNextButton">${nextLabel}</button></div>`);
+  f.querySelector("[data-automation-id=pageFooterNextButton]").addEventListener("click", () => next());
+  f.querySelector("[data-automation-id=pageFooterBackButton]").addEventListener("click", () => go(PAGES[Math.max(1, PAGES.indexOf(S.page) - 1)]));
+  return f;
+}
+function progress() {
+  const steps = PAGES.slice(1);
+  return h(`<ol data-automation-id="progressBar" style="display:flex;gap:18px;list-style:none;padding:0">${steps.map((s, i) => `<li data-automation-id="${s === S.page ? "progressBarActiveStep" : "progressBarInactiveStep"}" ${s === S.page ? 'aria-current="step"' : ""}>${s === S.page ? "current step" : "step"} ${i + 1} of ${steps.length} ${STEP_NAMES[s]}</li>`).join("")}</ol>`);
+}
+function validate() {
+  let bad = 0;
+  document.querySelectorAll(".banner").forEach((b) => b.remove());
+  for (const ff of app.querySelectorAll(".ff")) {
+    if (!ff.dataset.req || ff.offsetParent === null) continue;
+    const k = ff.dataset.key;
+    let ok;
+    if (ff.dataset.file) ok = Boolean(S.files[k]);
+    else if (ff.dataset.cb) ok = Boolean(val(k));
+    else if (ff.querySelector("[data-automation-id=dateInputWrapper]")) ok = ff.querySelectorAll("input").length && [...ff.querySelectorAll("input")].every((i) => i.value.trim());
+    else if (ff.querySelector("input[type=text]:not([data-automation-id=searchBox]), textarea")) ok = ff.querySelector("input[type=text], textarea").value.trim().length > 0;
+    else { const v = val(k); ok = Array.isArray(v) ? v.length > 0 : Boolean(v); }
+    const e = ff.querySelector(".err");
+    if (!ok) { bad++; e.style.display = "block"; e.textContent = `Error: The field ${ff.querySelector("label, legend")?.textContent.replace("*", "")} is required and must have a value.`; ff.querySelector("input, button, textarea")?.setAttribute("aria-invalid", "true"); }
+    else { e.style.display = "none"; e.textContent = ""; }
+  }
+  if (bad) app.prepend(h(`<div class="banner" data-automation-id="errorBanner" role="alert">Errors Found: ${bad} error${bad > 1 ? "s" : ""} on this page</div>`));
+  return !bad;
+}
+function next() {
+  if (!validate()) return;
+  const i = PAGES.indexOf(S.page);
+  if (S.page === "review") { S.submitted = true; app.innerHTML = `<h2 data-automation-id="congratulationsPopup">Application Submitted</h2><p>Thank you for applying to Acme Robotics.</p>`; return; }
+  setTimeout(() => go(PAGES[i + 1]), 300);
+}
+function go(p) { S.page = p; render(); window.scrollTo(0, 0); }
+
+function workPanel(n) {
+  const k = `work${n}`;
+  const sec = h(`<div class="sec" data-automation-id="workExperience-${n}"><h4 data-automation-id="panelSetHeader">Work Experience ${n}</h4><button type="button" data-automation-id="panel-set-delete-button">Delete</button></div>`);
+  sec.appendChild(text("Job Title", `${k}.title`, true));
+  sec.appendChild(text("Company", `${k}.company`, true));
+  sec.appendChild(text("Location", `${k}.location`, false));
+  const cur = checkbox("I currently work here", `${k}.current`, false);
+  sec.appendChild(cur);
+  sec.appendChild(date("From", `${k}.from`, true));
+  const to = date("To", `${k}.to`, true);
+  sec.appendChild(to);
+  const sync = (on) => { to.style.display = on ? "none" : ""; };
+  cur.onToggle = sync; sync(Boolean(val(`${k}.current`)));
+  sec.appendChild(area("Role Description", `${k}.desc`, false));
+  return sec;
+}
+function eduPanel(n) {
+  const k = `edu${n}`;
+  const sec = h(`<div class="sec" data-automation-id="education-${n}"><h4 data-automation-id="panelSetHeader">Education ${n}</h4></div>`);
+  sec.appendChild(prompt("School or University", `${k}.school`, true, SCHOOLS));
+  sec.appendChild(dropdown("Degree", `${k}.degree`, true, ["High School Diploma", "Associate's Degree", "Bachelor's Degree", "Master's Degree", "MBA", "Doctorate"]));
+  sec.appendChild(text("Field of Study", `${k}.field`, false));
+  sec.appendChild(date("From", `${k}.from`, false, false));
+  sec.appendChild(date("To (Actual or Expected)", `${k}.to`, false, false));
+  return sec;
+}
+
+function render() {
+  app.innerHTML = "";
+  const title = h(`<div><button type="button" data-automation-id="backToJobPosting">Back to Job Posting</button><h2 data-automation-id="jobTitleHeading">Senior Integrated Marketing Specialist - AI Infrastructure</h2></div>`);
+  app.appendChild(title);
+  if (S.page === "start") {
+    app.appendChild(h(`<div data-automation-id="applyAdventurePage"><h2>Start Your Application</h2></div>`));
+    for (const [id, t] of [["autofillWithResume", "Autofill with Resume"], ["applyManually", "Apply Manually"], ["useMyLastApplication", "Use My Last Application"]]) {
+      const a = h(`<a href="#${id}" data-automation-id="${id}" style="display:block;margin:10px 0;padding:10px;border:1px solid #ccc">${t}</a>`);
+      a.addEventListener("click", (e) => { e.preventDefault(); go("info"); });
+      app.lastChild.appendChild(a);
+    }
+    return;
+  }
+  app.appendChild(progress());
+  app.appendChild(h(`<h2>${STEP_NAMES[S.page]}</h2>`));
+  app.appendChild(h(`<p>* Indicates a required field</p>`));
+  // A bot trap like Workday's: never fill it.
+  const trap = h(`<div class="trap"><input type="text" data-automation-id="beecatcher" name="website_hp"></div>`);
+  trap.querySelector("input").addEventListener("input", (e) => { S.trapped = e.target.value; });
+  app.appendChild(trap);
+  if (S.page === "info") {
+    app.appendChild(prompt("How Did You Hear About Us?", "source", true, HEARD));
+    app.appendChild(radios("Have you previously worked for Acme Robotics as an employee or contractor?", "previousWorker", true, ["Yes", "No"]));
+    app.appendChild(dropdown("Country", "country", true, ["Canada", "India", "United Kingdom", "United States of America"]));
+    if (!val("country")) val("country", "United States of America");
+    app.querySelector("[data-automation-id=country]").textContent = val("country");
+    const nm = h(`<div class="sec"><h3>Legal Name</h3></div>`);
+    nm.appendChild(text("First Name", "legalName.first", true)); nm.appendChild(text("Last Name", "legalName.last", true));
+    app.appendChild(nm);
+    const ad = h(`<div class="sec"><h3>Address</h3></div>`);
+    ad.appendChild(text("Address Line 1", "address.line1", true)); ad.appendChild(text("City", "address.city", true));
+    ad.appendChild(dropdown("State", "address.state", true, STATES)); ad.appendChild(text("Postal Code", "address.postal", true));
+    app.appendChild(ad);
+    const ph = h(`<div class="sec"><h3>Phone</h3></div>`);
+    ph.appendChild(dropdown("Phone Device Type", "phone.type", true, ["Home", "Mobile", "Work"]));
+    ph.appendChild(prompt("Country Phone Code", "phone.code", true, ["Canada (+1)", "India (+91)", "United Kingdom (+44)", "United States of America (+1)"]));
+    ph.appendChild(text("Phone Number", "phone.number", true));
+    ph.appendChild(text("Phone Extension", "phone.ext", false));
+    app.appendChild(ph);
+  }
+  if (S.page === "exp") {
+    const w = h(`<div class="sec" data-automation-id="workExperienceSection"><h3>Work Experience</h3><div class="items"></div><button type="button" data-automation-id="add-button">Add</button></div>`);
+    S.work.forEach((_, n) => w.querySelector(".items").appendChild(workPanel(n + 1)));
+    w.querySelector("[data-automation-id=add-button]").textContent = S.work.length ? "Add Another" : "Add";
+    w.querySelector("[data-automation-id=add-button]").addEventListener("click", () => { S.work.push(1); render(); });
+    app.appendChild(w);
+    const e = h(`<div class="sec" data-automation-id="educationSection"><h3>Education</h3><div class="items"></div><button type="button" data-automation-id="add-button">Add</button></div>`);
+    S.edu.forEach((_, n) => e.querySelector(".items").appendChild(eduPanel(n + 1)));
+    e.querySelector("[data-automation-id=add-button]").textContent = S.edu.length ? "Add Another" : "Add";
+    e.querySelector("[data-automation-id=add-button]").addEventListener("click", () => { S.edu.push(1); render(); });
+    app.appendChild(e);
+    const sk = h(`<div class="sec"><h3>Skills</h3></div>`);
+    sk.appendChild(prompt("Type to Add Skills", "skills", false, SKILLS, { multi: true }));
+    app.appendChild(sk);
+    const r = h(`<div class="sec"><h3>Resume/CV</h3></div>`);
+    r.appendChild(upload("Upload a file (5MB max)", "resume", true));
+    app.appendChild(r);
+    const web = h(`<div class="sec"><h3>Websites</h3></div>`);
+    web.appendChild(text("LinkedIn Profile", "linkedin", false));
+    app.appendChild(web);
+    if (!S.work.length) app.appendChild(h(`<p class="err">Add at least one work experience if you have one.</p>`));
+  }
+  if (S.page === "questions") {
+    app.appendChild(dropdown("Are you legally authorized to work in the country in which you are applying?", "q.auth", true, ["Yes", "No"]));
+    app.appendChild(dropdown("Will you now or in the future require sponsorship for employment visa status (e.g., H-1B visa status)?", "q.sponsor", true, ["Yes", "No"]));
+    app.appendChild(dropdown("Do you have any relatives currently employed by Acme Robotics?", "q.relative", true, ["Yes", "No"]));
+    app.appendChild(area("Why are you interested in this role at Acme Robotics?", "q.why", true));
+    app.appendChild(dropdown("Are you willing to work onsite in Santa Clara, CA at least 3 days a week?", "q.onsite", true, ["Yes", "No"]));
+  }
+  if (S.page === "voluntary") {
+    app.appendChild(h(`<p>Acme Robotics is an equal opportunity employer. Providing this information is voluntary.</p>`));
+    app.appendChild(dropdown("Gender", "eeo.gender", true, ["Female", "Male", "I do not wish to answer"]));
+    app.appendChild(dropdown("Ethnicity", "eeo.ethnicity", false, ["Asian (Not Hispanic or Latino)", "Black or African American (Not Hispanic or Latino)", "Hispanic or Latino", "White (Not Hispanic or Latino)", "I do not wish to answer"]));
+    app.appendChild(dropdown("Veteran Status", "eeo.veteran", true, ["I am not a protected veteran", "I identify as one or more of the classifications of protected veteran", "I do not wish to answer"]));
+    app.appendChild(checkbox("Yes, I have read and consent to the terms and conditions", "eeo.terms", true));
+  }
+  if (S.page === "selfid") {
+    app.appendChild(h(`<p>Voluntary Self-Identification of Disability. Form CC-305.</p>`));
+    app.appendChild(text("Name", "self.name", true));
+    app.appendChild(date("Date", "self.date", true));
+    const g = h(`<fieldset class="ff" data-automation-id="formField-disability" data-req="1" data-key="self.disability" style="border:0;padding:0"><legend>Please check one of the boxes below*</legend><div class="err" role="alert" style="display:none"></div></fieldset>`);
+    for (const o of ["Yes, I have a disability, or have had one in the past", "No, I do not have a disability and have not had one in the past", "I do not want to answer"]) {
+      const id = `input-${++uid}`;
+      const r = h(`<div class="cb"><input type="checkbox" name="disability" id="${id}"><span class="box"></span><label for="${id}">${o}</label></div>`);
+      r.querySelector("input").checked = val("self.disability") === o;
+      r.querySelector("input").addEventListener("change", (e) => { if (e.target.checked) { val("self.disability", o); g.querySelectorAll("input").forEach((x) => { if (x !== e.target) x.checked = false; }); } else val("self.disability", ""); });
+      g.insertBefore(r, g.querySelector(".err"));
+    }
+    app.appendChild(g);
+  }
+  if (S.page === "review") {
+    app.appendChild(h(`<div><h3>Review</h3><pre style="white-space:pre-wrap;font-size:12px">${Object.entries(S.values).map(([k, v]) => `${k}: ${Array.isArray(v) ? v.join(", ") : v}`).join("\n")}</pre></div>`));
+  }
+  app.appendChild(footer(S.page === "review" ? "Submit" : "Save and Continue"));
+}
+render();
+</script>
+</body></html>

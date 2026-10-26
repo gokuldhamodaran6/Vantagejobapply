@@ -89,6 +89,17 @@ const server = http.createServer(async (req, res) => {
 });
 
 server.listen(PORT, () => console.log(`Vantage agent worker on :${PORT}`));
+// Pilot self-test (only when switched on): fills a copy of a Workday application and logs the result.
+if (process.env.PILOT_SELFTEST === "1") {
+  setTimeout(async () => {
+    try {
+      const { selftest } = await import("./selftest.mjs");
+      for (const name of (process.env.PILOT_SELFTEST_FIXTURES || "wd-real.html").split(",")) await selftest(await getBrowser(), name.trim());
+    } catch (e) {
+      console.error("[selftest] crashed", e);
+    }
+  }, 8000);
+}
 // Safety net: check the queue every minute while recently busy.
 setInterval(() => {
   if (!running && Date.now() - lastWork < 20 * 60 * 1000) drain();

@@ -25,7 +25,7 @@ export function aiProvider(): Provider | null {
 }
 
 type Msg = { role: "user" | "assistant"; content: string };
-type Kind = "writer" | "tailor" | "fast";
+type Kind = "writer" | "tailor" | "fast" | "pilot";
 type Opts = { model?: Kind; temperature?: number };
 
 /** Model for long-form writing (resumes, letters), per-job tailoring, and quick structured decisions. */
@@ -33,9 +33,12 @@ export function modelFor(kind: Kind = "fast", provider: Provider = aiProvider() 
   if (provider === "gemini") {
     if (kind === "writer") return process.env.GEMINI_WRITER_MODEL || "gemini-3.8-flash";
     if (kind === "tailor") return process.env.GEMINI_TAILOR_MODEL || process.env.GEMINI_MODEL || "gemini-3.8-flash";
+    if (kind === "pilot") return process.env.GEMINI_PILOT_MODEL || "gemini-3.8-flash";
     return process.env.GEMINI_MODEL || "gemini-3.5-flash-lite";
   }
   if (kind === "writer") return process.env.AI_WRITER_MODEL || "claude-sonnet-5-5";
+  // The form pilot drives real careers sites step by step: accuracy matters more than speed here.
+  if (kind === "pilot") return process.env.AI_PILOT_MODEL || "claude-sonnet-5-5";
   // Per-job tailoring runs up to hundreds of times a day per user, so it defaults to the fast model.
   if (kind === "tailor") return process.env.AI_TAILOR_MODEL || process.env.AI_MODEL || "claude-haiku-5-5";
   return process.env.AI_MODEL || "claude-haiku-5-5";
