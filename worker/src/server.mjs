@@ -50,7 +50,7 @@ async function drain() {
       }
       stats.current = null;
       // Pause between applications so it never looks like a burst.
-      await new Promise((r) => setTimeout(r, 4000 + Math.random() * 6000));
+      await new Promise((r) => setTimeout(r, 2000 + Math.random() * 3000));
     }
   } finally {
     running = false;

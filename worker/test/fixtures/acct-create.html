@@ -1,0 +1,19 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Create account · Initech Jobs</title></head><body>
+<h2>Create your account</h2>
+<form id="f" onsubmit="return go(event)">
+<label for="fn">First name</label><input id="fn" required>
+<label for="ln">Last name</label><input id="ln" required>
+<label for="em">Email</label><input id="em" type="email" required>
+<label for="pw">Password</label><input id="pw" type="password" required>
+<label for="pw2">Re-enter password</label><input id="pw2" type="password" required>
+<label><input id="tos" type="checkbox" required> I agree to the Terms of Use and Privacy Notice</label>
+<button type="submit">Create account</button></form>
+<p id="err" style="color:red"></p>
+<script>
+document.getElementById('em').value = localStorage.email || '';
+function go(e){ e.preventDefault();
+  const pw = document.getElementById('pw').value, pw2 = document.getElementById('pw2').value;
+  if (pw.length < 12 || pw !== pw2) { document.getElementById('err').textContent = 'Passwords must match and be 12+ characters'; return false; }
+  if (!document.getElementById('fn').value || !document.getElementById('tos').checked) { document.getElementById('err').textContent = 'Fill all fields'; return false; }
+  location.href = '/fx/acct-verify.html'; return false; }
+</script></body></html>

@@ -392,7 +392,7 @@ function tidy(n: AgentTask["needs"][number]): AgentTask["needs"][number] {
   return { ...n, label, options: foreign ? undefined : n.options };
 }
 
-type SiteCode = { kind: "site_code"; system: string; company: string; sentTo: string; length: number | null; auto: boolean; startedAt: string; expiresAt: string; error?: string };
+type SiteCode = { kind: "site_code"; system: string; company: string; sentTo: string; length: number | null; auto: boolean; purpose?: "application" | "account"; startedAt: string; expiresAt: string; error?: string };
 const siteCode = (t: AgentTask) => ((t.needs as unknown as SiteCode[] | null)?.[0]?.kind === "site_code" ? (t.needs as unknown as SiteCode[])[0] : null);
 /** With a connected inbox the agent reads codes itself; only ask the user when that hasn't worked within ~45s or a code was rejected. */
 function codeNeedsYou(t: AgentTask, hasMailbox: boolean, now: number) {
@@ -428,10 +428,12 @@ function CodeCard({ t, hasMailbox, head, onDone }: { t: AgentTask; hasMailbox: b
     <div className="card border-brand/30 p-5">
       {head}
       <div className="mt-3 rounded-xl bg-brand-tint/60 p-4">
-        <p className="flex items-center gap-2 text-sm font-semibold"><ShieldCheck size={16} className="text-brand" /> {sc ? `One last step: ${sc.company}'s security code` : "Verify your email"}</p>
+        <p className="flex items-center gap-2 text-sm font-semibold"><ShieldCheck size={16} className="text-brand" /> {sc ? (sc.purpose === "account" ? `Verifying your new ${sc.company} account` : `One last step: ${sc.company}'s security code`) : "Verify your email"}</p>
         <p className="mt-1 text-[13px] leading-relaxed text-ink-2">
           {sc
-            ? <>Your application is filled in. {sc.company} receives applications through <b>{sc.system}</b>, and {sc.system} just emailed an {len}-character code to <b>{sentTo}</b> to confirm a real person is applying. {hasMailbox ? "Your agent checks your inbox every few seconds and enters it itself — or paste it here." : "Paste it here and your agent submits right away."}</>
+            ? sc.purpose === "account"
+              ? <>Your agent is creating your {sc.company} careers account with <b>{sentTo}</b>. {sc.system} emailed a {len}-character code to verify it. {hasMailbox ? "Your agent reads it from your inbox and enters it itself — or paste it here." : "Paste it here and your agent carries on with the application."}</>
+              : <>Your application is filled in. {sc.company} receives applications through <b>{sc.system}</b>, and {sc.system} just emailed an {len}-character code to <b>{sentTo}</b> to confirm a real person is applying. {hasMailbox ? "Your agent checks your inbox every few seconds and enters it itself — or paste it here." : "Paste it here and your agent submits right away."}</>
             : <>{t.job.company} emailed a verification code to <b>{sentTo}</b>. Enter it and your agent carries on. Tip: connect your job email in Settings and your agent reads these codes itself.</>}
         </p>
         {sc?.error && <p className="mt-2 text-[13px] font-semibold text-red-ink">{sc.error}. Use the newest email from {sc.system}.</p>}
@@ -457,7 +459,7 @@ function CodeCard({ t, hasMailbox, head, onDone }: { t: AgentTask; hasMailbox: b
           </div>
         </div>
         <div className="mt-4 flex flex-wrap items-center gap-2">
-          <button className="btn-primary" disabled={busy || !ready}>{busy ? <Loader2 size={16} className="animate-spin" /> : <Check size={16} />} Submit application</button>
+          <button className="btn-primary" disabled={busy || !ready}>{busy ? <Loader2 size={16} className="animate-spin" /> : <Check size={16} />} {sc?.purpose === "account" ? "Verify and continue" : "Submit application"}</button>
           <button type="button" className="btn-ghost" onClick={async () => { try { setCode(clean(await navigator.clipboard.readText())); } catch { /* clipboard blocked */ } }}>Paste</button>
           <a className="btn-ghost" href={`https://mail.google.com/mail/u/${encodeURIComponent(sentTo)}/#search/${encodeURIComponent(sc ? `from:${sc.system.toLowerCase()} ${sc.company}` : "code")}`} target="_blank" rel="noopener noreferrer"><ExternalLink size={15} /> Open Gmail</a>
           {sc && <span className="ml-auto text-xs text-muted">{left > 0 ? <>Page held open for you · {mmss}</> : "Time's up — retry to get a new code"}</span>}

@@ -88,7 +88,8 @@ export async function ensureFreshTailoring(input: {
   const issues = resumeIssues(input.resume, input.fullName);
   const age = input.resumeUpdatedAt ? Date.now() - Date.parse(input.resumeUpdatedAt) : Infinity;
   const baseNewer = base.updated_at && input.resumeUpdatedAt ? Date.parse(base.updated_at) > Date.parse(input.resumeUpdatedAt) : false;
-  if (!issues.length && age < 12 * 3600_000 && !baseNewer) return { refreshed: false };
+  // Re-writing takes ~30s, so only when it matters: a broken copy, a newer master/role resume, or a copy older than two weeks.
+  if (!issues.length && age < 14 * 864e5 && !baseNewer) return { refreshed: false };
   const jd = await rpcExt<{ description: string | null; location: string | null; country: string | null } | null>("job", { job_id: input.jobId }).catch(() => null);
   const tone = (input.tone as LetterTone) || "confident";
   const t = await tailorForJob(base.content, { title: input.job.title, company: input.job.company, description: jd?.description || null, country: input.job.country || jd?.country || "US", location: input.job.location || jd?.location }, input.fullName || input.name, tone);
@@ -97,5 +98,5 @@ export async function ensureFreshTailoring(input: {
   const report = scoreResume(content, t.keywords);
   const saved = await rpcExt<{ id: string }>("save_resume", { user_id: input.userId, role_id: input.job.role_id || "", name: `${input.job.title} — ${input.job.company}`, content, ats_score: report.score, style: input.style || base.style || "classic" });
   await rpc("update", { task_id: input.taskId, resume_id: saved.id, cover_letter: t.coverLetter, log: "Rewrote the resume and cover letter for this job before applying" });
-  return { refreshed: true, reason: issues.join(", ") || (baseNewer ? "newer master resume" : "older than 12 hours") };
+  return { refreshed: true, reason: issues.join(", ") || (baseNewer ? "newer master resume" : "older than two weeks") };
 }

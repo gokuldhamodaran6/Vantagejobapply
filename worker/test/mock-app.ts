@@ -24,9 +24,12 @@ const tasks: T[] = [
   { id: "t-react", ats: "greenhouse", url: `${BASE}/fx/gh-react.html`, job: { title: "Senior Analyst", company: "Umbrella", country: "US" }, status: "queued", log: [], userInput: {}, attempts: 0 },
   { id: "t-lever", ats: "lever", url: `${BASE}/fx/lever.html`, job: { title: "Account Executive", company: "Initrode", country: "US" }, status: "queued", log: [], userInput: {}, attempts: 0 },
   { id: "t-code", ats: "greenhouse", url: `${BASE}/fx/gh-code.html`, job: { title: "Senior Analyst", company: "Umbrella", country: "US" }, status: "queued", log: [], userInput: {}, attempts: 0 },
+  { id: "t-acct", ats: "generic", url: `${BASE}/fx/acct-job.html`, job: { title: "Business Operations Manager", company: "Initech", country: "US" }, status: "queued", log: [], userInput: {}, attempts: 0 },
   { id: "t-cap", ats: "generic", url: `${BASE}/fx/captcha.html`, job: { title: "Data Analyst", company: "Hooli", country: "US" }, status: "queued", log: [], userInput: {}, attempts: 0 },
 ];
 let codePolls = 0;
+let acctPolls = 0;
+if (process.env.ONLY) tasks.splice(0, tasks.length, ...tasks.filter((t) => process.env.ONLY!.split(",").includes(t.id)));
 const vault: Record<string, { login: string; password: string }> = {};
 export const events: string[] = [];
 
@@ -89,6 +92,7 @@ const server = http.createServer(async (req, res) => {
   } else if (op === "poll") {
     if (t!.id === "t-wd") out = { code: "482913", link: null, userInput: {} };
     // The Greenhouse security code "arrives" in the inbox a few polls after Submit; first a stale wrong one.
+    else if (t!.id === "t-acct") out = { code: acctPolls++ < 1 ? null : "730514", link: null, userInput: {} };
     else if (t!.id === "t-code") out = { code: (codePolls++ < 2 ? null : codePolls < 4 ? "ZZZZ1111" : "O2YJR3FJ"), link: null, userInput: {} };
     else out = { userInput: t!.userInput };
   } else if (op === "credential") {

@@ -408,6 +408,18 @@ export async function findSubmit(page) {
   return null;
 }
 export const findNext = (page) => buttonByText(page, NEXT);
+
+/** Pages between the job and the form that ask about an account (Amazon: "Looks like you're new here — Proceed to create account"). */
+export const ACCOUNT_GATE = /create (an |your )?(account|profile)|sign in to (apply|continue)|log ?in to (apply|continue)|looks like you'?re new|new here|new (user|candidate)|already have an account|sign in or create|candidate (home|profile|account)|register to apply/i;
+const GUEST_BTN = /^(continue as (a )?guest|apply as (a )?guest|apply without (an )?account|guest application|skip( for now)?)$/i;
+const CREATE_BTN = /^(proceed to create (an )?account|create (an |your )?account|create account|create profile|sign ?up|register|get started|new user|i'?m new( here)?)$/i;
+const SIGNIN_BTN = /^(sign ?in|log ?in|login|continue with email|use (my |your )?email|continue)$/i;
+/** The button that moves past an account gate: a guest path first, then sign-in when we have a login here, else create. */
+export async function findAccountButton(page, haveLogin) {
+  return (await buttonByText(page, GUEST_BTN)) || (haveLogin ? await buttonByText(page, SIGNIN_BTN) : null) || (await buttonByText(page, CREATE_BTN)) || (haveLogin ? null : await buttonByText(page, SIGNIN_BTN));
+}
+/** "Verify", "Confirm" and similar buttons on code pages. */
+export const findVerify = (page) => buttonByText(page, /^(verify( (code|email|account))?|confirm( (code|email))?|continue|submit( code)?|next|done)$/i);
 export async function findEntry(page) {
   // A "Start your application" dialog (Workday and others): pick "Apply manually" so every field stays under our control.
   for (const frame of page.frames()) {

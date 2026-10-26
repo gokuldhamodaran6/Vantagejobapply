@@ -1,5 +1,5 @@
 import { call, log, update } from "./api.mjs";
-import { codeChallenge, declineCookies, enterCode, extractFields, isCodeField, fillField, findEntry, findNext, findSubmit, human, humanCheckVisible, isConfirmation, pageText, readComboOptions, visibleErrors } from "./forms.mjs";
+import { ACCOUNT_GATE, codeChallenge, declineCookies, enterCode, extractFields, findAccountButton, findVerify, isCodeField, fillField, findEntry, findNext, findSubmit, human, humanCheckVisible, isConfirmation, pageText, readComboOptions, visibleErrors } from "./forms.mjs";
 import { live } from "./live.mjs";
 import { allowedUrl, baseDomain } from "./guard.mjs";
 
@@ -67,11 +67,13 @@ export async function runTask(bundle, browser) {
       }
 
       const fields = await extractFields(page);
+      if (process.env.AGENT_DEBUG) console.log("[step]", step, page.url(), fields.map((f) => `${f.type}:${(f.label || "").slice(0, 30)}`).join(" | "));
       // The site emailed a code (Greenhouse's "security code" after Submit): read it from the inbox and enter it.
       const challenge = await codeChallenge(page, fields);
       if (challenge) {
         if (bundle.dry) throw new Stop("manual", "Dry run: the site asked for an emailed security code", { needs: await diagnose(page, bundle) });
-        if (await passCode(bundle, page, challenge)) break;
+        const forAccount = /account|sign ?up|register|verify your email|confirm your email/i.test(text) && !/application/i.test(text.slice(0, 600));
+        if (await passCode(bundle, page, challenge, forAccount ? "account" : "application")) break;
         continue;
       }
       const formish = fields.filter((f) => !["password"].includes(f.type));
@@ -82,6 +84,21 @@ export async function runTask(bundle, browser) {
         if (bundle.dry) throw new Stop("manual", "Dry run: stopped at the careers-site account page", { needs: await diagnose(page, bundle) });
         await handleAccount(bundle, page, fields, passwords);
         continue;
+      }
+
+      // 2a) Account gate with no form yet ("Looks like you're new here — Proceed to create account").
+      if (formish.filter((f) => f.type !== "checkbox").length === 0 && ACCOUNT_GATE.test(text) && (bundle.gates || 0) < 4) {
+        const haveLogin = Boolean(bundle.credential?.password);
+        const b = await findAccountButton(page, haveLogin);
+        if (b) {
+          if (bundle.dry) throw new Stop("manual", "Dry run: stopped at the careers-site account page", { needs: await diagnose(page, bundle) });
+          bundle.gates = (bundle.gates || 0) + 1;
+          const label = ((await b.innerText().catch(() => "")) || "").trim();
+          await log(task.id, /guest/i.test(label) ? "Continuing as a guest — no account needed" : haveLogin ? `Signing in to ${task.job.company} careers` : `Creating your ${task.job.company} careers account`, haveLogin ? "Signing in" : "Creating your account");
+          await b.click({ timeout: 8000 }).catch(() => b.click({ force: true }).catch(() => {}));
+          await settle(page);
+          continue;
+        }
       }
 
       // 2) Landing page with an "Apply" button and no form yet.
@@ -111,7 +128,17 @@ export async function runTask(bundle, browser) {
       const submit = await findSubmit(page);
       const next = submit ? null : await findNext(page);
       if (!submit && !next) {
-        if (step > 0 && formish.length === 0) throw new Stop("manual", "This site needs a step the agent can't do. Open the job link to finish.");
+        if (step > 0 && formish.length === 0) {
+          // After signing in or creating an account, sites often land on a dashboard: go back to the job and press Apply.
+          if (!bundle.backToJob && page.url().split("#")[0] !== task.url.split("#")[0]) {
+            bundle.backToJob = true;
+            await log(task.id, "Account ready — going back to the job to apply", "Back to the job");
+            await goto(task.url);
+            await settle(page);
+            continue;
+          }
+          throw new Stop("manual", "This site needs a step the agent can't do. Open the job link to finish.");
+        }
         await sleep(1500);
         continue;
       }
@@ -183,9 +210,10 @@ async function diagnose(page, bundle) {
   }));
 }
 
-async function settle(page, extra = 1200) {
+async function settle(page, extra = 700) {
   await page.waitForLoadState("domcontentloaded", { timeout: 20_000 }).catch(() => {});
-  await page.waitForLoadState("networkidle", { timeout: 8_000 }).catch(() => {});
+  // Most careers sites keep analytics connections open forever; don't wait long for "idle".
+  await page.waitForLoadState("networkidle", { timeout: 3_500 }).catch(() => {});
   await sleep(extra);
 }
 
@@ -196,24 +224,29 @@ async function fillPage(bundle, page, filled, seen, collectMissing = false) {
   const failed = [];
   for (let pass = 0; pass < 3; pass++) {
     const fields = (await extractFields(page)).filter((f) => f.type !== "password" && !isCodeField(f));
-    const fresh = fields.filter((f) => !seen.has(f.id) || (collectMissing && f.required && !f.value && !f.checked));
+    // Field ids restart on every new page, so "already handled" is remembered per page, not per id.
+    const doc = page.url().split("#")[0];
+    const key = (f) => `${doc}|${f.frame || ""}|${f.id}`;
+    const fresh = fields.filter((f) => !seen.has(key(f)) || (collectMissing && f.required && !f.value && !f.checked));
     if (!fresh.length) break;
     for (const f of fresh) {
       if (f.type === "combobox" && !f.options?.length) f.options = await readComboOptions(page, f);
     }
     const plan = await call("plan", { taskId: task.id, fields: fresh.map(({ frame, value, checked, accept, ...rest }) => rest) });
     const byId = new Map(fresh.map((f) => [f.id, f]));
+    if (process.env.AGENT_DEBUG) console.log("[plan]", JSON.stringify(plan).slice(0, 600));
     for (const fill of plan.fills || []) {
       const f = byId.get(fill.id);
       if (!f) continue;
       // Don't overwrite what the site already prefilled correctly from the resume.
       if (f.value && !fill.file && f.type !== "checkbox" && String(f.value).trim().toLowerCase() === String(fill.value || "").trim().toLowerCase()) {
-        seen.add(f.id);
+        seen.add(key(f));
         continue;
       }
       const ok = await fillField(page, f, fill, files);
+      if (process.env.AGENT_DEBUG) console.log("[fill]", f.label.slice(0, 30), ok);
       if (ok) {
-        seen.add(f.id);
+        seen.add(key(f));
         if (fill.value && f.type !== "file") filled[f.label.slice(0, 120)] = String(fill.value).slice(0, 500);
       } else if (f.required && f.type === "file") {
         throw new Stop("manual", "This site wouldn't take the resume upload. Open the job link to finish.");
@@ -223,7 +256,7 @@ async function fillPage(bundle, page, filled, seen, collectMissing = false) {
       }
       await new Promise((r) => setTimeout(r, 120 + Math.random() * 300));
     }
-    for (const f of fresh) seen.add(f.id);
+    for (const f of fresh) seen.add(key(f));
     const missing = [...(plan.missing || []).filter((m) => m.required), ...failed.filter((x) => !(plan.missing || []).some((m) => m.id === x.id))];
     failed.length = 0;
     if (missing.length) {
@@ -318,8 +351,11 @@ async function handleAccount(bundle, page, fields, allPasswords) {
     throw new Stop("manual", `An account for ${cred.login} already exists on this site. Sign in once from the job link (use "forgot password"), then retry.`);
   }
   if (/verify|verification|confirm your email|check your (email|inbox)|we (have )?sent|enter (the )?code|one[- ]time/.test(after)) {
-    await verifyEmail(bundle, page, sinceIso);
+    const ch = await codeChallenge(page);
+    if (ch) await passCode(bundle, page, ch, "account");
+    else await verifyEmail(bundle, page, sinceIso);
   }
+  bundle.accountDone = true;
 }
 
 /** Get the verification code or link from the job mailbox (or from the user when no mailbox is connected). */
@@ -377,7 +413,7 @@ const cleanCo = (c) => String(c || "").split(/\s*[|\-–]\s*/).filter(Boolean).p
  * from the user's connected job inbox (checked every few seconds) or typed by the user in Vantage.
  * Returns true when the site confirmed the application.
  */
-async function passCode(bundle, page, ch) {
+async function passCode(bundle, page, ch, purpose = "application") {
   const { task } = bundle;
   const company = cleanCo(task.job.company);
   // Careers pages often embed the ATS in a frame (Datadog → Greenhouse), so look at every frame and the task's ATS.
@@ -387,12 +423,12 @@ async function passCode(bundle, page, ch) {
   const waitStart = Date.now();
   const tried = new Set();
   const since = new Date(Date.now() - 3 * 60 * 1000).toISOString(); // the email often lands while Submit is still spinning
-  const meta = (extra = {}) => [{ kind: "site_code", system, company, sentTo, length: ch.length, auto: bundle.hasMailbox, startedAt: new Date(waitStart).toISOString(), expiresAt: new Date(waitStart + 10 * 60 * 1000).toISOString(), ...extra }];
+  const meta = (extra = {}) => [{ kind: "site_code", system, company, sentTo, length: ch.length, auto: bundle.hasMailbox, purpose, startedAt: new Date(waitStart).toISOString(), expiresAt: new Date(waitStart + 10 * 60 * 1000).toISOString(), ...extra }];
   await update(task.id, {
     status: "waiting_code",
     step: bundle.hasMailbox ? `Reading the security code ${system} emailed to ${sentTo}` : `Enter the code ${system} emailed to ${sentTo}`,
     needs: meta(),
-    log: `${system} emailed a security code to ${sentTo} to confirm this application`,
+    log: purpose === "account" ? `${system} emailed a code to ${sentTo} to verify your new account` : `${system} emailed a security code to ${sentTo} to confirm this application`,
   });
   const deadline = waitStart + 10 * 60 * 1000;
   try {
@@ -410,9 +446,9 @@ async function passCode(bundle, page, ch) {
       const fresh = (await codeChallenge(page)) || ch;
       await enterCode(page, fresh.boxes, code);
       await human(300, 700);
-      const submit = await findSubmit(page);
+      const submit = (await findSubmit(page)) || (await findVerify(page));
       if (submit) {
-        await log(task.id, "Submitting the application with the security code", "Submitting");
+        await log(task.id, purpose === "account" ? "Verifying your account with the emailed code" : "Submitting the application with the security code", purpose === "account" ? "Verifying your account" : "Submitting");
         await submit.click({ timeout: 10_000 }).catch(() => submit.click({ force: true }).catch(() => {}));
       }
       await settle(page, 2500);
