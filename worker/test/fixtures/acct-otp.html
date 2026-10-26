@@ -7,9 +7,10 @@ customElements.define('otp-box', class extends HTMLElement {
     const r = this.attachShadow({ mode: 'closed' });
     r.innerHTML = `<p>Enter the code we emailed you</p><input id="c" autocomplete="one-time-code" autofocus><p id="err"></p>`;
     setTimeout(() => r.getElementById('c').focus(), 50);
+    r.getElementById('c').addEventListener('input', (e) => { document.getElementById('vb').disabled = e.target.value.length < 6; });
     window.__otp = () => r.getElementById('c').value;
   }
 });
 </script>
-<button onclick="if (window.__otp() === '730514') { sessionStorage.session = '1'; location.href = '/fx/acct-form.html'; } else document.title = 'wrong ' + window.__otp();">Verify</button>
+<button id="vb" disabled onclick="if (window.__otp() === '730514') { sessionStorage.session = '1'; location.href = '/fx/acct-form.html'; } else document.title = 'wrong ' + window.__otp();">Verify</button>
 </body></html>

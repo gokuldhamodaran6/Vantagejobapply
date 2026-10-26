@@ -480,8 +480,9 @@ async function passCode(bundle, page, ch, purpose = "application") {
 
 async function blindCode(bundle, page) {
   const { task } = bundle;
-  const verify = await findVerify(page);
-  if (!verify || !/verif|code|confirm/i.test((await verify.innerText().catch(() => "")) || "") || (bundle.blindTries || 0) >= 3) return false;
+  // The Verify button is usually disabled until a code is typed, so look for it even when disabled.
+  const verify = page.getByRole("button", { name: /^\s*(verify|confirm|submit code|verify code)\s*$/i }).first();
+  if (!(await verify.isVisible().catch(() => false)) || (bundle.blindTries || 0) >= 3) return false;
   bundle.blindTries = (bundle.blindTries || 0) + 1;
   const company = cleanCo(task.job.company);
   const sentTo = bundle.identity.email;
@@ -516,8 +517,8 @@ async function blindCode(bundle, page) {
     await box.fill("").catch(() => {});
   }
   await page.keyboard.type(code, { delay: 90 });
-  await human(300, 600);
-  await verify.click({ timeout: 8000 }).catch(() => verify.click({ force: true }).catch(() => {}));
+  await human(400, 800);
+  await verify.click({ timeout: 8000 }).catch(() => page.keyboard.press("Enter").catch(() => {}));
   await settle(page, 2500);
   return true;
 }
