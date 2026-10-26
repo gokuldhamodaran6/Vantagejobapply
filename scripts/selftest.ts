@@ -12,6 +12,8 @@ import { roleSimilarity } from "../src/lib/jobs/roles";
 import { bestOption, bestName, qkeyOf, buildFacts, coreLabel, placeFromResume, planFields, lockedKind } from "../src/lib/agent/fields";
 import { siteKey } from "../src/lib/agent/sites";
 import { isJobMail } from "../src/lib/agent/mailsync";
+import { __validate } from "../src/lib/agent/pilot";
+import { testCtx } from "../src/lib/agent/pilot-test";
 import { isPrivateIp } from "../src/lib/net";
 import { parseEventText, parseIcs } from "../src/lib/mail-event";
 import { resumeIssues, tidyResume } from "../src/lib/resume/health";
@@ -205,6 +207,24 @@ ok(!lockedKind("Have you worked over 18 months in a startup?") && !lockedKind("C
 ok(!isJobMail({ kind: "verification", from_addr: "alerts@chase.com", subject: "Your verification code" }, [], ["amazon"]), "bank codes are not kept");
 ok(isJobMail({ kind: "verification", from_addr: "no-reply@portal-na.idprism-auth.amazon.dev", subject: "Your verification code" }, [], ["amazon"]), "codes from a site the agent is applying on are kept");
 ok(isJobMail({ kind: "other", from_addr: "no-reply@us.greenhouse-mail.io", subject: "Thanks" }, []) && !isJobMail({ kind: "other", from_addr: "news@cleverbridge.com", subject: "Sale" }, []), "careers senders match as whole names");
+
+// Pilot safety: whatever the AI proposes, the rules hold.
+{
+  const snap = { url: "x", items: [
+    { i: 0, kind: "text", label: "Address Line 1*", value: "" }, { i: 1, kind: "text", label: "Phone Extension", value: "" },
+    { i: 2, kind: "combobox", label: "Are you legally authorized to work in the country in which you are applying?*", value: "", required: true },
+    { i: 3, kind: "combobox", label: "Do you have a criminal conviction?*", value: "", required: true },
+    { i: 4, kind: "button", label: "Submit", final: true }, { i: 5, kind: "password", label: "Password" },
+  ] };
+  const v = __validate({ say: "x", status: "ready", submit: 4, actions: [
+    { do: "fill", i: 0, value: "{{address_line_1}}" }, { do: "fill", i: 1, value: "{{phone}}" }, { do: "choose", i: 2, value: "No" },
+    { do: "choose", i: 3, value: "No" }, { do: "click", i: 4 }, { do: "fill", i: 5, value: "hunter2" }, { do: "fill", i: 0, value: "{{nope}}" },
+  ] }, snap, new Map([[2, { value: "Yes" }]]), testCtx());
+  ok(v.actions.some((a) => a.i === 0 && a.value === "1 Main St") && !v.actions.some((a) => a.value === "{{nope}}"), "placeholders filled in (variants too); unknown ones never typed");
+  ok(!v.actions.some((a) => a.i === 1) && !v.actions.some((a) => a.i === 5) && !v.actions.some((a) => a.i === 4), "no phone in extension box, no password typing, no final submit click");
+  ok(v.actions.find((a) => a.i === 2)?.value === "Yes" && !v.actions.some((a) => a.i === 3), "eligibility answers only from the applicant; unknown locked questions withheld");
+  ok(v.status === "ask" && v.ask.some((q) => q.locked === "conviction"), "missing locked answers are asked before anything is ready to submit");
+}
 
 plannerChecks().then(() => {
   console.log(fail ? `\n${fail} failed` : "\nAll checks passed");

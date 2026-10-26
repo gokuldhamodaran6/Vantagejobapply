@@ -81,11 +81,40 @@ function masker(f: Facts) {
     return out;
   };
 }
+// The AI sometimes writes a placeholder a little differently ({{address_line_1}}, {{zip}}): map the usual variants.
+const ALIAS: Record<string, string> = {
+  address_line_1: "address_line1", address1: "address_line1", address: "address_line1", street: "address_line1", street_address: "address_line1",
+  zip: "postal_code", zip_code: "postal_code", zipcode: "postal_code", postcode: "postal_code", postal: "postal_code",
+  phone_number: "phone", mobile: "phone", telephone: "phone", name: "full_name", firstname: "first_name", lastname: "last_name",
+  email_address: "email", linkedin_url: "linkedin", portfolio: "website", website_url: "website", github_url: "github",
+};
 function unmask(f: Facts, s: string) {
-  return s.replace(/\{\{\s*([a-z_]+)\s*\}\}/g, (m, k) => {
-    const v = factValue(f, k);
+  return s.replace(/\{\{\s*([A-Za-z0-9_ ]+?)\s*\}\}/g, (m, raw) => {
+    const k = String(raw).toLowerCase().replace(/\s+/g, "_");
+    const v = factValue(f, k) ?? factValue(f, ALIAS[k] || "");
     return v === null ? m : v;
   });
+}
+
+/** The first complete JSON object in a reply (strings and nested braces respected). */
+function firstJson<T>(raw: string | null): T | null {
+  if (!raw) return null;
+  const direct = extractJson<T>(raw);
+  if (direct) return direct;
+  for (let start = raw.indexOf("{"); start >= 0; start = raw.indexOf("{", start + 1)) {
+    let depth = 0, str = false, esc = false;
+    for (let k = start; k < raw.length; k++) {
+      const c = raw[k];
+      if (str) { if (esc) esc = false; else if (c === "\\") esc = true; else if (c === '"') str = false; continue; }
+      if (c === '"') str = true;
+      else if (c === "{") depth++;
+      else if (c === "}" && --depth === 0) {
+        try { const v = JSON.parse(raw.slice(start, k + 1)); if (v && typeof v === "object" && ("actions" in v || "status" in v)) return v as T; } catch { /* keep looking */ }
+        break;
+      }
+    }
+  }
+  return null;
 }
 
 /* ---------------- deterministic suggestions from the existing planner ---------------- */
@@ -199,7 +228,7 @@ VALUES:
 - "Have you worked here before" / previous worker: "No" unless the resume shows this company.
 - Phone device type: Mobile. Country / phone country code: the applicant's country.
 - Open questions (why this company, describe experience): 2–4 specific, truthful first-person sentences from RESUME and the job. No clichés, never mention AI.
-- Optional fields you have no answer for: leave them. Respect "max N chars".
+- Optional fields you have no answer for: leave them (e.g. phone extension, middle name, second address line). Respect "max N chars".
 
 HOW TO WORK:
 - Fill everything you can on the page in ONE turn (many actions), then status "continue" to verify. When the page looks complete and error-free, click the page's Next/Continue/Save and Continue button with status "next".
@@ -249,14 +278,19 @@ export async function pilotStep(snap: PilotSnapshot, history: PilotHistory, ctx:
     `PAGE NOW:\n${page}`,
   ].filter(Boolean).join("\n\n");
 
-  const raw = await claude(SYSTEM, [{ role: "user", content: user }], 3000, { model: "pilot", temperature: 0 });
-  const parsed = extractJson<{ say?: string; actions?: PilotAction[]; status?: string; submit?: number; ask?: { i?: number; question?: string; options?: string[] }[] }>(raw);
+  type Raw = { say?: string; actions?: PilotAction[]; status?: string; submit?: number; ask?: { i?: number; question?: string; options?: string[] }[] };
+  let parsed: Raw | null = null;
+  for (let attempt = 0; attempt < 2 && !parsed; attempt++) {
+    const raw = await claude(SYSTEM, [{ role: "user", content: attempt ? `${user}\n\nReply with the JSON object only — no other text.` : user }], 4000, { model: "pilot", temperature: attempt ? 0.2 : 0 });
+    parsed = firstJson<Raw>(raw);
+    if (!parsed) console.error("pilot: unreadable reply", (raw || "(none)").slice(0, 400));
+  }
   if (!parsed) return { say: "Couldn't read the page this time", status: "stuck", actions: [], ask: [], notes: ["no AI answer"] };
-  return validate(parsed, snap, sugg, ctx);
+  return __validate(parsed, snap, sugg, ctx);
 }
 
 /** Enforce the rules on whatever the AI proposed, and put real contact details in. */
-function validate(p: { say?: string; actions?: PilotAction[]; status?: string; submit?: number; ask?: { i?: number; question?: string; options?: string[] }[] }, snap: PilotSnapshot, sugg: Map<number, Suggestion>, ctx: PilotCtx): PilotTurn {
+export function __validate(p: { say?: string; actions?: PilotAction[]; status?: string; submit?: number; ask?: { i?: number; question?: string; options?: string[] }[] }, snap: PilotSnapshot, sugg: Map<number, Suggestion>, ctx: PilotCtx): PilotTurn {
   const byI = new Map(snap.items.map((it) => [it.i, it]));
   const notes: string[] = [];
   const ask = new Map<string, Missing>();
@@ -322,7 +356,10 @@ function validate(p: { say?: string; actions?: PilotAction[]; status?: string; s
       continue;
     }
     const value = a.value === undefined || a.value === null ? undefined : unmask(ctx.facts, String(a.value)).slice(0, target.max || 6000);
-    if (value !== undefined && /\{\{[a-z_]+\}\}/.test(value)) { notes.push(`no value for ${value.match(/\{\{[a-z_]+\}\}/)![0]}`); continue; }
+    // Never type a placeholder we couldn't fill in.
+    if (value !== undefined && /\{\{[^}]*\}\}/.test(value)) { notes.push(`no value for ${value.match(/\{\{[^}]*\}\}/)![0]}`); continue; }
+    // A phone number never goes in an "extension" box.
+    if (value !== undefined && /\bext(ension)?\b|\bext\.?$/i.test(target.label) && value.replace(/\D/g, "").length >= 7) { notes.push("left the phone extension empty"); continue; }
     actions.push({ do: a.do, i: it.i, ...(value !== undefined ? { value } : {}) });
   }
 
@@ -331,7 +368,8 @@ function validate(p: { say?: string; actions?: PilotAction[]; status?: string; s
     addAsk(it, it ? undefined : q.question, q.options);
   }
   if (status === "ask" && !ask.size) status = "continue";
-  if (ask.size && status !== "ready") status = "ask";
+  // Unanswered questions come before anything else (never "ready to submit" with answers missing).
+  if (ask.size) status = "ask";
   if (status === "ready" && submit === undefined) {
     const s = Number(p.submit);
     const it = byI.get(s);
