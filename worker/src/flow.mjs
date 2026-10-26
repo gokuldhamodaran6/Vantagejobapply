@@ -84,6 +84,9 @@ export async function runTask(bundle, browser) {
       const formish = fields.filter((f) => !["password"].includes(f.type));
       const passwords = fields.filter((f) => f.type === "password");
 
+      // 0) "Enter your password" with a box we can't read (built inside a closed web component).
+      if (!passwords.length && !formish.length && /enter (your )?password/i.test(text) && !bundle.dry && (await blindPassword(bundle, page, text))) continue;
+
       // 1) Account wall: sign in or create an account with the job email and a vault password.
       if (passwords.length) {
         if (bundle.dry) throw new Stop("manual", "Dry run: stopped at the careers-site account page", { needs: await diagnose(page, bundle) });
@@ -495,6 +498,33 @@ async function passCode(bundle, page, ch, purpose = "application") {
   } finally {
     if (bundle.clock) bundle.clock.waited += Date.now() - waitStart;
   }
+}
+
+/**
+ * "Enter your password" on a sign-in page whose box we can't read (Amazon A to Z): use the password saved for
+ * exactly this site. A password is only ever typed on the site it belongs to.
+ */
+async function blindPassword(bundle, page, text) {
+  const { task } = bundle;
+  if (!/enter (your )?password|^password\b/i.test(text) || (bundle.blindPw || 0) >= 2) return false;
+  const host = new URL(page.url()).hostname.toLowerCase().replace(/^www\./, "");
+  const cred = await call("credential", { taskId: task.id, host, getOnly: true }).catch(() => null);
+  if (!cred?.password) return false;
+  bundle.blindPw = (bundle.blindPw || 0) + 1;
+  await log(task.id, `Signing in to ${cleanCo(task.job.company)} careers`, "Signing in");
+  const box = page.locator("input[type=password]:visible").first();
+  if (await box.count().catch(() => 0)) {
+    await box.click().catch(() => {});
+    await box.fill(cred.password).catch(() => {});
+  } else {
+    await page.keyboard.type(cred.password, { delay: 40 });
+  }
+  await human(300, 600);
+  const btn = page.getByRole("button", { name: /^\s*(continue|sign ?in|log ?in|next|submit)\s*$/i }).first();
+  if (await btn.isVisible().catch(() => false)) await btn.click({ timeout: 8000 }).catch(() => page.keyboard.press("Enter"));
+  else await page.keyboard.press("Enter");
+  await settle(page, 2500);
+  return true;
 }
 
 async function blindCode(bundle, page) {

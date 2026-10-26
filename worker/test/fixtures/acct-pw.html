@@ -1,0 +1,12 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Sign in · Initech</title></head><body>
+<!-- Like Amazon A to Z: "Enter your password" with the box in a closed shadow root. -->
+<p>Enter your password</p><p>Not <span id="e"></span>? Change user</p>
+<pw-box></pw-box>
+<button onclick="if (window.__pw() === localStorage.pw) { sessionStorage.session = '1'; location.href = '/fx/acct-form.html'; } else document.title = 'wrong';">Continue</button>
+<script>
+document.getElementById('e').textContent = localStorage.email || '';
+customElements.define('pw-box', class extends HTMLElement {
+  connectedCallback() { const r = this.attachShadow({ mode: 'closed' }); r.innerHTML = '<input id="p" type="password" autofocus>';
+    setTimeout(() => r.getElementById('p').focus(), 50); window.__pw = () => r.getElementById('p').value; }
+});
+</script></body></html>

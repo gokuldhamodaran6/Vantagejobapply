@@ -12,5 +12,5 @@ customElements.define('otp-box', class extends HTMLElement {
   }
 });
 </script>
-<button id="vb" disabled onclick="if (window.__otp() === '730514') { sessionStorage.session = '1'; location.href = '/fx/acct-form.html'; } else document.title = 'wrong ' + window.__otp();">Verify</button>
+<button id="vb" disabled onclick="if (window.__otp() === '730514') { sessionStorage.otp = '1'; location.href = '/fx/acct-job.html'; } else document.title = 'wrong ' + window.__otp();">Verify</button>
 </body></html>

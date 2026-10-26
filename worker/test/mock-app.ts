@@ -96,8 +96,11 @@ const server = http.createServer(async (req, res) => {
     else if (t!.id === "t-code") out = { code: (codePolls++ < 2 ? null : codePolls < 4 ? "ZZZZ1111" : "O2YJR3FJ"), link: null, userInput: {} };
     else out = { userInput: t!.userInput };
   } else if (op === "credential") {
-    vault[t!.id] = { login: "priya.careers@gmail.com", password: generatePassword() };
-    out = { ...vault[t!.id], host: body.host };
+    if (body.getOnly) out = vault[t!.id] ? { ...vault[t!.id], host: body.host } : { none: true };
+    else {
+      if (!vault[t!.id] || body.rotate) vault[t!.id] = { login: "priya.careers@gmail.com", password: generatePassword() };
+      out = { ...vault[t!.id], host: body.host };
+    }
   }
   res.writeHead(200, { "content-type": "application/json" });
   res.end(JSON.stringify(out));

@@ -133,6 +133,8 @@ export async function POST(req: Request, { params }: { params: Promise<{ op: str
         const other = await loadBundle(taskId, host);
         if (other?.credential?.password && !body.rotate) return j({ ...other.credential, host });
       }
+      // Signing in (not creating): never invent a password the site doesn't know.
+      if (body.getOnly) return j({ none: true, host });
       const password = generatePassword();
       const login = b.identity;
       await rpc("vault_upsert", { user_id: b.task.user_id, host, label: b.task.job.company, login, secret_enc: encryptFor(b.task.user_id, password) });
