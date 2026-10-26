@@ -56,6 +56,18 @@ async function loadedSponsorCountries(supabase: SupabaseClient): Promise<Set<str
   return set;
 }
 
+const SWAPS: [RegExp, string][] = [
+  [/\bengineer\b/i, "developer"], [/\bdeveloper\b/i, "engineer"], [/\banalyst\b/i, "analytics"],
+  [/\bhgv\b/i, "lgv"], [/\btruck driver\b/i, "cdl driver"], [/\bregistered nurse\b/i, "rn"], [/\bnurse\b/i, "nursing"],
+  [/\bux designer\b/i, "product designer"], [/\bsoftware\b/i, "backend"],
+];
+/** Title plus a few common variants, so "Software Engineer" also finds "Software Developer". */
+export function titleVariants(title: string): string[] {
+  const out = [title];
+  for (const [re, rep] of SWAPS) if (re.test(title)) out.push(title.replace(re, rep));
+  return [...new Set(out.map((t) => t.trim()))].slice(0, 3);
+}
+
 function toQuery(title: string) {
   return title.toLowerCase().replace(/[^a-z0-9 ]/g, " ").split(/\s+/).filter((w) => w.length > 1).join(" ");
 }
@@ -83,7 +95,7 @@ export async function searchForUser(
   const maxDays = input.maxDaysOld ?? 60;
   const activeRoles = ctx.roles.filter((r) => r.active).slice(0, ctx.roleLimit);
   const roles = input.roleId ? activeRoles.filter((r) => r.id === input.roleId) : activeRoles;
-  const queries = input.q ? [input.q] : roles.map((r) => r.title);
+  const queries = input.q ? [input.q] : [...new Set(roles.flatMap((r) => titleVariants(r.title)))];
   if (!queries.length) return { results: [] as ScoredJob[], meta: { sources: {}, hidden: 0, total: 0, refreshed: 0, sponsorCheck: false } };
 
   // 1) Keep target companies real-time: refresh their feeds if older than 20 minutes.
@@ -102,13 +114,13 @@ export async function searchForUser(
 
   // 2) Search stored jobs from official employer feeds.
   const since = new Date(Date.now() - maxDays * 864e5).toISOString();
-  const tasks = queries.slice(0, 6).map((q) =>
+  const tasks = queries.slice(0, 9).map((q) =>
     supabase
       .from("jobs")
       .select(JOB_COLS)
       .eq("country", country)
       .neq("source", "adzuna")
-      .or(`posted_at.gte.${since},posted_at.is.null`)
+      .or(`posted_at.gte."${since}",posted_at.is.null`)
       .textSearch("fts", toQuery(q), { type: "websearch", config: "english" })
       .order("posted_at", { ascending: false, nullsFirst: false })
       .limit(250),
