@@ -14,6 +14,7 @@ type Setup = { mailbox: { address: string; status: string } | null; profileDone:
 
 const STAGES = ["Open the job", "Account & email", "Fill the form", "Submit"];
 function stageOf(t: AgentTask) {
+  if (/^(opening|moved to the front|retrying)/i.test(t.step || "")) return 0;
   const s = `${t.step || ""} ${(t.log || []).slice(-1)[0]?.text || ""}`.toLowerCase();
   if (/submit/.test(s)) return 3;
   if (/next step|filling|question|answer/.test(s)) return 2;
@@ -119,7 +120,10 @@ export default function AgentPage() {
   })();
   const etaMin = (i: number) => Math.round((liveNow.length ? perJob * 0.5 : agentUp ? 0.5 : 1) + i * (perJob + 0.15));
   const stuckFor = upNext.length && !liveNow.length ? now - Math.min(...upNext.map((t) => Date.parse(t.updated_at))) : 0;
-  const retryable = all.filter((t) => ["cancelled", "failed"].includes(t.status));
+  // Never offer to re-apply to a job that's already been sent (same posting, or same title at the same company).
+  const sentKey = new Set(all.filter((t) => t.status === "submitted").flatMap((t) => [t.job_id, `${t.job.company}|${t.job.title}`.toLowerCase()]));
+  const alreadySent = (t: AgentTask) => sentKey.has(t.job_id) || sentKey.has(`${t.job.company}|${t.job.title}`.toLowerCase());
+  const retryable = all.filter((t) => ["cancelled", "failed"].includes(t.status) && !alreadySent(t));
   const queuePos = new Map(upNext.map((t, i) => [t.id, i + 1]));
   const roleTitle = (t: AgentTask) => roles.find((r) => r.id === t.job.role_id)?.title || null;
   const byRole = roles.filter((r) => r.active).map((r) => {
@@ -356,7 +360,7 @@ export default function AgentPage() {
           </div>
         )}
         <ul className="space-y-2">
-          {shown.map((t) => <TaskRow key={t.id} t={t} role={roleTitle(t)} pos={queuePos.get(t.id)} stage={stages.get(t.id)} onChange={load} />)}
+          {shown.map((t) => <TaskRow key={t.id} t={t} role={roleTitle(t)} pos={queuePos.get(t.id)} stage={stages.get(t.id)} onChange={load} onToast={setToast} />)}
         </ul>
       </section>
       <Toast message={toast} onClose={() => setToast(null)} />
@@ -634,7 +638,7 @@ const STAGE: Record<string, { label: string; tone: "green" | "red" | "orange" | 
   withdrawn: { label: "Withdrawn", tone: "gray" },
 };
 
-function TaskRow({ t, role, pos, stage, onChange }: { t: AgentTask; role: string | null; pos?: number; stage?: string; onChange: () => void }) {
+function TaskRow({ t, role, pos, stage, onChange, onToast }: { t: AgentTask; role: string | null; pos?: number; stage?: string; onChange: () => void; onToast: (m: string) => void }) {
   const [open, setOpen] = useState(false);
   const [proof, setProof] = useState<string | null>(null);
   const meta = STATUS_META[t.status] || { label: t.status, tone: "gray" as const };
@@ -688,8 +692,8 @@ function TaskRow({ t, role, pos, stage, onChange }: { t: AgentTask; role: string
               );
             })()}
             <div className="mt-4 flex flex-wrap gap-2">
-              {t.status === "queued" && <button className="btn-primary min-h-9 text-xs" onClick={async () => { await patch(t.id, { action: "apply_now" }); onChange(); }}><Sparkles size={14} /> Apply now</button>}
-              {["failed", "cancelled"].includes(t.status) && <button className="btn-primary min-h-9 text-xs" onClick={async () => { await patch(t.id, { action: "apply_now" }); onChange(); }}><RotateCcw size={13} /> Apply again</button>}
+              {t.status === "queued" && <button className="btn-primary min-h-9 text-xs" onClick={async () => { const r = await patch(t.id, { action: "apply_now" }); onToast(r.ok ? `${t.job.company} is next — starting now.` : r.error || "Couldn't move it."); onChange(); }}><Sparkles size={14} /> Apply now</button>}
+              {["failed", "cancelled"].includes(t.status) && <button className="btn-primary min-h-9 text-xs" onClick={async () => { const r = await patch(t.id, { action: "apply_now" }); onToast(r.ok ? `${t.job.company} is back in line and goes next.` : r.error || "Couldn't re-apply."); onChange(); }}><RotateCcw size={13} /> Apply again</button>}
               {t.resume_id && <a className="btn-secondary min-h-9 text-xs" href={`/api/resume/${t.resume_id}/pdf?inline=1`} target="_blank" rel="noopener noreferrer"><FileText size={14} /> {t.status === "submitted" ? "Resume sent" : "Tailored resume"}</a>}
               {t.resume_id && t.cover_letter && <a className="btn-secondary min-h-9 text-xs" href={`/api/resume/${t.resume_id}/pdf?kind=cover&inline=1`} target="_blank" rel="noopener noreferrer">Cover letter</a>}
               <a className="btn-ghost min-h-9 text-xs" href={t.job.url || t.apply_url} target="_blank" rel="noopener noreferrer">Job posting <ExternalLink size={13} /></a>

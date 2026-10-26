@@ -17,10 +17,13 @@ export async function POST(req: Request) {
   ]);
   const room = Math.max(0, ctx.plan.limits.autoApplyPerDay - (appliedToday || 0) - (inLine || 0));
   if (!room) return json({ error: `You've reached today's limit of ${ctx.plan.limits.autoApplyPerDay} applications. The rest can go tomorrow.` }, 429);
-  let q = ctx.supabase.from("agent_tasks").select("id").in("status", ["cancelled", "failed"]).order("created_at", { ascending: false }).limit(room);
+  let q = ctx.supabase.from("agent_tasks").select("id,job_id,job").in("status", ["cancelled", "failed"]).order("created_at", { ascending: false }).limit(room);
   if (body.ids?.length) q = q.in("id", body.ids.slice(0, 500));
   const { data: rows } = await q;
-  const ids = (rows || []).map((r) => r.id as string);
+  // Skip jobs that were already sent (same posting, or the same title at the same company).
+  const { data: sent } = await ctx.supabase.from("agent_tasks").select("job_id,job").eq("status", "submitted").limit(5000);
+  const sentKey = new Set((sent || []).flatMap((t) => [t.job_id as string, `${(t.job as { company: string }).company}|${(t.job as { title: string }).title}`.toLowerCase()]));
+  const ids = (rows || []).filter((r) => !sentKey.has(r.job_id as string) && !sentKey.has(`${(r.job as { company: string }).company}|${(r.job as { title: string }).title}`.toLowerCase())).map((r) => r.id as string);
   if (!ids.length) return json({ ok: true, queued: 0 });
   const { data: n, error } = await ctx.supabase.rpc("requeue_tasks", { p_ids: ids });
   if (error) return json({ error: error.message }, 500);

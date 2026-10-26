@@ -26,7 +26,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       return json({ ok: true });
     case "apply_now": {
       const { data: ok, error } = await ctx.supabase.rpc("apply_now", { p_task: id });
-      if (error || !ok) return json({ error: error?.message || "This job can't be moved right now." }, 400);
+      if (error || !ok) return json({ error: /already applied/i.test(error?.message || "") ? "You already applied to this job — it won't be sent twice." : "This job can't be moved right now." }, 400);
       void wakeWorker();
       return json({ ok: true });
     }
