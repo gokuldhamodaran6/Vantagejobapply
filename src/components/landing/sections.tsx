@@ -106,7 +106,7 @@ function AtsDemo() {
 }
 
 const SMALL = [
-  { icon: Search, title: "Live jobs, minutes old", body: "Employer career sites and major job boards, refreshed continuously and de-duplicated." },
+  { icon: Search, title: "Live jobs, minutes old", body: "Straight from employers' official careers sites — never middleman job boards — refreshed continuously." },
   { icon: Target, title: "Targets in one place", body: "Roles, levels, industries, cities with a custom radius, salary floor and must-apply companies." },
   { icon: Briefcase, title: "Every application tracked", body: "One board for every job — filter by target role, company or industry." },
   { icon: Inbox, title: "Emails linked to jobs", body: "Connect a job-only inbox and replies, codes and invites attach to the right application." },

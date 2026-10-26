@@ -12,7 +12,7 @@ const FAQ = [
   },
   {
     q: "Where do the jobs come from, and how fresh are they?",
-    a: "Directly from employers' career sites (Greenhouse, Lever, Ashby and more) and from job search partners covering the US, UK, Canada, Australia, India and more. Feeds refresh continuously; most jobs you see are hours old.",
+    a: "Only from employers' own official careers systems — Workday, Greenhouse, Lever, Ashby, SmartRecruiters, Workable and Recruitee. Every Apply button opens the company's official posting, never a middleman job board. Feeds refresh continuously; most jobs you see are hours old.",
   },
   {
     q: "Will Vantage lie on my application to get me through?",

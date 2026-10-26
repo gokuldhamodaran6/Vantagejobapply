@@ -95,7 +95,7 @@ function Ticker() {
           </div>
         </div>
       </div>
-      <p className="mt-3 text-center text-xs text-subtle">Illustrative demo. Real feeds update from employer sites and job boards.</p>
+      <p className="mt-3 text-center text-xs text-subtle">Illustrative demo. Real jobs come from employers' official careers sites.</p>
     </div>
   );
 }
@@ -132,7 +132,7 @@ export function Hero() {
             transition={{ duration: 0.6, delay: 0.12 }}
             className="mt-6 max-w-xl text-lg leading-relaxed text-muted"
           >
-            Tell Vantage your visa situation once. It pulls live jobs from employer sites and job boards, removes the ones that
+            Tell Vantage your visa situation once. It pulls live jobs from employers' official careers sites, removes the ones that
             can&apos;t legally hire you, writes an ATS-ready resume for each role you target, and tracks every application.
           </motion.p>
           <motion.div
