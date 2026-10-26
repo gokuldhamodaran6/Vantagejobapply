@@ -33,7 +33,7 @@ export default function SettingsPage() {
   }, [profile]);
 
   if (!profile) return <div className="skeleton h-96" />;
-  const limits = effectivePlan(profile.plan).limits;
+  const limits = effectivePlan(profile.plan, profile.role).limits;
 
   async function saveProfile() {
     const { error } = await supabaseBrowser().from("profiles").update({ full_name: name, phone: phone || null, linkedin_url: linkedin || null, citizenship, home_country: home, autonomy, daily_limit: daily }).eq("id", userId!);

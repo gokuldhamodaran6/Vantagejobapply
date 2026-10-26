@@ -8,11 +8,19 @@ export type EffectivePlan = { id: string; name: string; limits: Limits };
 export const EARLY_ACCESS_PLAN: EffectivePlan = {
   id: "early",
   name: "Early access",
-  limits: { roles: 10, countries: 6, tailorsPerMonth: 6000, autoApplyPerDay: 200, trackLimit: 100000 },
+  // Focused, high-quality volume: what gets interviews, and safe for careers sites.
+  limits: { roles: 5, countries: 3, tailorsPerMonth: 300, autoApplyPerDay: 25, trackLimit: 100000 },
 };
 
-/** Limits for the current user. During early access everyone gets the same. */
-export function effectivePlan(_planId?: string | null): EffectivePlan {
+/** The owner and admins test without limits. */
+export const OWNER_PLAN: EffectivePlan = {
+  id: "owner",
+  name: "Owner · unlimited",
+  limits: { roles: 100, countries: 20, tailorsPerMonth: 1_000_000, autoApplyPerDay: 500, trackLimit: 1_000_000 },
+};
+
+/** Limits for the current user: admins are unlimited; everyone else gets early-access limits. */
+export function effectivePlan(_planId?: string | null, role?: string | null): EffectivePlan {
   void _planId;
-  return EARLY_ACCESS_PLAN;
+  return role === "admin" ? OWNER_PLAN : EARLY_ACCESS_PLAN;
 }

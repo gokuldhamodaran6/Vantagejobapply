@@ -41,7 +41,10 @@ function Chat() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId]);
 
-  useEffect(() => bottom.current?.scrollIntoView({ behavior: "smooth" }), [msgs, busy]);
+  // Newer browsers return a Promise from scrollIntoView; an effect must never return it (React would call it as cleanup).
+  useEffect(() => {
+    bottom.current?.scrollIntoView({ behavior: "smooth" });
+  }, [msgs, busy]);
 
   async function send(text: string) {
     const t = text.trim();

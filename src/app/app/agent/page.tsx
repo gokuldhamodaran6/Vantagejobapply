@@ -7,13 +7,23 @@ import { PageHeader } from "@/components/app-shell";
 import { Badge, Toast } from "@/components/ui";
 import { useMe } from "@/lib/me";
 import { supabaseBrowser } from "@/lib/supabase/client";
-import { timeAgo } from "@/lib/format";
-import { ACTIVE, NEEDS_YOU, STATUS_META, type AgentTask } from "@/lib/agent/status";
+import { initials, timeAgo, tintFor } from "@/lib/format";
+import { ACTIVE, NEEDS_YOU, STATUS_META, statusLine, type AgentTask } from "@/lib/agent/status";
 
 type Setup = { mailbox: { address: string; status: string } | null; profileDone: boolean; consent: boolean; hasResume: boolean };
 
+const STAGES = ["Open the job", "Account & email", "Fill the form", "Submit"];
+function stageOf(t: AgentTask) {
+  const s = `${t.step || ""} ${(t.log || []).slice(-1)[0]?.text || ""}`.toLowerCase();
+  if (/submit/.test(s)) return 3;
+  if (/next step|filling|question|answer/.test(s)) return 2;
+  if (/account|sign|verif|code|email/.test(s)) return 1;
+  return t.status === "running" && (t.log || []).length > 2 ? 2 : 0;
+}
+
 export default function AgentPage() {
-  const { userId, profile, refresh } = useMe();
+  const { userId, profile, refresh, roles } = useMe();
+  const [totalApplied, setTotalApplied] = useState<number | null>(null);
   const [tasks, setTasks] = useState<AgentTask[] | null>(null);
   const [setup, setSetup] = useState<Setup | null>(null);
   const [link, setLink] = useState("");
@@ -30,6 +40,8 @@ export default function AgentPage() {
       s.from("applicant_profiles").select("*").maybeSingle(),
       s.from("resumes").select("id", { count: "exact", head: true }),
     ]);
+    const tot = await s.from("applications").select("id", { count: "exact", head: true }).not("applied_at", "is", null);
+    setTotalApplied(tot.count ?? 0);
     setTasks((t.data as AgentTask[]) || []);
     setNow(Date.now());
     const ap = a.data as Record<string, unknown> | null;
@@ -44,6 +56,16 @@ export default function AgentPage() {
   useEffect(() => {
     if (userId) load();
   }, [userId, load]);
+
+  // If jobs have waited in the queue for a while with nothing running, wake the browser worker.
+  useEffect(() => {
+    const queued = (tasks || []).filter((t) => t.status === "queued");
+    const running = (tasks || []).some((t) => ["running", "waiting_code", "needs_human"].includes(t.status));
+    if (!queued.length || running) return;
+    const oldest = Math.min(...queued.map((t) => Date.parse(t.updated_at)));
+    if (now - oldest < 45_000) return;
+    fetch("/api/agent/wake", { method: "POST" }).catch(() => {});
+  }, [tasks, now]);
 
   // Poll quickly while the agent is working, slowly otherwise.
   const working = (tasks || []).some((t) => ACTIVE.includes(t.status));
@@ -71,6 +93,14 @@ export default function AgentPage() {
   const appliedToday = all.filter((t) => t.status === "submitted" && Date.parse(t.finished_at || t.updated_at) >= today).length;
   const week = all.filter((t) => t.status === "submitted" && Date.parse(t.finished_at || t.updated_at) >= now - 7 * 864e5).length;
   const inQueue = all.filter((t) => ACTIVE.includes(t.status)).length;
+  const liveNow = all.filter((t) => ["running", "waiting_code", "needs_human"].includes(t.status)).sort((a, b) => Date.parse(b.updated_at) - Date.parse(a.updated_at));
+  const upNext = all.filter((t) => t.status === "queued").sort((a, b) => Date.parse(a.created_at) - Date.parse(b.created_at));
+  const queuePos = new Map(upNext.map((t, i) => [t.id, i + 1]));
+  const roleTitle = (t: AgentTask) => roles.find((r) => r.id === t.job.role_id)?.title || null;
+  const byRole = roles.filter((r) => r.active).map((r) => {
+    const mine = all.filter((t) => t.job.role_id === r.id);
+    return { r, applied: mine.filter((t) => t.status === "submitted").length, active: mine.filter((t) => ACTIVE.includes(t.status) || NEEDS_YOU.includes(t.status)).length, failed: mine.filter((t) => ["failed", "manual"].includes(t.status)).length };
+  });
   const shown = all.filter((t) =>
     filter === "all" ? true : filter === "applied" ? t.status === "submitted" : filter === "active" ? ACTIVE.includes(t.status) || t.status === "awaiting_approval" : ["failed", "manual", "cancelled"].includes(t.status),
   );
@@ -152,19 +182,86 @@ export default function AgentPage() {
         </section>
       )}
 
-      <section className="mt-5 grid grid-cols-2 gap-3 md:grid-cols-4">
-        {[
-          { k: "Applied today", v: appliedToday, tone: "text-green-ink" },
-          { k: "This week", v: week, tone: "text-ink" },
-          { k: "In progress", v: inQueue, tone: "text-brand-ink" },
-          { k: "Needs you", v: needs.length, tone: needs.length ? "text-orange-ink" : "text-ink" },
-        ].map((s) => (
-          <div key={s.k} className="card p-4">
-            <p className="text-xs font-medium text-muted">{s.k}</p>
-            <p className={`mt-1 text-2xl font-bold ${s.tone}`}>{s.v}</p>
-          </div>
-        ))}
+      {/* Mission control: what's happening right now */}
+      <section className="mt-5 grid gap-4 lg:grid-cols-[1.4fr_1fr]">
+        <div className="card overflow-hidden">
+          {liveNow[0] ? (() => {
+            const t = liveNow[0];
+            const st = stageOf(t);
+            const role = roleTitle(t);
+            return (
+              <div className="p-5">
+                <p className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-brand"><span className="live-dot" /> Applying right now</p>
+                <div className="mt-3 flex items-start gap-3">
+                  <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl text-base font-bold" style={tintFor(t.job.company)}>{initials(t.job.company)}</span>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-lg font-bold">{t.job.title}</p>
+                    <p className="truncate text-sm text-muted">{t.job.company}{t.job.location ? ` · ${t.job.location}` : ""}{role ? ` · for your ${role} target` : ""}</p>
+                  </div>
+                </div>
+                <div className="mt-5 grid grid-cols-4 gap-2">
+                  {STAGES.map((label, i) => (
+                    <div key={label}>
+                      <div className={`h-1.5 rounded-full ${i < st ? "bg-brand" : i === st ? "animate-pulse bg-brand/60" : "bg-line-2"}`} />
+                      <p className={`mt-1.5 text-[11px] font-semibold ${i <= st ? "text-ink" : "text-subtle"}`}>{label}</p>
+                    </div>
+                  ))}
+                </div>
+                <p className="mt-4 rounded-lg bg-canvas px-3 py-2 text-sm"><span className="font-semibold">Now:</span> {statusLine(t)} <span className="text-xs text-muted">· {timeAgo(t.updated_at)}</span></p>
+                {liveNow.length > 1 && <p className="mt-2 text-xs text-muted">+{liveNow.length - 1} more in progress</p>}
+              </div>
+            );
+          })() : (
+            <div className="p-5">
+              <p className="text-xs font-bold uppercase tracking-wider text-muted">Right now</p>
+              <p className="mt-2 text-lg font-bold">{upNext.length ? `${upNext.length} job${upNext.length > 1 ? "s" : ""} waiting — starting shortly` : profile?.agent_enabled ? "Looking for your next best matches" : "Your agent is ready"}</p>
+              <p className="mt-1 text-sm text-muted">{upNext.length ? "Applications run one at a time, at a human pace." : profile?.agent_enabled ? "Auto-apply checks for new matching jobs every few minutes and applies to the best ones." : "Paste a job link above, or switch on Auto-apply."}</p>
+            </div>
+          )}
+          {upNext.length > 0 && (
+            <div className="border-t border-line bg-canvas/50 px-5 py-3">
+              <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted">Up next</p>
+              <ol className="space-y-1.5">
+                {upNext.slice(0, 4).map((t, i) => (
+                  <li key={t.id} className="flex items-center gap-2 text-sm">
+                    <span className="w-5 text-xs font-bold text-subtle">#{i + 1}</span>
+                    <span className="min-w-0 flex-1 truncate"><span className="font-medium">{t.job.title}</span> <span className="text-muted">· {t.job.company}</span></span>
+                    {roleTitle(t) && <span className="chip hidden bg-white text-ink-2 sm:inline-flex">{roleTitle(t)}</span>}
+                  </li>
+                ))}
+                {upNext.length > 4 && <li className="pl-7 text-xs text-muted">+{upNext.length - 4} more</li>}
+              </ol>
+            </div>
+          )}
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          {[
+            { k: "Applied today", v: appliedToday, tone: "text-green-ink" },
+            { k: "This week", v: week, tone: "text-ink" },
+            { k: "Applied in total", v: totalApplied ?? "—", tone: "text-ink" },
+            { k: needs.length ? "Needs you" : "In progress", v: needs.length || inQueue, tone: needs.length ? "text-orange-ink" : "text-brand-ink" },
+          ].map((s) => (
+            <div key={s.k} className="card flex flex-col justify-between p-4">
+              <p className="text-xs font-medium text-muted">{s.k}</p>
+              <p className={`mt-1 text-3xl font-bold tracking-tight ${s.tone}`}>{s.v}</p>
+            </div>
+          ))}
+        </div>
       </section>
+
+      {byRole.length > 0 && (
+        <section className="mt-4 card p-4">
+          <div className="mb-3 flex items-center justify-between"><h2 className="text-sm font-bold">By target role</h2><Link href="/app/applications" className="text-xs font-semibold text-brand-ink">All applications →</Link></div>
+          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+            {byRole.map(({ r, applied, active, failed }) => (
+              <div key={r.id} className="rounded-xl border border-line p-3">
+                <p className="truncate text-sm font-semibold capitalize">{r.title}</p>
+                <p className="mt-1 text-xs text-muted"><b className="text-green-ink">{applied}</b> applied · <b className="text-brand-ink">{active}</b> in progress{failed ? <> · <b className="text-orange-ink">{failed}</b> to finish</> : null}</p>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
 
       {needs.length > 0 && (
         <section className="mt-6">
@@ -196,7 +293,7 @@ export default function AgentPage() {
           </div>
         )}
         <ul className="space-y-2">
-          {shown.map((t) => <TaskRow key={t.id} t={t} onChange={load} />)}
+          {shown.map((t) => <TaskRow key={t.id} t={t} role={roleTitle(t)} pos={queuePos.get(t.id)} onChange={load} />)}
         </ul>
       </section>
       <Toast message={toast} onClose={() => setToast(null)} />
@@ -400,7 +497,7 @@ function NeedCard({ t, hasMailbox, consent, onDone }: { t: AgentTask; hasMailbox
   );
 }
 
-function TaskRow({ t, onChange }: { t: AgentTask; onChange: () => void }) {
+function TaskRow({ t, role, pos, onChange }: { t: AgentTask; role: string | null; pos?: number; onChange: () => void }) {
   const [open, setOpen] = useState(false);
   const [proof, setProof] = useState<string | null>(null);
   const meta = STATUS_META[t.status] || { label: t.status, tone: "gray" as const };
@@ -416,7 +513,7 @@ function TaskRow({ t, onChange }: { t: AgentTask; onChange: () => void }) {
         </span>
         <span className="min-w-0 flex-1">
           <span className="block truncate text-sm font-semibold">{t.job.title}</span>
-          <span className="block truncate text-xs text-muted">{t.job.company}{t.job.location ? ` · ${t.job.location}` : ""} · {t.step || meta.label}</span>
+          <span className="block truncate text-xs text-muted">{t.job.company}{role ? ` · ${role}` : ""} · {statusLine(t, pos)}</span>
         </span>
         <span className="hidden text-xs text-muted sm:block">{timeAgo(t.updated_at)}</span>
         <Badge tone={meta.tone}>{meta.label}</Badge>
@@ -426,12 +523,32 @@ function TaskRow({ t, onChange }: { t: AgentTask; onChange: () => void }) {
         <div className="grid gap-5 border-t border-line bg-canvas/40 px-4 py-4 md:grid-cols-[1fr_280px]">
           <div>
             <p className="text-xs font-semibold uppercase tracking-wide text-muted">What your agent did</p>
-            <ol className="mt-2 space-y-1.5 border-l border-line pl-4 text-sm">
-              {(t.log || []).slice(-14).map((l, i) => (
-                <li key={i} className="relative"><span className="absolute -left-[21px] top-1.5 h-2 w-2 rounded-full bg-brand" />{l.text} <span className="text-xs text-muted">· {timeAgo(l.at)}</span></li>
-              ))}
-              {!t.log?.length && <li className="text-muted">Waiting to start.</li>}
-            </ol>
+            {(() => {
+              const log = t.log || [];
+              // Each run starts with "Opening …": show this attempt, fold earlier ones away.
+              let start = 0;
+              log.forEach((l, i) => { if (/^Opening /.test(l.text)) start = i; });
+              const current = t.status === "queued" && log.length ? [] : log.slice(start);
+              const earlier = t.status === "queued" ? log : log.slice(0, start);
+              return (
+                <>
+                  <ol className="mt-2 space-y-1.5 border-l border-line pl-4 text-sm">
+                    {current.slice(-14).map((l, i) => (
+                      <li key={i} className="relative"><span className="absolute -left-[21px] top-1.5 h-2 w-2 rounded-full bg-brand" />{l.text} <span className="text-xs text-muted">· {timeAgo(l.at)}</span></li>
+                    ))}
+                    {t.status === "queued" && <li className="relative font-medium"><span className="absolute -left-[21px] top-1.5 h-2 w-2 animate-pulse rounded-full bg-brand" />{statusLine(t)} — it starts by itself, usually within a minute.</li>}
+                    {t.status === "submitted" && <li className="relative font-semibold text-green-ink"><span className="absolute -left-[21px] top-1.5 h-2 w-2 rounded-full bg-green" />Submitted on {t.job.company}&apos;s site. The confirmation page is saved as proof, and their email will appear in your Inbox.</li>}
+                    {!log.length && t.status !== "queued" && <li className="text-muted">Waiting to start.</li>}
+                  </ol>
+                  {earlier.length > 0 && (
+                    <details className="mt-2 text-xs text-muted">
+                      <summary className="cursor-pointer font-semibold">Earlier attempt ({earlier.length} steps)</summary>
+                      <ol className="mt-1 space-y-1 pl-4">{earlier.slice(-10).map((l, i) => <li key={i}>{l.text} · {timeAgo(l.at)}</li>)}</ol>
+                    </details>
+                  )}
+                </>
+              );
+            })()}
             <div className="mt-4 flex flex-wrap gap-2">
               {t.resume_id && <a className="btn-secondary min-h-9 text-xs" href={`/api/resume/${t.resume_id}/pdf?inline=1`} target="_blank" rel="noopener noreferrer"><FileText size={14} /> Resume sent</a>}
               {t.resume_id && t.cover_letter && <a className="btn-secondary min-h-9 text-xs" href={`/api/resume/${t.resume_id}/pdf?kind=cover&inline=1`} target="_blank" rel="noopener noreferrer">Cover letter</a>}

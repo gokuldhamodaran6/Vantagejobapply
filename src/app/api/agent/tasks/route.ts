@@ -64,6 +64,6 @@ export async function POST(req: Request) {
   });
   if (r.error) return json({ error: r.error }, 400);
   if (!r.taskCreated) return json({ error: "Your agent already has this job in its queue.", duplicate: true }, 409);
-  wakeWorker();
+  void wakeWorker();
   return json({ ok: true, job: { id: job.id, title: job.title, company: job.company }, eligible: match.eligible, blockers: match.blockers });
 }

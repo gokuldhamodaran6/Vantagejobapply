@@ -8,6 +8,7 @@ import { useMe } from "@/lib/me";
 import { supabaseBrowser } from "@/lib/supabase/client";
 import { initials, timeAgo, tintFor } from "@/lib/format";
 import { RESUME_STYLES } from "@/lib/resume/styles";
+import { statusLine, type AgentTask } from "@/lib/agent/status";
 import type { Application, AppStatus, ResumeStyle } from "@/lib/types";
 
 type App = Application & { source?: string | null; agent_task_id?: string | null; resume_style?: string | null; letter_tone?: string | null };
@@ -53,20 +54,29 @@ export default function ApplicationsPage() {
   const [open, setOpen] = useState<App | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [now, setNow] = useState(() => Date.now());
+  const [working, setWorking] = useState<AgentTask[]>([]);
 
   const load = useCallback(async () => {
     const s = supabaseBrowser();
-    const [a, r] = await Promise.all([
+    const [a, r, w] = await Promise.all([
       s.from("applications").select("*").order("applied_at", { ascending: false, nullsFirst: false }).limit(3000),
       s.from("resumes").select("id,name,style,ats_score,target_role_id,kind"),
+      s.from("agent_tasks").select("*").in("status", ["queued", "running", "waiting_code", "needs_user", "needs_human", "awaiting_approval"]).order("created_at"),
     ]);
     setApps((a.data as App[]) || []);
+    setWorking((w.data as AgentTask[]) || []);
     setResumes(new Map(((r.data as ResumeLite[]) || []).map((x) => [x.id, x])));
     setNow(Date.now());
   }, []);
   useEffect(() => {
     if (userId) load();
   }, [userId, load]);
+  // Keep the in-progress list live while the agent is working.
+  useEffect(() => {
+    if (!userId || !working.length) return;
+    const id = setInterval(load, 8000);
+    return () => clearInterval(id);
+  }, [userId, working.length, load]);
 
   const roleName = useCallback((id: string | null) => roles.find((r) => r.id === id)?.title || "Other roles", [roles]);
   const days = RANGE_DAYS[range];
@@ -135,7 +145,7 @@ export default function ApplicationsPage() {
     load();
   }
 
-  if (apps && apps.length === 0) {
+  if (apps && apps.length === 0 && working.length === 0) {
     return (
       <>
         <PageHeader title="Applications" />
@@ -205,6 +215,35 @@ export default function ApplicationsPage() {
           <p className="mt-4 text-xs text-muted">{replyRate === null ? "Replies appear here as companies write back to your job email." : `${replyRate}% of companies have replied. Typical is 10–20%.`}</p>
         </div>
       </section>
+
+      {working.length > 0 && (
+        <section className="card mb-5 overflow-hidden">
+          <div className="flex items-center gap-2 border-b border-line px-4 py-3">
+            <span className="live-dot" />
+            <h2 className="flex-1 text-sm font-bold">Your agent is working on {working.length} application{working.length > 1 ? "s" : ""}</h2>
+            <Link href="/app/agent" className="text-xs font-semibold text-brand-ink">Open Your agent →</Link>
+          </div>
+          <ul className="divide-y divide-line">
+            {working.slice(0, 8).map((t, i) => {
+              const live = ["running", "waiting_code"].includes(t.status);
+              const needsYou = ["needs_user", "needs_human", "awaiting_approval"].includes(t.status);
+              return (
+                <li key={t.id}>
+                  <Link href="/app/agent" className="flex items-center gap-3 px-4 py-2.5 hover:bg-canvas">
+                    <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[11px] font-bold" style={tintFor(t.job.company)}>{initials(t.job.company)}</span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-sm font-semibold">{t.job.title} <span className="font-normal text-muted">· {t.job.company}</span></span>
+                      <span className="block truncate text-xs text-muted">{roleName(t.job.role_id || null)} · {statusLine(t, t.status === "queued" ? working.filter((x) => x.status === "queued").indexOf(t) + 1 : undefined)}</span>
+                    </span>
+                    <span className={`chip ${live ? "bg-brand-tint text-brand-ink" : needsYou ? "bg-orange-tint text-orange-ink" : "bg-[#eef0f4] text-ink-2"}`}>{live ? "Applying now" : needsYou ? "Needs you" : `In queue${i >= 0 ? "" : ""}`}</span>
+                  </Link>
+                </li>
+              );
+            })}
+          </ul>
+          {working.length > 8 && <p className="border-t border-line px-4 py-2 text-xs text-muted">+{working.length - 8} more on Your agent</p>}
+        </section>
+      )}
 
       {/* Controls */}
       <section className="card mb-4 flex flex-wrap items-center gap-3 p-3">

@@ -15,7 +15,7 @@ export async function loadUserContext() {
     supabase.from("work_auth").select("*").eq("user_id", uid),
   ]);
   const profile = p.data as Profile;
-  const plan = effectivePlan(profile?.plan);
+  const plan = effectivePlan(profile?.plan, profile?.role);
   return {
     supabase,
     user: u.user,

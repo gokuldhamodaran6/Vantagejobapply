@@ -11,7 +11,7 @@ import { ingestSecret, supabaseAnon } from "@/lib/supabase/server";
 import type { Job, TargetPrefs, TargetRole, WorkAuth } from "@/lib/types";
 
 type AutoUser = {
-  user_id: string; autonomy: string; daily_limit: number; name: string | null;
+  user_id: string; autonomy: string; daily_limit: number; name: string | null; role?: string | null;
   prefs: TargetPrefs | null; roles: TargetRole[]; auth: WorkAuth[]; today: number; known_jobs: string[];
 };
 
@@ -31,7 +31,7 @@ export async function autoSource(deadline: number) {
   const summary: Record<string, number> = {};
   for (const u of users) {
     if (Date.now() > deadline) break;
-    const limit = Math.min(u.daily_limit || 25, effectivePlan().limits.autoApplyPerDay);
+    const limit = Math.min(u.daily_limit || 25, effectivePlan(null, u.role).limits.autoApplyPerDay);
     const remaining = limit - (u.today || 0);
     if (remaining <= 0 || !u.roles.length) continue;
     const perRun = Math.min(remaining, 8);
@@ -68,7 +68,7 @@ export async function autoSource(deadline: number) {
     summary[u.user_id] = made;
   }
   const q = await rpc<{ queued: number }>("queue_size", {});
-  if (q?.queued) wakeWorker();
+  if (q?.queued) void wakeWorker();
   return { users: users.length, queued: summary, waiting: q?.queued || 0 };
 }
 

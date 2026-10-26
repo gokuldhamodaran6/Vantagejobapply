@@ -56,7 +56,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     if (!loading && profile && !profile.onboarding_complete) router.replace("/onboarding");
   }, [loading, profile, router]);
 
-  useEffect(() => setDrawer(false), [pathname]);
+  useEffect(() => {
+    setDrawer(false);
+  }, [pathname]);
 
   const isActive = (href: string) => (href === "/app" ? pathname === "/app" : pathname.startsWith(href));
 

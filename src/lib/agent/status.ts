@@ -1,7 +1,9 @@
+import { timeAgo } from "@/lib/format";
+
 export type AgentTask = {
   id: string;
   job_id: string;
-  job: { title: string; company: string; url: string; country: string; location?: string | null; match?: number | string };
+  job: { title: string; company: string; url: string; country: string; location?: string | null; match?: number | string; role_id?: string };
   ats: string | null;
   apply_url: string;
   status: string;
@@ -36,3 +38,20 @@ export const STATUS_META: Record<string, { label: string; tone: "green" | "red" 
 
 export const ACTIVE = ["queued", "running", "waiting_code", "needs_human"];
 export const NEEDS_YOU = ["awaiting_approval", "needs_user", "needs_human", "manual"];
+
+/** One clear line for a task's state — never a stale step left over from an earlier run. */
+export function statusLine(t: AgentTask, queuePos?: number) {
+  switch (t.status) {
+    case "queued": return t.attempts > 0 ? `Resuming${queuePos ? ` · #${queuePos} in line` : ""} — with your latest answers` : queuePos ? `Waiting in queue · #${queuePos}` : "Waiting in queue";
+    case "running": return t.step || "Applying now";
+    case "waiting_code": return t.step || "Reading the verification email";
+    case "needs_user": return "Needs your answer";
+    case "needs_human": return "Waiting for your human check";
+    case "awaiting_approval": return "Waiting for your OK";
+    case "submitted": return `Applied ${timeAgo(t.finished_at || t.updated_at)}`;
+    case "manual": case "failed": return t.error || t.step || "Couldn't finish on this site";
+    case "cancelled": return "Cancelled";
+    default: return t.step || "";
+  }
+}
+

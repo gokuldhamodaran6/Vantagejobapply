@@ -22,7 +22,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     case "approve":
     case "retry":
       await set({ status: "queued", error: null, needs: [], locked_at: null });
-      wakeWorker();
+      void wakeWorker();
       return json({ ok: true });
     case "cancel":
       await set({ status: "cancelled", finished_at: new Date().toISOString() });
@@ -46,7 +46,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
         if (error) console.error("consent save failed", error.message);
       }
       await set({ status: "queued", needs: [], error: null, locked_at: null });
-      wakeWorker();
+      void wakeWorker();
       return json({ ok: true, saved: rows.length });
     }
     case "code":

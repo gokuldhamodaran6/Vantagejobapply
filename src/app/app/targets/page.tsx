@@ -28,7 +28,7 @@ const REGIONS: Record<string, string[]> = {
 
 export default function TargetsPage() {
   const { profile, prefs, roles, auth, userId, refresh } = useMe();
-  const plan = effectivePlan(profile?.plan);
+  const plan = effectivePlan(profile?.plan, profile?.role);
   const [p, setP] = useState<TargetPrefs | null>(null);
   const [rs, setRs] = useState<TargetRole[]>([]);
   const [as, setAs] = useState<WorkAuth[]>([]);
