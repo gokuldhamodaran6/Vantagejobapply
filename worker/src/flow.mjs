@@ -142,6 +142,10 @@ export async function runTask(bundle, browser) {
             await settle(page);
             continue;
           }
+          // Record what the page showed, so the next version of the agent can learn this step.
+          const seenText = (text || "").replace(/\s+/g, " ").slice(0, 400);
+          const buttons = await page.locator("button:visible, a[role='button']:visible, input[type='submit']:visible").allInnerTexts().catch(() => []);
+          await log(task.id, `Stuck on ${new URL(page.url()).host}${new URL(page.url()).pathname.slice(0, 60)} — page says: “${seenText.slice(0, 220)}” · buttons: ${buttons.map((b) => b.trim()).filter(Boolean).slice(0, 8).join(" / ")}`);
           throw new Stop("manual", "This site needs a step the agent can't do. Open the job link to finish.");
         }
         await sleep(1500);
