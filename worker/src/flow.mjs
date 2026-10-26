@@ -411,9 +411,15 @@ async function handleAccount(bundle, page, fields, allPasswords) {
   const btn = creating
     ? (await byName(/create account|sign up|register|^create$/i)) || (await findSubmit(page)) || (await findNext(page))
     : (await byName(/^(sign in|log in|login|continue)$/i)) || (await findSubmit(page));
-  if (!btn) throw new Stop("manual", "Couldn't find the account button on this site.");
   const sinceIso = new Date(Date.now() - 30_000).toISOString();
-  await btn.click({ timeout: 8000 }).catch(() => btn.click({ force: true }));
+  if (btn) await btn.click({ timeout: 8000 }).catch(() => btn.click({ force: true }).catch(() => page.keyboard.press("Enter")));
+  else {
+    // The button is often still disabled while the page checks the input: submit from the password box instead.
+    await sleep(800);
+    const again = creating ? null : await byName(/^(sign in|log in|login|continue|next)$/i);
+    if (again) await again.click({ timeout: 8000 }).catch(() => page.keyboard.press("Enter"));
+    else await page.keyboard.press("Enter").catch(() => {});
+  }
   await settle(page, 2500);
   if (await humanCheckVisible(page)) await waitForHuman(task, page, bundle.clock);
 
