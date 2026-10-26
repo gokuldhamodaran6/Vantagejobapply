@@ -1,6 +1,6 @@
 import { json, loadUserContext } from "@/lib/server-user";
 import { marketKeywords } from "@/lib/resume/market";
-import { assessFit, coachQuestions, type Coach, type CoachAnswer } from "@/lib/resume/coach";
+import { assessFit, coachQuestions, FIT_VERSION, type Coach, type CoachAnswer } from "@/lib/resume/coach";
 import { writeRoleResume } from "@/lib/resume/write-role";
 import type { ResumeContent } from "@/lib/types";
 
@@ -20,13 +20,13 @@ export async function POST(req: Request) {
   const country = ctx.prefs?.countries?.[0] || "US";
 
   if (body.action === "assess") {
-    if (coach.fit && coach.questions && !body.refresh && Date.now() - Date.parse(coach.assessedAt || "") < 7 * 864e5) return json({ coach });
+    if (coach.fit && coach.questions && coach.v === FIT_VERSION && !body.refresh && Date.now() - Date.parse(coach.assessedAt || "") < 7 * 864e5) return json({ coach });
     const { data: master } = await ctx.supabase.from("resumes").select("content").eq("user_id", ctx.user.id).eq("is_master", true).maybeSingle();
     if (!master) return json({ error: "Upload your resume first." }, 400);
     const kws = await marketKeywords(ctx.supabase, role.title, country);
     const fit = assessFit(master.content as ResumeContent, role.title, kws);
     const questions = await coachQuestions(master.content as ResumeContent, role.title, fit);
-    const next: Coach = { ...coach, fit, questions, assessedAt: new Date().toISOString() };
+    const next: Coach = { ...coach, v: FIT_VERSION, fit, questions, assessedAt: new Date().toISOString() };
     await ctx.supabase.from("target_roles").update({ coach: next }).eq("id", role.id);
     return json({ coach: next });
   }

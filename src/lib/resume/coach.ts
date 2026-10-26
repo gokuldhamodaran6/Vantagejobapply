@@ -7,7 +7,8 @@ import type { ResumeContent } from "@/lib/types";
 export type Fit = { level: "strong" | "adjacent" | "switch"; score: number; matched: string[]; missing: string[]; closestTitle: string | null; why: string };
 export type CoachQuestion = { key: string; q: string; hint?: string };
 export type CoachAnswer = { key: string; q: string; a: string };
-export type Coach = { fit?: Fit; questions?: CoachQuestion[]; answers?: CoachAnswer[]; assessedAt?: string; answeredAt?: string };
+export const FIT_VERSION = 2;
+export type Coach = { v?: number; fit?: Fit; questions?: CoachQuestion[]; answers?: CoachAnswer[]; assessedAt?: string; answeredAt?: string };
 
 const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9+#. ]/g, " ").replace(/\s+/g, " ").trim();
 
@@ -16,7 +17,12 @@ export function assessFit(master: ResumeContent, roleTitle: string, keywords: st
   const text = norm(resumeText(master));
   const titles = (master.experience || []).map((e) => e.title).filter(Boolean);
   const best = titles.map((t) => ({ t, s: roleSimilarity(roleTitle, t) })).sort((a, b) => b.s - a.s)[0];
-  const kw = keywords.filter((k) => norm(k) !== norm(roleTitle)).slice(0, 20);
+  // Only real, specific skills make good evidence chips — not fragments ("go", "r") or generic words ("platform").
+  const GENERIC = new Set(["go", "r", "c", "platform", "leadership", "sales", "operations", "messaging", "team", "teams", "business", "management", "experience", "customer", "customers", "product", "strategy", "work", "skills", "data", "role", "communication", "support", "development", "growth", "marketing", "design", "process", "solutions", "services", "tools", "technology", "partners", "impact"]);
+  const kw = keywords
+    .map((k) => k.trim())
+    .filter((k) => k.length >= 3 && !GENERIC.has(k.toLowerCase()) && norm(k) !== norm(roleTitle) && !norm(roleTitle).includes(norm(k)))
+    .slice(0, 16);
   const matched = kw.filter((k) => text.includes(norm(k)));
   const missing = kw.filter((k) => !text.includes(norm(k)));
   const kwShare = kw.length ? matched.length / kw.length : 0;

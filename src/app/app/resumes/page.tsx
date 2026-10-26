@@ -55,7 +55,7 @@ export default function ResumesPage() {
   // Read how each role fits the master resume (once a week), in the background.
   useEffect(() => {
     if (!master || assessing.current) return;
-    const todo = roles.filter((r) => !r.coach?.fit);
+    const todo = roles.filter((r) => !r.coach?.fit || r.coach.v !== 2);
     if (!todo.length) return;
     assessing.current = true;
     (async () => {
@@ -150,7 +150,7 @@ export default function ResumesPage() {
             <div className="flex flex-wrap items-start gap-3">
               <div className="min-w-0 flex-1">
                 <p className="text-xs font-semibold uppercase tracking-wider text-brand">Master resume</p>
-                <h2 className="mt-1 text-xl font-bold">{master.content.name || "Your resume"}</h2>
+                <h2 className="mt-1 text-xl font-bold">{titleCase(master.content.name || "Your resume")}</h2>
                 <p className="text-sm text-muted">{master.content.headline || master.content.experience?.[0]?.title || "All your verified experience"} · updated {timeAgo(master.updated_at)}</p>
               </div>
               <Score n={master.ats_score} />
@@ -194,7 +194,7 @@ export default function ResumesPage() {
                     <div className="flex items-start gap-3">
                       <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-brand-tint text-brand"><FileText size={20} /></span>
                       <div className="min-w-0 flex-1">
-                        <h3 className="truncate text-[17px] font-bold">{role.title}</h3>
+                        <h3 className="truncate text-[17px] font-bold">{titleCase(role.title)}</h3>
                         <div className="mt-1 flex flex-wrap items-center gap-1.5">
                           {fit ? <span className={`chip ${FIT[fit.level].cls}`}>{FIT[fit.level].label}</span> : <span className="chip bg-[#eef0f4] text-muted"><Loader2 size={12} className="animate-spin" /> Checking fit</span>}
                           {coached && <span className="chip bg-green-tint text-green-ink"><Check size={12} /> Coached</span>}
@@ -277,6 +277,8 @@ export default function ResumesPage() {
   );
 }
 
+const titleCase = (t: string) => (t === t.toUpperCase() || t === t.toLowerCase() ? t.toLowerCase().replace(/(^|[\s/-])([a-z])/g, (_, p, c) => p + c.toUpperCase()) : t);
+
 function years(r: R) {
   const ys = (r.content.experience || []).flatMap((e) => [e.start, e.end]).map((d) => (d && /present/i.test(d) ? new Date().getFullYear() : parseInt((d || "").match(/\d{4}/)?.[0] || "", 10))).filter((n) => !isNaN(n));
   return ys.length ? Math.max(0, Math.max(...ys) - Math.min(...ys)) : "—";
@@ -316,7 +318,7 @@ function MiniPaper({ r }: { r: R }) {
 
 function StyleSelect({ r, onStyle }: { r: R; onStyle: (id: string, s: ResumeStyle) => void }) {
   return (
-    <select aria-label="Resume design" className="input h-9 w-[124px] py-0 text-xs" value={r.style || "classic"} onChange={(e) => onStyle(r.id, e.target.value as ResumeStyle)}>
+    <select aria-label="Resume design" className="input h-9 w-[146px] py-0 text-xs" value={r.style || "classic"} onChange={(e) => onStyle(r.id, e.target.value as ResumeStyle)}>
       {(Object.keys(RESUME_STYLES) as ResumeStyle[]).map((s) => <option key={s} value={s}>{RESUME_STYLES[s].label} design</option>)}
     </select>
   );
@@ -396,7 +398,7 @@ function RoleCoach({ role, onClose, onDone }: { role: RoleRow; onClose: () => vo
         <div className="flex items-start gap-3 border-b border-line p-5">
           <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-brand to-pink text-white"><Sparkles size={18} /></span>
           <div className="min-w-0 flex-1">
-            <h2 className="text-lg font-bold">Position you for {role.title}</h2>
+            <h2 className="text-lg font-bold">Position you for {titleCase(role.title)}</h2>
             <p className="text-sm text-muted">A few questions a top recruiter would ask. Short answers are fine.</p>
           </div>
           <button onClick={onClose} className="rounded-lg p-2 hover:bg-canvas" aria-label="Close"><X size={20} /></button>

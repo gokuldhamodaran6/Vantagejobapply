@@ -165,11 +165,17 @@ export default function ApplicationsPage() {
             <div>
               <p className="text-sm text-muted">Applications sent {rangeLabel}</p>
               <p className="mt-1 flex items-baseline gap-3 text-4xl font-bold tracking-tight">{s1.length}
-                {delta !== null && <span className={`text-sm font-semibold ${delta >= 0 ? "text-green-ink" : "text-red-ink"}`}>{delta >= 0 ? "▲" : "▼"} {Math.abs(delta)} vs previous</span>}
+                {delta !== null && (delta === 0 ? <span className="text-sm font-medium text-muted">same as previous period</span> : <span className={`text-sm font-semibold ${delta > 0 ? "text-green-ink" : "text-red-ink"}`}>{delta > 0 ? "▲" : "▼"} {Math.abs(delta)} vs previous period</span>)}
               </p>
             </div>
             <p className="text-sm text-muted">{new Set(s1.map((a) => a.job.company.toLowerCase())).size} companies · {new Set(s1.map((a) => a.target_role_id)).size} roles</p>
           </div>
+          {s1.length === 0 ? (
+            <div className="mt-5 flex h-28 flex-col items-center justify-center rounded-xl bg-canvas text-center">
+              <p className="text-sm font-semibold">Nothing sent {rangeLabel}</p>
+              <p className="mt-1 text-xs text-muted">{sent(apps || []).length ? "Try a longer range to see your history." : <>Paste a job link on <Link href="/app/agent" className="font-semibold text-brand-ink">Your agent</Link> or switch on Auto-apply.</>}</p>
+            </div>
+          ) : <>
           <div className="mt-5 flex h-28 items-end gap-[3px]" aria-label="Applications over time">
             {chart.map((c, i) => (
               <div key={i} className="group relative flex h-full flex-1 flex-col justify-end">
@@ -179,6 +185,7 @@ export default function ApplicationsPage() {
             ))}
           </div>
           <div className="mt-1.5 flex justify-between text-[11px] text-subtle"><span>{chart[0]?.label}</span><span>{chart[Math.floor(chart.length / 2)]?.label}</span><span>{chart[chart.length - 1]?.label}</span></div>
+          </>}
         </div>
         <div className="card p-5">
           <p className="text-sm font-semibold">Your funnel {rangeLabel}</p>
@@ -305,11 +312,11 @@ function GroupCard({ g, group, roleName, resumes, onOpen, now }: {
             const r = a.resume_id ? resumes.get(a.resume_id) : undefined;
             return (
               <li key={a.id}>
-                <button onClick={() => onOpen(a)} className="grid w-full grid-cols-1 items-center gap-x-4 gap-y-1.5 px-4 py-3 text-left hover:bg-brand-soft sm:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)_auto_auto]">
+                <button onClick={() => onOpen(a)} className="grid w-full grid-cols-1 items-center gap-x-4 gap-y-1.5 px-4 py-3 text-left hover:bg-brand-soft lg:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)_auto_auto]">
                   <span className="min-w-0">
                     <span className="flex items-center gap-2">
                       {group !== "company" && <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-[10px] font-bold" style={tintFor(a.job.company)}>{initials(a.job.company)}</span>}
-                      <span className="truncate font-medium">{group !== "company" ? `${a.job.company} · ` : ""}{a.job.title}</span>
+                      <span className="line-clamp-2 font-medium lg:line-clamp-1">{group !== "company" ? `${a.job.company} · ` : ""}{a.job.title}</span>
                     </span>
                     <span className="mt-0.5 block truncate text-xs text-muted">{a.job.location || a.job.country}{group !== "role" ? ` · ${roleName(a.target_role_id)}` : ""}</span>
                   </span>
@@ -318,7 +325,7 @@ function GroupCard({ g, group, roleName, resumes, onOpen, now }: {
                     <span className="mt-0.5 flex items-center gap-1.5">{a.source === "agent" ? <><Bot size={13} /> Applied by your agent</> : <><User size={13} /> Added by you</>}</span>
                   </span>
                   <span className="flex items-center gap-3"><Progress s={a.status} /><span className={`chip ${STATUS[a.status].cls}`}>{STATUS[a.status].label}</span></span>
-                  <span className="text-right text-xs text-muted sm:w-24">{a.applied_at ? new Date(a.applied_at).toLocaleDateString(undefined, { month: "short", day: "numeric" }) : "Not sent"}<span className="block">{a.applied_at && Date.parse(a.applied_at) > now - 864e5 * 2 ? timeAgo(a.applied_at) : ""}</span></span>
+                  <span className="text-xs text-muted lg:w-24 lg:text-right">{a.applied_at ? new Date(a.applied_at).toLocaleDateString(undefined, { month: "short", day: "numeric" }) : "Not sent"}<span className="block">{a.applied_at && Date.parse(a.applied_at) > now - 864e5 * 2 ? timeAgo(a.applied_at) : ""}</span></span>
                 </button>
               </li>
             );

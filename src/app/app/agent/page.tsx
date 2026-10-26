@@ -214,7 +214,19 @@ async function patch(id: string, body: Record<string, unknown>) {
 const agreeValue = (n: AgentTask["needs"][number]) => n.options?.find((o) => /agree|accept|acknowledge|confirm|^yes\b|understand|consent/i.test(o)) || "Yes";
 
 const isConsentNeed = (n: AgentTask["needs"][number]) =>
-  n.kind === "consent" || (n.type === "checkbox" && /certify|acknowledge|agree|consent|privacy|terms|true and correct|i understand/i.test(n.label));
+  n.kind === "consent" || /^(i certify|i acknowledge|i agree|i understand|i consent|i confirm)|applicant privacy|privacy (policy|notice) acknowledg|true and correct to the best/i.test(n.label.trim()) || (n.type === "checkbox" && /certify|acknowledge|agree|consent|privacy|terms|true and correct/i.test(n.label));
+
+/** Tidy a question for display: no doubled label text, no options that clearly belong to another field. */
+function tidy(n: AgentTask["needs"][number]): AgentTask["needs"][number] {
+  const t = n.label.replace(/\s*\*\s*/g, " ").replace(/\s+/g, " ").trim();
+  // "Question? Question?" or a repeat cut off mid-way: keep the first copy.
+  const head = t.slice(0, Math.min(40, Math.floor(t.length / 2)));
+  const again = head.length >= 3 ? t.toLowerCase().indexOf(head.toLowerCase(), head.length) : -1;
+  const label = (again > 0 ? t.slice(0, again) : t).trim();
+  const opts = n.options || [];
+  const foreign = opts.length > 20 && opts.filter((o) => /\+\d{1,4}$/.test(o.trim())).length > opts.length / 2; // a phone country-code list
+  return { ...n, label, options: foreign ? undefined : n.options };
+}
 
 function NeedCard({ t, hasMailbox, consent, onDone }: { t: AgentTask; hasMailbox: boolean; consent: boolean; onDone: (msg: string) => void }) {
   const [vals, setVals] = useState<Record<string, string>>({});
@@ -247,8 +259,9 @@ function NeedCard({ t, hasMailbox, consent, onDone }: { t: AgentTask; hasMailbox
   }
 
   if (t.status === "needs_user" && t.needs?.length) {
-    const consents = t.needs.filter(isConsentNeed);
-    const questions = t.needs.filter((n) => !isConsentNeed(n));
+    const needs = t.needs.map(tidy);
+    const consents = needs.filter(isConsentNeed);
+    const questions = needs.filter((n) => !isConsentNeed(n));
     const ready = questions.every((n) => vals[n.id]?.trim()) && consents.every((n) => Boolean(vals[n.id]));
     return (
       <div className="card border-orange/30 p-5">
@@ -312,6 +325,7 @@ function NeedCard({ t, hasMailbox, consent, onDone }: { t: AgentTask; hasMailbox
           ))}
           <div className="flex flex-wrap gap-2">
             <button className="btn-primary" disabled={busy || !ready}>{busy ? <Loader2 size={16} className="animate-spin" /> : <Check size={16} />} Save answers and apply</button>
+            <button type="button" className="btn-ghost" disabled={busy} onClick={() => act({ action: "retry" }, "Your agent is re-checking the form with everything it knows now.")}>Re-check the form</button>
             <button type="button" className="btn-ghost" onClick={() => act({ action: "cancel" }, "Skipped this job.")}>Skip this job</button>
           </div>
         </form>
