@@ -38,6 +38,6 @@ export async function POST(req: Request) {
     p: { ats: board.ats, token: board.token, name: board.name, host: board.host || null, site: board.site || "", added_by: ctx.user.id },
   });
   if (error) return json({ error: error.message }, 500);
-  const count = await refreshBoard({ ...board, id: id as number, site: board.site || "" });
+  const count = await refreshBoard({ ...board, id: id as number, site: board.site || "" }, { now: true });
   return json({ ok: true, board: { ...board, id }, jobs: count });
 }

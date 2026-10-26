@@ -1,5 +1,5 @@
-import { fetchDescription, type Board } from "@/lib/jobs/sources";
-import { storeJobs } from "@/lib/jobs/engine";
+import { fullDescription, isSummary } from "@/lib/jobs/fulltext";
+import { ingestSecret, supabaseAnon } from "@/lib/supabase/server";
 import { analyzeText } from "@/lib/jobs/signals";
 import { matchJob } from "@/lib/jobs/match";
 import { json, loadUserContext } from "@/lib/server-user";
@@ -15,17 +15,15 @@ export async function GET(_req: Request, ctx2: { params: Promise<{ id: string }>
   if (!data) return json({ error: "This job is no longer listed by the employer." }, 404);
   let job = data as Job;
 
-  if (!job.description && (job.source === "workday" || job.source === "smartrecruiters")) {
-    const token = job.id.split(":")[1];
-    const { data: boards } = await ctx.supabase.from("boards").select("*").eq("token", token).limit(1);
-    const b = boards?.[0] as Board | undefined;
-    if (b) {
-      const d = await fetchDescription(job, b);
-      if (d) {
-        const s = analyzeText(job.title, d);
-        job = { ...job, description: d, sponsorship: s.sponsorship, restrictions: s.restrictions };
-        storeJobs([job]).catch(() => {});
+  // Vantage keeps a short summary; the full posting is read live from the employer (and cached 30 days).
+  if (isSummary(job as Job & { desc_len?: number | null })) {
+    const d = await fullDescription(job as Job & { desc_len?: number | null });
+    if (d && d !== job.description) {
+      const s = analyzeText(job.title, d);
+      if (!job.description) {
+        void supabaseAnon().rpc("set_job_description", { secret: ingestSecret(), p_id: job.id, p_description: d }).then(() => {}, () => {});
       }
+      job = { ...job, description: d, sponsorship: job.description ? job.sponsorship : s.sponsorship, restrictions: job.description ? job.restrictions : s.restrictions };
     }
   }
   const match = matchJob(job, { roles: ctx.roles, prefs: ctx.prefs, auth: ctx.auth });

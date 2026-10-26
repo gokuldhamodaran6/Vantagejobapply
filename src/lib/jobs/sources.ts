@@ -6,7 +6,12 @@ import type { Job } from "@/lib/types";
 // Every job comes from the employer's own careers system (ATS), and every
 // link points to the employer's official posting — never to an aggregator.
 
-export type Ats = "greenhouse" | "lever" | "ashby" | "smartrecruiters" | "workable" | "recruitee" | "workday" | "amazon";
+export type Ats =
+  | "greenhouse" | "lever" | "ashby" | "smartrecruiters" | "workable" | "recruitee" | "workday" | "amazon"
+  | "personio" | "teamtailor" | "rippling" | "pinpoint" | "breezy" | "bamboohr" | "gem";
+
+/** Systems this file can read directly. The database crawler reads all of them (see supabase/crawler). */
+export const APP_READABLE = new Set<Ats>(["greenhouse", "lever", "ashby", "workable", "recruitee", "workday", "amazon"]);
 export type Board = {
   id?: number;
   ats: Ats;
@@ -20,7 +25,7 @@ export type Board = {
 
 const UA = "Mozilla/5.0 (compatible; VantageJobs/1.0; +https://vantage.jobs/bot)";
 
-async function getJson<T>(url: string, init: RequestInit = {}, timeoutMs = 12000): Promise<T | null> {
+export async function getJson<T>(url: string, init: RequestInit = {}, timeoutMs = 12000): Promise<T | null> {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), timeoutMs);
   try {
@@ -133,7 +138,7 @@ async function ashby(b: Board): Promise<Job[] | null> {
 /* ---------------------------- SmartRecruiters --------------------------- */
 type SrItem = { id: string; name: string; releasedDate?: string; location?: { country?: string; city?: string; region?: string; remote?: boolean }; typeOfEmployment?: { label?: string }; company?: { name?: string } };
 
-async function smartrecruiters(b: Board): Promise<Job[] | null> {
+export async function smartrecruiters(b: Board): Promise<Job[] | null> {
   const out: Job[] = [];
   for (let offset = 0; offset < 500; offset += 100) {
     const data = await getJson<{ content: SrItem[]; totalFound: number }>(`https://api.smartrecruiters.com/v1/companies/${encodeURIComponent(b.token)}/postings?limit=100&offset=${offset}`);
@@ -272,10 +277,12 @@ export async function fetchBoard(b: Board): Promise<Job[] | null> {
     case "greenhouse": return greenhouse(b);
     case "lever": return lever(b);
     case "ashby": return ashby(b);
-    case "smartrecruiters": return smartrecruiters(b);
+    // SmartRecruiters' API robots.txt allows only LinkedInBot, so Vantage doesn't read its feeds.
+    case "smartrecruiters": return null;
     case "workable": return workable(b);
     case "recruitee": return recruitee(b);
     case "workday": return workday(b);
+    default: return null;
   }
 }
 
@@ -315,6 +322,13 @@ export function boardFromUrl(raw: string): Omit<Board, "name"> | null {
   if (h === "jobs.smartrecruiters.com" || h === "careers.smartrecruiters.com") return parts[0] ? { ats: "smartrecruiters", token: parts[0] } : null;
   if (h === "apply.workable.com") return parts[0] ? { ats: "workable", token: parts[0] } : null;
   if (h.endsWith(".recruitee.com")) return { ats: "recruitee", token: h.split(".")[0] };
+  if (h.endsWith(".jobs.personio.de") || h.endsWith(".jobs.personio.com")) return { ats: "personio", token: h.split(".")[0], host: h };
+  if (h.endsWith(".teamtailor.com")) return { ats: "teamtailor", token: h.split(".")[0], host: h };
+  if (h === "ats.rippling.com") return parts[0] ? { ats: "rippling", token: parts[0] } : null;
+  if (h.endsWith(".pinpointhq.com")) return { ats: "pinpoint", token: h.split(".")[0] };
+  if (h.endsWith(".breezy.hr")) return { ats: "breezy", token: h.split(".")[0] };
+  if (h.endsWith(".bamboohr.com")) return { ats: "bamboohr", token: h.split(".")[0] };
+  if (h === "jobs.gem.com") return parts[0] ? { ats: "gem", token: parts[0] } : null;
   if (h.endsWith(".myworkdayjobs.com")) {
     const tenant = h.split(".")[0];
     const site = parts[0]?.match(/^[a-z]{2}-[A-Z]{2}$/) ? parts[1] : parts[0];
@@ -332,8 +346,6 @@ export async function resolveCompany(name: string): Promise<Board | null> {
   for (const s of slugs) {
     tries.push({ ats: "greenhouse", token: s, name }, { ats: "lever", token: s, name }, { ats: "ashby", token: s, name }, { ats: "workable", token: s, name }, { ats: "recruitee", token: s, name });
   }
-  const pretty = name.replace(/[^A-Za-z0-9]/g, "");
-  tries.push({ ats: "smartrecruiters", token: pretty, name });
   const results = await Promise.all(tries.map(async (b) => ({ b, jobs: await fetchBoard(b).catch(() => null) })));
   const hit = results.filter((r) => r.jobs && r.jobs.length > 0).sort((a, z) => (z.jobs!.length - a.jobs!.length))[0];
   return hit ? hit.b : null;

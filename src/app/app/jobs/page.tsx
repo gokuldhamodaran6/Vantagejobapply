@@ -13,7 +13,8 @@ import { money, timeAgo, tintFor, initials } from "@/lib/format";
 import type { Job, MatchResult } from "@/lib/types";
 
 type Item = { job: Job; match: MatchResult; ghost?: GhostRisk };
-type Resp = { results: Item[]; meta: { sources: Record<string, number>; hidden: number; hiddenBy?: Record<string, number>; total: number; refreshed: number; sponsorCheck?: boolean }; tookMs: number; error?: string };
+type Live = { open_jobs?: number; companies?: number; new_24h?: number; updated_at?: string };
+type Resp = { results: Item[]; meta: { sources: Record<string, number>; hidden: number; hiddenBy?: Record<string, number>; total: number; refreshed: number; sponsorCheck?: boolean; live?: Live | null }; tookMs: number; error?: string };
 
 const SOURCE_LABEL: Record<string, string> = {
   greenhouse: "Greenhouse", lever: "Lever", ashby: "Ashby", workday: "Workday", smartrecruiters: "SmartRecruiters", workable: "Workable", recruitee: "Recruitee",
@@ -103,6 +104,18 @@ export default function JobsPage() {
           <label className="flex items-center gap-2 text-sm font-medium"><Toggle checked={showBlocked} onChange={setShowBlocked} label="Show jobs that can't hire you" /> Show filtered</label>
         </div>
       </div>
+
+      {data?.meta?.live?.open_jobs ? (
+        <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl border border-line bg-white px-3.5 py-2.5 text-sm">
+          <span className="relative flex h-2.5 w-2.5" aria-hidden>
+            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-500 opacity-60" />
+            <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-green-600" />
+          </span>
+          <span><span className="font-semibold text-ink">{data.meta.live.open_jobs.toLocaleString()}</span> <span className="text-muted">live jobs from</span> <span className="font-semibold text-ink">{(data.meta.live.companies || 0).toLocaleString()}</span> <span className="text-muted">companies, read straight from their careers sites</span></span>
+          {(data.meta.live.new_24h || 0) > 0 && <span className="text-muted">· {data.meta.live.new_24h!.toLocaleString()} new today</span>}
+          <span className="text-muted">· closed jobs removed, reposts flagged</span>
+        </div>
+      ) : null}
 
       {data && !data.error && (
         <div className="mb-4 space-y-2">

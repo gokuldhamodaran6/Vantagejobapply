@@ -32,7 +32,7 @@ export async function POST(req: Request) {
           const b = await resolveCompany(n);
           if (b) {
             const { data: id } = await supabaseAnon().rpc("upsert_board", { secret: ingestSecret(), p: { ats: b.ats, token: b.token, name: n, site: "", added_by: ctx.user.id } });
-            const count = await refreshBoard({ ...b, name: n, id: id as number, site: "" });
+            const count = await refreshBoard({ ...b, name: n, id: id as number, site: "" }, { now: true });
             done.push(`Watching ${n}'s careers site — ${count} open jobs right now.`);
           } else done.push(`Added ${n}. I couldn't find their careers feed automatically — paste one of their job links in My targets.`);
         }

@@ -23,12 +23,15 @@ type AutoUser = {
  */
 export async function autoSource(deadline: number) {
   const users = (await rpc<AutoUser[]>("auto_users", {})) || [];
-  // Boards anyone can add go into the shared pool, so auto-apply only uses boards Vantage vetted, plus the user's own targets.
-  const { data: boards } = await supabaseAnon().rpc("list_boards", { secret: ingestSecret() });
-  const PREFIX: Record<string, string> = { greenhouse: "gh", lever: "lever", ashby: "ashby", smartrecruiters: "sr", workable: "wk", recruitee: "rc", workday: "wd", amazon: "amazon" };
-  const boardRows = (boards as { ats: string; token: string; name: string; added_by?: string | null }[]) || [];
-  const vetted = new Set(boardRows.filter((b) => !b.added_by).map((b) => `${PREFIX[b.ats]}:${b.token}`));
+  // Boards anyone can add go into the shared pool, so auto-apply only uses boards Vantage found itself, plus the user's own targets.
   const boardOfJob = (id: string) => id.split(":").slice(0, 2).join(":");
+  const boardInfo = new Map<string, { added_by: string | null; name: string }>();
+  async function loadBoards(keys: string[]) {
+    const missing = [...new Set(keys)].filter((k) => !boardInfo.has(k));
+    if (!missing.length) return;
+    const { data } = await supabaseAnon().rpc("board_info", { secret: ingestSecret(), keys: missing });
+    for (const r of (data as { key: string; added_by: string | null; name: string }[]) || []) boardInfo.set(r.key, r);
+  }
   const summary: Record<string, number> = {};
   for (const u of users) {
     if (Date.now() > deadline) break;
@@ -42,10 +45,14 @@ export async function autoSource(deadline: number) {
     const candidates: { job: Job; score: number; important: boolean; roleId?: string }[] = [];
     for (const country of (u.prefs?.countries?.length ? u.prefs.countries : ["US"]).slice(0, 6)) {
       const jobs = (await rpc<Job[]>("search", { country, tsquery: titleTsQuery(phrases), since, limit: 300 })) || [];
-      const mine = new Set(boardRows.filter((b) => (u.prefs?.companies || []).some((c) => normCompany(c) === normCompany(b.name))).map((b) => `${PREFIX[b.ats]}:${b.token}`));
+      await loadBoards(jobs.map((j) => boardOfJob(j.id)));
+      const targets = new Set((u.prefs?.companies || []).map(normCompany));
       for (const job of jobs) {
         if (known.has(job.id)) continue;
-        if (!vetted.has(boardOfJob(job.id)) && !mine.has(boardOfJob(job.id))) continue;
+        const info = boardInfo.get(boardOfJob(job.id));
+        const vetted = Boolean(info) && !info!.added_by;
+        const mine = Boolean(info) && targets.has(normCompany(info!.name));
+        if (!vetted && !mine) continue;
         const m = matchJob(job, { roles: u.roles, prefs: u.prefs, auth: u.auth });
         if (!m.eligible || m.tooSenior || (m.roleFit ?? 0) < 0.55 || m.score < 58) continue;
         if (!inPreferredPlace(job, u.prefs)) continue;
