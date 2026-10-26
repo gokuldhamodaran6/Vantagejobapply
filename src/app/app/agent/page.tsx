@@ -651,7 +651,7 @@ function NeedCard({ t, hasMailbox, consent, onDone }: { t: AgentTask; hasMailbox
         <p className="mt-2 text-sm">{t.job.company}&apos;s site wants a quick “I&apos;m human” check. Everything else is filled in. Open the check, complete it, and your agent carries on by itself — this window closes when it&apos;s done.</p>
         <div className="mt-4 flex flex-wrap gap-2">
           <button className="btn-pink" onClick={openLive}><MonitorPlay size={16} /> Do the human check</button>
-          <a className="btn-ghost" href={t.apply_url} target="_blank" rel="noopener noreferrer"><ExternalLink size={16} /> Open the job page instead</a>
+          <a className="btn-ghost" href={`${t.apply_url.split("#")[0]}#vantage-apply`} target="_blank" rel="noopener noreferrer" title="Needs the Vantage Chrome extension"><ExternalLink size={16} /> Finish in my browser instead</a>
         </div>
         {liveUrl && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/60 p-3 sm:p-6" role="dialog" aria-modal="true" aria-label={`Human check for ${t.job.company}`}>
@@ -693,8 +693,9 @@ function NeedCard({ t, hasMailbox, consent, onDone }: { t: AgentTask; hasMailbox
     <div className="card p-5">
       {head}
       <p className="mt-2 text-sm">{t.error || t.step || "This application needs you to finish it on the company's site."}</p>
+      <p className="mt-1 text-xs text-muted">“Finish in my browser” opens the job with the Vantage extension: it fills every page in your own Chrome, where sites rarely ask for puzzles, and you press Submit.</p>
       <div className="mt-3 flex flex-wrap gap-2">
-        <a className="btn-primary" href={t.job.url || t.apply_url} target="_blank" rel="noopener noreferrer">Open the job <ExternalLink size={15} /></a>
+        <a className="btn-primary" href={`${(t.apply_url || t.job.url).split("#")[0]}#vantage-apply`} target="_blank" rel="noopener noreferrer"><ExternalLink size={15} /> Finish in my browser</a>
         <button className="btn-secondary" disabled={busy} onClick={() => act({ action: "retry" }, "Your agent will try again.")}><RotateCcw size={16} /> Try again</button>
         <button className="btn-ghost" disabled={busy} onClick={() => act({ action: "cancel" }, "Dismissed.")}>Dismiss</button>
       </div>

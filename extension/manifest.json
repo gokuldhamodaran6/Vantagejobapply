@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "Vantage \u2014 Fill job applications",
+  "name": "Vantage — Fill job applications",
   "short_name": "Vantage",
   "version": "1.1.0",
   "description": "Fills job applications on company careers sites with your profile, saved answers and a resume tailored to each job. You review and submit.",
@@ -38,21 +38,7 @@
   "content_scripts": [
     {
       "matches": [
-        "https://*.greenhouse.io/*",
-        "https://*.lever.co/*",
-        "https://*.ashbyhq.com/*",
-        "https://*.myworkdayjobs.com/*",
-        "https://*.icims.com/*",
-        "https://*.smartrecruiters.com/*",
-        "https://*.workable.com/*",
-        "https://*.jobvite.com/*",
-        "https://*.bamboohr.com/*",
-        "https://*.recruitee.com/*",
-        "https://*.amazon.jobs/*",
-        "https://*.taleo.net/*",
-        "https://*.successfactors.com/*",
-        "https://*.oraclecloud.com/*",
-        "https://*.breezy.hr/*"
+        "https://*/*"
       ],
       "js": [
         "launcher.js"

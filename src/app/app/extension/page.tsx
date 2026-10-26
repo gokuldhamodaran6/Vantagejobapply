@@ -11,7 +11,7 @@ type Key = { id: string; label: string; created_at: string; last_used_at: string
 type ChromeRuntime = { sendMessage: (id: string, msg: unknown, cb: (r: unknown) => void) => void; lastError?: { message?: string } };
 const runtime = (): ChromeRuntime | null => (globalThis as unknown as { chrome?: { runtime?: ChromeRuntime } }).chrome?.runtime || null;
 
-function ask(msg: unknown): Promise<{ ok?: boolean; connected?: boolean } | null> {
+function ask(msg: unknown): Promise<{ ok?: boolean; connected?: boolean; version?: string } | null> {
   const rt = runtime();
   if (!rt?.sendMessage) return Promise.resolve(null);
   return new Promise((resolve) => {
@@ -25,14 +25,14 @@ function ask(msg: unknown): Promise<{ ok?: boolean; connected?: boolean } | null
 }
 
 export default function ExtensionPage() {
-  const [ext, setExt] = useState<{ installed: boolean; connected: boolean } | null>(null);
+  const [ext, setExt] = useState<{ installed: boolean; connected: boolean; version?: string } | null>(null);
   const [keys, setKeys] = useState<Key[]>([]);
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
 
   const check = useCallback(async () => {
     const r = await ask({ type: "ping" });
-    setExt({ installed: Boolean(r?.ok), connected: Boolean(r?.connected) });
+    setExt({ installed: Boolean(r?.ok), connected: Boolean(r?.connected), version: r?.version });
     const k = await fetch("/api/ext/connect").then((x) => x.json()).catch(() => ({ keys: [] }));
     setKeys(k.keys || []);
   }, []);
@@ -52,7 +52,7 @@ export default function ExtensionPage() {
     }
     const ok = await ask({ type: "connect", token: d.token });
     setBusy(false);
-    setToast(ok?.ok ? "Connected! Open any job application and click “Fill with Vantage”." : "Install the extension first (step 1), then press Connect again.");
+    setToast(ok?.ok ? "Connected! Open any job and click “Apply with Vantage”." : "Install the extension first (step 1), then press Connect again.");
     void check();
   }
 
@@ -69,7 +69,7 @@ export default function ExtensionPage() {
 
       <section className="grid gap-4 lg:grid-cols-3">
         {[
-          { icon: MousePointerClick, title: "One click on any careers site", body: "Greenhouse, Lever, Ashby, Workday, iCIMS, Amazon and company sites — a “Fill with Vantage” button appears on the form." },
+          { icon: MousePointerClick, title: "One click on any careers site", body: "Workday, Greenhouse, Lever, Ashby, iCIMS, Amazon and company sites. It reads every page like a person — dropdowns, nested lists, work history, uploads — and moves through each step until only Submit is left." },
           { icon: PenLine, title: "Tailored for this job", body: "Vantage writes a resume and cover letter for the posting, uploads them, and answers “why are you a fit” questions in your voice." },
           { icon: Zap, title: "Tracked automatically", body: "When you submit, the job lands in Applications. Replies and interview invites from the company appear in your Inbox and Interviews." },
         ].map((c) => (
@@ -80,6 +80,14 @@ export default function ExtensionPage() {
           </div>
         ))}
       </section>
+
+      {ext?.installed && (!ext.version || ext.version < "1.1.0") && (
+        <section className="mt-5 card border-brand/40 p-5">
+          <p className="font-semibold">A new version of the extension is ready</p>
+          <p className="mt-1 text-sm text-muted">It now fills every page of Workday and other multi-step forms by itself. Download it, unzip it over the old folder, then press the reload ↻ button on Vantage in <code className="rounded bg-canvas px-1">chrome://extensions</code>.</p>
+          <a href="/vantage-extension.zip" download className="btn-primary mt-3 min-h-9 text-[13px]"><Download size={15} /> Download version 1.1</a>
+        </section>
+      )}
 
       <section className="mt-5 card p-6">
         <h2 className="text-lg font-bold">Set it up — 2 minutes</h2>
@@ -111,7 +119,7 @@ export default function ExtensionPage() {
           <li className="flex gap-3">
             <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-sm font-bold ${step === 3 ? "bg-brand text-white" : "bg-line-2 text-ink-2"}`}>3</span>
             <div>
-              <p className="font-semibold">Open a job application and click “Fill with Vantage”</p>
+              <p className="font-semibold">Open a job and click “Apply with Vantage”</p>
               <p className="mt-1 text-sm text-muted">Or click the Vantage icon in your toolbar. Anything new it asks you once, then remembers. Likely ghost jobs are flagged in red before you spend time on them.</p>
             </div>
           </li>
