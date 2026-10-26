@@ -105,6 +105,11 @@ await page.waitForTimeout(1500);
 if (process.env.FAKE_PILOT) {
   const st = await page.evaluate(() => window.__state && { page: window.__state.page, values: window.__state.values, files: window.__state.files, work: window.__state.work.length, trap: window.__state.trapped || null });
   console.log("WORKDAY COPY STATE:", JSON.stringify(st, null, 1));
+  if (process.env.SUBMIT_FOR_ME) {
+    await sw.evaluate(async () => { const [t] = await chrome.tabs.query({ url: "http://127.0.0.1:4300/*" }); await onPanel(t.id, { action: "submit_now" }); });
+    await page.waitForTimeout(1500);
+    console.log("AFTER SUBMIT-FOR-ME:", JSON.stringify(await page.evaluate(() => ({ submitted: window.__state.submitted, text: document.body.innerText.slice(0, 120) }))));
+  }
   console.log("panel text:", await page.evaluate(() => document.getElementById("vantage-panel") ? "present" : "none"));
 }
 const values = await page.evaluate(() => [...document.querySelectorAll("input, select, textarea")].filter((e) => e.type !== "hidden").map((e) => {

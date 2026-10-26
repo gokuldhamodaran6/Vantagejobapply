@@ -18,6 +18,11 @@ export const maxDuration = 120;
 export async function POST(req: Request) {
   const u = await extUser(req);
   if (!u) return extJson({ error: "Connect the extension to your Vantage account." }, 401);
+  // Version 1.0 filled only the page it was on. Ask for the update (it fills every page and can submit).
+  const ver = req.headers.get("x-vantage-ext") || "1.0.0";
+  if (ver.localeCompare("1.1.0", undefined, { numeric: true }) < 0) {
+    return extJson({ error: "Please update the Vantage extension: open vantagejobapply.onrender.com → Chrome extension → Download version 1.1, unzip it over the old folder, then press reload on Vantage in chrome://extensions. The new version fills every page and can submit for you." }, 426);
+  }
   const b = (await req.json().catch(() => ({}))) as { url?: string; title?: string; company?: string; description?: string; location?: string; force?: boolean };
   const url = String(b.url || "").slice(0, 2000);
   if (!/^https:\/\//i.test(url) || !(await isSafePublicUrl(url))) return extJson({ error: "Open the job's application page first." }, 400);

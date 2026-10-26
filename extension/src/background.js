@@ -14,7 +14,7 @@ async function api(path, { method = "GET", body } = {}) {
   const base = (await store.get("apiBase")) || API; // apiBase is only set by the extension's own tests
   const r = await fetch(`${base}${path}`, {
     method,
-    headers: { Authorization: `Bearer ${token}`, ...(body ? { "Content-Type": "application/json" } : {}) },
+    headers: { Authorization: `Bearer ${token}`, "X-Vantage-Ext": chrome.runtime.getManifest().version, ...(body ? { "Content-Type": "application/json" } : {}) },
     body: body ? JSON.stringify(body) : undefined,
   });
   const d = await r.json().catch(() => ({}));
@@ -125,7 +125,8 @@ async function pilotLoop(tabId, t) {
     await store.setTab(tabId, { ...t, history });
 
     if (plan.status === "ready") {
-      return showPanel(tabId, { ...t.base, steps: steps(2), note: "Every page is filled. Check it over, then press Submit on the page — Vantage adds it to your Applications.", noteTone: "ok", buttons: [{ text: "I submitted it", action: "submitted", ghost: true }, { text: "Check again", action: "continue", ghost: true }] });
+      await store.setTab(tabId, { ...t, history, submit: { i: plan.submit, frameId: page.frameId } });
+      return showPanel(tabId, { ...t.base, steps: steps(2), note: "Every page is filled and this is the last step. Look it over — then Vantage can submit it for you, or press Submit on the page yourself.", noteTone: "ok", buttons: [{ text: "Submit it for me", action: "submit_now" }, { text: "Check again", action: "continue", ghost: true }] });
     }
     if (plan.status === "done") return markSubmitted(tabId, "detected");
     if (plan.status === "ask") {
@@ -213,6 +214,17 @@ async function onPanel(tabId, msg) {
     return showPanel(tabId, { ...t.base, steps: steps(1), note: "Paused. Press Continue when you want Vantage to carry on from this page.", noteTone: "ok", buttons: [{ text: "Continue", action: "continue" }, { text: "Close", action: "close", ghost: true }] });
   }
   if (msg.action === "continue") return run(tabId, { resume: true });
+  if (msg.action === "submit_now" && t.submit) {
+    // The person checked the form and asked Vantage to press the final Submit.
+    await showPanel(tabId, { ...t.base, steps: steps(2), note: "Submitting…", noteTone: "ok" });
+    await inFrames(tabId, (x) => window.__vp?.act(x), [{ do: "click", i: t.submit.i, allowFinal: true }], [t.submit.frameId]);
+    await sleep(3500);
+    await inject(tabId);
+    if (await top(tabId, () => window.__vantage?.isConfirmation())) return markSubmitted(tabId, "detected");
+    // Not confirmed yet (an error, a code, or one more step): carry on from the page as it is now.
+    await store.setTab(tabId, { ...t, submit: null, submitted_click: true });
+    return run(tabId, { resume: true });
+  }
   if (msg.action === "answers") {
     const answers = (msg.answers || []).filter((a) => String(a.answer || "").trim());
     if (!answers.length) return;
