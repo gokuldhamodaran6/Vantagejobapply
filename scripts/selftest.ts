@@ -163,6 +163,12 @@ async function plannerChecks() {
   ok(ghostRisk({ title: "Product Manager", posted_at: days(5) }, { now, replies: { sent: 6, replied: 3, silent: 1 } }) === null, "fresh postings at responsive companies are fine");
 }
 
+// Labels with site validation text and hints still map to the right fact.
+{
+  const lab = "Address line 1 (Street address, P.O. Box, etc...) This field is required";
+  ok(coreLabel(lab) === "Address line 1", "strips validation text and hints from labels");
+}
+
 // Network guard.
 ok(isPrivateIp("10.1.2.3") && isPrivateIp("169.254.169.254") && isPrivateIp("::1") && !isPrivateIp("8.8.8.8"), "blocks private and metadata addresses");
 

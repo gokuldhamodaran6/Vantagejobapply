@@ -201,7 +201,11 @@ export function sponsorshipFor(label: string, facts: Facts): string | null {
 
 /** A field's label without required-markers and without the duplicate that aria-labelledby + <label for> produce. */
 export function coreLabel(label: string) {
-  const t = label.replace(/\*|\(required\)/gi, " ").replace(/\s+/g, " ").trim();
+  // Validation text that sites append ("This field is required") and hints in brackets ("(Street address, P.O. Box…)")
+  // are not part of the question.
+  let t = label.replace(/\*|\(required\)/gi, " ").replace(/\b(this field is required|this is a required field|required field|please (enter|fill in|complete) [^.]{0,40}|is required)\.?/gi, " ").replace(/\s+/g, " ").trim();
+  const noHint = t.replace(/\s*\([^)]{2,80}\)\s*/g, " ").replace(/\s+/g, " ").trim();
+  if (noHint.length >= 3 && noHint.length < t.length && /[a-z]/i.test(noHint)) t = noHint;
   const m = t.match(/^(.{3,}?)\s+\1$/i);
   return (m ? m[1] : t).trim();
 }
