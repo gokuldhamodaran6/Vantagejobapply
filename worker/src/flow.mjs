@@ -314,6 +314,11 @@ async function handleAccount(bundle, page, fields, allPasswords) {
   if (!passwords.length) throw new Stop("manual", "This site asks for a password inside another site's box. Open the job link to finish.");
   const siteCred = pageHost === task.host || pageHost.endsWith(`.${task.host}`) ? bundle.credential : null;
   let cred = siteCred?.password ? siteCred : null;
+  // Sign-in often happens on a separate login host (Amazon → atozpublic.idprism-auth.amazon.com): use the login saved for it.
+  if (!cred) {
+    const saved = await call("credential", { taskId: task.id, host: pageHost, getOnly: true }).catch(() => null);
+    if (saved?.password) cred = saved;
+  }
   const createBtn = await page.getByRole("button", { name: /create account|sign up|register/i }).first().isVisible().catch(() => false);
   const signInBtn = await page.getByRole("button", { name: /^(sign in|log in|login)$/i }).first().isVisible().catch(() => false);
   const creating = passwords.length >= 2 || (!cred && createBtn && !signInBtn);
@@ -342,7 +347,7 @@ async function handleAccount(bundle, page, fields, allPasswords) {
 
   if (!creating && !cred) cred = null;
   if (creating) {
-    cred = await call("credential", { taskId: task.id, host: pageHost, rotate: !siteCred?.password });
+    cred = await call("credential", { taskId: task.id, host: pageHost, rotate: !cred?.password });
     if (pageHost === task.host) bundle.credential = cred;
     await log(task.id, `Creating your ${task.job.company} careers account with ${cred.login}`, "Creating your account");
   } else {
