@@ -114,7 +114,7 @@ function extractInPage() {
       continue;
     }
     if (el.tagName === "SELECT") {
-      fields.push({ id: tag(el), type: "select", label, name: el.name, required: required(el, label), options: [...el.options].map((o) => text(o) || o.value).filter(Boolean), value: el.value });
+      fields.push({ id: tag(el), type: "select", label, name: el.name, required: required(el, label), options: [...el.options].slice(0, 600).map((o) => (o.textContent || o.value || "").replace(/\s+/g, " ").trim().slice(0, 140)).filter(Boolean), value: el.value });
       continue;
     }
     if (el.getAttribute("role") === "combobox" || el.getAttribute("aria-haspopup") === "listbox") {

@@ -244,7 +244,7 @@ async function fillPage(bundle, page, filled, seen, collectMissing = false) {
     for (const f of fresh) {
       if (f.type === "combobox" && !f.options?.length) f.options = await readComboOptions(page, f);
     }
-    const plan = await call("plan", { taskId: task.id, fields: fresh.map(({ frame, value, checked, accept, ...rest }) => rest) });
+    const plan = await planInChunks(task.id, fresh);
     const byId = new Map(fresh.map((f) => [f.id, f]));
     if (process.env.AGENT_DEBUG) console.log("[plan]", JSON.stringify(plan).slice(0, 600));
     for (const fill of plan.fills || []) {
@@ -280,6 +280,25 @@ async function fillPage(bundle, page, filled, seen, collectMissing = false) {
     await new Promise((r) => setTimeout(r, 700));
   }
   return missingAll;
+}
+
+/**
+ * Ask the app for answers in small batches with trimmed option lists: big forms (Amazon, Workday) can have
+ * hundreds of fields and long dropdowns, and one giant request could exhaust the app's memory.
+ */
+async function planInChunks(taskId, fields) {
+  const slim = fields.map(({ frame, value, checked, accept, ...rest }) => ({
+    ...rest,
+    label: String(rest.label || "").slice(0, 300),
+    options: Array.isArray(rest.options) ? rest.options.slice(0, 400).map((o) => String(o).slice(0, 140)) : rest.options,
+  }));
+  const out = { fills: [], missing: [] };
+  for (let i = 0; i < slim.length && i < 240; i += 40) {
+    const r = await call("plan", { taskId, fields: slim.slice(i, i + 40) });
+    out.fills.push(...(r.fills || []));
+    out.missing.push(...(r.missing || []));
+  }
+  return out;
 }
 
 /** Sign in, or create an account with the job email + a strong unique password saved to the user's vault. */
@@ -334,7 +353,7 @@ async function handleAccount(bundle, page, fields, allPasswords) {
   // Other simple sign-up fields (first/last name, phone, country) go through the planner.
   const others = fields.filter((f) => !["password", "checkbox"].includes(f.type) && f !== emailField);
   if (others.length) {
-    const plan = await call("plan", { taskId: task.id, fields: others.map(({ frame, value, checked, accept, ...rest }) => rest) });
+    const plan = await planInChunks(task.id, others);
     for (const fill of plan.fills || []) {
       const f = others.find((x) => x.id === fill.id);
       if (f) await fillField(page, f, fill, bundle.files);

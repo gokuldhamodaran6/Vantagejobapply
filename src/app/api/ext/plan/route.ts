@@ -12,7 +12,7 @@ export async function POST(req: Request) {
   if (!(await ownTask(u.user_id, String(body.taskId || "")))) return extJson({ error: "Not found" }, 404);
   const b = await loadBundle(String(body.taskId));
   if (!b) return extJson({ error: "Not found" }, 404);
-  const fields = (body.fields || []).filter((f) => f && f.id && f.type !== "password").slice(0, 200);
+  const fields = (body.fields || []).filter((f) => f && f.id && f.type !== "password").slice(0, 80);
   const out = await planFields(fields, {
     facts: b.facts, answers: b.raw.answers, job: { title: b.task.job.title, company: b.task.job.company }, resume: b.resume,
     coverLetter: b.task.cover_letter, consent: Boolean(b.raw.applicant?.agent_consent),

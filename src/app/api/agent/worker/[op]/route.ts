@@ -16,6 +16,8 @@ const j = (d: unknown, status = 200) => new Response(JSON.stringify(d), { status
 export async function POST(req: Request, { params }: { params: Promise<{ op: string }> }) {
   if (!agentSecretOk(req)) return j({ error: "unauthorised" }, 401);
   const { op } = await params;
+  // Guard the app's memory: no worker request needs more than a few MB (screenshots are ~300 KB).
+  if (Number(req.headers.get("content-length") || 0) > 6_000_000) return j({ error: "request too large" }, 413);
   const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
   const taskId = String(body.taskId || "");
 
@@ -58,7 +60,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ op: str
       const b = await loadBundle(taskId);
       if (!b) return j({ error: "task not found" }, 404);
       const consent = Boolean(b.raw.applicant?.agent_consent);
-      const out = await planFields((body.fields as FormField[]) || [], {
+      const out = await planFields(((body.fields as FormField[]) || []).slice(0, 80), {
         facts: b.facts,
         answers: b.raw.answers,
         job: { title: b.task.job.title, company: b.task.job.company },

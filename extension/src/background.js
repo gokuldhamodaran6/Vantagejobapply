@@ -95,7 +95,14 @@ async function fillPass(tabId, taskId, done = new Set()) {
     }
   }
   if (!fields.length) return [];
-  const plan = await api("/api/ext/plan", { method: "POST", body: { taskId, fields: fields.map(({ frameId, localId, ...f }) => f) } });
+  // Small batches with trimmed option lists keep big forms (Amazon, Workday) fast and light.
+  const slim = fields.map(({ frameId, localId, value, checked, accept, ...f }) => ({ ...f, label: String(f.label || "").slice(0, 300), options: Array.isArray(f.options) ? f.options.slice(0, 400) : f.options }));
+  const plan = { fills: [], missing: [] };
+  for (let i = 0; i < slim.length && i < 240; i += 40) {
+    const r = await api("/api/ext/plan", { method: "POST", body: { taskId, fields: slim.slice(i, i + 40) } });
+    plan.fills.push(...(r.fills || []));
+    plan.missing.push(...(r.missing || []));
+  }
   const files = {};
   for (const p of plan.fills || []) {
     const f = fields.find((x) => x.id === p.id);
