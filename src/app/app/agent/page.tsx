@@ -31,6 +31,8 @@ export default function AgentPage() {
   const [toast, setToast] = useState<string | null>(null);
   const [filter, setFilter] = useState<"all" | "applied" | "active" | "problems">("all");
   const [now, setNow] = useState(() => Date.now());
+  const [agentUp, setAgentUp] = useState<boolean | null>(null);
+  const [stages, setStages] = useState<Map<string, string>>(new Map());
 
   const load = useCallback(async () => {
     const s = supabaseBrowser();
@@ -40,8 +42,12 @@ export default function AgentPage() {
       s.from("applicant_profiles").select("*").maybeSingle(),
       s.from("resumes").select("id", { count: "exact", head: true }),
     ]);
-    const tot = await s.from("applications").select("id", { count: "exact", head: true }).not("applied_at", "is", null);
+    const [tot, st] = await Promise.all([
+      s.from("applications").select("id", { count: "exact", head: true }).not("applied_at", "is", null),
+      s.from("applications").select("agent_task_id,status").not("agent_task_id", "is", null).limit(3000),
+    ]);
     setTotalApplied(tot.count ?? 0);
+    setStages(new Map(((st.data as { agent_task_id: string; status: string }[]) || []).map((x) => [x.agent_task_id, x.status])));
     setTasks((t.data as AgentTask[]) || []);
     setNow(Date.now());
     const ap = a.data as Record<string, unknown> | null;
@@ -57,15 +63,25 @@ export default function AgentPage() {
     if (userId) load();
   }, [userId, load]);
 
-  // If jobs have waited in the queue for a while with nothing running, wake the browser worker.
+  // Jobs waiting and nothing running: check whether the agent's browser is up, and start it if it isn't.
+  const waiting = (tasks || []).filter((t) => t.status === "queued").length;
+  const busyNow = (tasks || []).some((t) => ["running", "waiting_code", "needs_human"].includes(t.status));
   useEffect(() => {
-    const queued = (tasks || []).filter((t) => t.status === "queued");
-    const running = (tasks || []).some((t) => ["running", "waiting_code", "needs_human"].includes(t.status));
-    if (!queued.length || running) return;
-    const oldest = Math.min(...queued.map((t) => Date.parse(t.updated_at)));
-    if (now - oldest < 45_000) return;
-    fetch("/api/agent/wake", { method: "POST" }).catch(() => {});
-  }, [tasks, now]);
+    if (!waiting || busyNow) return;
+    let stop = false;
+    const check = async () => {
+      const d = await fetch("/api/agent/wake").then((r) => r.json()).catch(() => ({ up: false }));
+      if (stop) return;
+      setAgentUp(Boolean(d.up));
+      if (!d.up || !d.running) fetch("/api/agent/wake", { method: "POST" }).catch(() => {});
+    };
+    void check();
+    const i = setInterval(check, 15_000);
+    return () => {
+      stop = true;
+      clearInterval(i);
+    };
+  }, [waiting, busyNow]);
 
   // Poll quickly while the agent is working, slowly otherwise.
   const working = (tasks || []).some((t) => ACTIVE.includes(t.status));
@@ -94,7 +110,16 @@ export default function AgentPage() {
   const week = all.filter((t) => t.status === "submitted" && Date.parse(t.finished_at || t.updated_at) >= now - 7 * 864e5).length;
   const inQueue = all.filter((t) => ACTIVE.includes(t.status)).length;
   const liveNow = all.filter((t) => ["running", "waiting_code", "needs_human"].includes(t.status)).sort((a, b) => Date.parse(b.updated_at) - Date.parse(a.updated_at));
-  const upNext = all.filter((t) => t.status === "queued").sort((a, b) => Date.parse(a.created_at) - Date.parse(b.created_at));
+  // Same order the agent takes them in: "Apply now" jobs first, then oldest first.
+  const upNext = all.filter((t) => t.status === "queued").sort((a, b) => (a.priority ?? 5) - (b.priority ?? 5) || Date.parse(a.created_at) - Date.parse(b.created_at));
+  // How long one application takes, from this user's own finished runs (3 min until there's data).
+  const perJob = (() => {
+    const d = all.filter((t) => t.status === "submitted" && t.started_at && t.finished_at).map((t) => Date.parse(t.finished_at!) - Date.parse(t.started_at!)).filter((x) => x > 30_000 && x < 20 * 60_000);
+    return d.length ? Math.max(1.5, Math.min(8, d.reduce((a, b) => a + b, 0) / d.length / 60_000)) : 3;
+  })();
+  const etaMin = (i: number) => Math.round((liveNow.length ? perJob * 0.5 : agentUp ? 0.5 : 1) + i * (perJob + 0.15));
+  const stuckFor = upNext.length && !liveNow.length ? now - Math.min(...upNext.map((t) => Date.parse(t.updated_at))) : 0;
+  const retryable = all.filter((t) => ["cancelled", "failed"].includes(t.status));
   const queuePos = new Map(upNext.map((t, i) => [t.id, i + 1]));
   const roleTitle = (t: AgentTask) => roles.find((r) => r.id === t.job.role_id)?.title || null;
   const byRole = roles.filter((r) => r.active).map((r) => {
@@ -214,26 +239,44 @@ export default function AgentPage() {
                 {liveNow.length > 1 && <p className="mt-2 text-xs text-muted">+{liveNow.length - 1} more in progress</p>}
               </div>
             );
-          })() : (
+          })() : upNext.length ? (
+            <div className="p-5">
+              <p className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-brand"><Loader2 size={13} className="animate-spin" /> {agentUp ? "Starting the next application" : "Waking up your agent"}</p>
+              <p className="mt-2 text-lg font-bold">{upNext[0].job.title} <span className="font-medium text-muted">at {upNext[0].job.company}</span></p>
+              <p className="mt-1 text-sm text-muted">
+                {agentUp
+                  ? "Your agent is opening the job now. It tailors the resume, fills the form on the official site and submits."
+                  : "Your agent's browser sleeps when there's nothing to do and takes about a minute to start. Nothing for you to do — it begins automatically."}
+              </p>
+              <div className="mt-4 flex flex-wrap items-center gap-3 text-xs text-muted">
+                <span className="rounded-full bg-canvas px-2.5 py-1 font-semibold text-ink-2">{upNext.length} in line · about {Math.max(1, Math.round(upNext.length * perJob))} min for all</span>
+                <span>Waiting {Math.max(0, Math.round(stuckFor / 60_000))} min</span>
+                {stuckFor > 4 * 60_000 && (
+                  <button className="btn-secondary min-h-8 text-xs" onClick={async () => { setToast("Starting your agent…"); await fetch("/api/agent/wake", { method: "POST" }).catch(() => null); load(); }}><RotateCcw size={13} /> Taking long — start now</button>
+                )}
+              </div>
+            </div>
+          ) : (
             <div className="p-5">
               <p className="text-xs font-bold uppercase tracking-wider text-muted">Right now</p>
-              <p className="mt-2 text-lg font-bold">{needs.length && !upNext.length ? `${needs.length} application${needs.length > 1 ? "s are" : " is"} paused for you` : upNext.length ? `${upNext.length} job${upNext.length > 1 ? "s" : ""} waiting — starting shortly` : profile?.agent_enabled ? "Looking for your next best matches" : "Your agent is ready"}</p>
-              <p className="mt-1 text-sm text-muted">{needs.length && !upNext.length ? "Everything else is filled in. Answer below and your agent finishes and submits them right away." : upNext.length ? "Applications run one at a time, at a human pace." : profile?.agent_enabled ? "Auto-apply checks for new matching jobs every few minutes and applies to the best ones." : "Paste a job link above, or switch on Auto-apply."}</p>
+              <p className="mt-2 text-lg font-bold">{needs.length ? `${needs.length} application${needs.length > 1 ? "s are" : " is"} paused for you` : profile?.agent_enabled ? "Looking for your next best matches" : "Nothing in line"}</p>
+              <p className="mt-1 text-sm text-muted">{needs.length ? "Everything else is filled in. Answer below and your agent finishes and submits them right away." : profile?.agent_enabled ? "Auto-apply checks for new matching jobs every few minutes and lines up the best ones here." : retryable.length ? `Paste a job link above, switch on Auto-apply, or put your ${retryable.length} cancelled job${retryable.length > 1 ? "s" : ""} back in line below.` : "Paste a job link above, or switch on Auto-apply."}</p>
               {needs.length > 0 && <a href="#needs-you" className="btn-pink mt-3 min-h-9 text-[13px]">Answer now</a>}
             </div>
           )}
           {upNext.length > 0 && (
             <div className="border-t border-line bg-canvas/50 px-5 py-3">
-              <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted">Up next</p>
+              <p className="mb-2 flex items-center justify-between text-xs font-semibold uppercase tracking-wide text-muted"><span>Up next · one at a time</span><span className="normal-case tracking-normal">~{Math.round(perJob)} min each</span></p>
               <ol className="space-y-1.5">
-                {upNext.slice(0, 4).map((t, i) => (
+                {upNext.slice(0, 5).map((t, i) => (
                   <li key={t.id} className="flex items-center gap-2 text-sm">
                     <span className="w-5 text-xs font-bold text-subtle">#{i + 1}</span>
-                    <span className="min-w-0 flex-1 truncate"><span className="font-medium">{t.job.title}</span> <span className="text-muted">· {t.job.company}</span></span>
-                    {roleTitle(t) && <span className="chip hidden bg-white text-ink-2 sm:inline-flex">{roleTitle(t)}</span>}
+                    <span className="min-w-0 flex-1 truncate"><span className="font-medium">{t.job.title}</span> <span className="text-muted">· {t.job.company}</span>{roleTitle(t) && <span className="text-subtle"> · {roleTitle(t)}</span>}</span>
+                    <span className="shrink-0 text-xs text-muted">{i === 0 && !liveNow.length ? "starting" : `~${etaMin(i)} min`}</span>
+                    {i > 0 && <button className="shrink-0 rounded-md px-2 py-1 text-xs font-semibold text-brand-ink hover:bg-brand-tint" onClick={async () => { const r = await patch(t.id, { action: "apply_now" }); setToast(r.ok ? `${t.job.company} moved to the front.` : r.error || "Couldn't move it."); load(); }}>Apply next</button>}
                   </li>
                 ))}
-                {upNext.length > 4 && <li className="pl-7 text-xs text-muted">+{upNext.length - 4} more</li>}
+                {upNext.length > 5 && <li className="pl-7 text-xs text-muted">+{upNext.length - 5} more · all done in about {Math.round(upNext.length * perJob)} min</li>}
               </ol>
             </div>
           )}
@@ -296,8 +339,24 @@ export default function AgentPage() {
             <p className="mt-1 text-sm text-muted">Paste a job link above, or open <Link href="/app/jobs" className="font-semibold text-brand-ink">Live jobs</Link> and press “Apply with agent”.</p>
           </div>
         )}
+        {retryable.length > 0 && (filter === "all" || filter === "problems") && (
+          <div className="card mb-3 flex flex-wrap items-center gap-3 border-brand/20 bg-brand-tint/40 p-4">
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-semibold">{retryable.length} job{retryable.length > 1 ? "s were" : " was"} cancelled or couldn&apos;t finish</p>
+              <p className="text-xs text-muted">Put them back in line and your agent applies to them one by one, each with a freshly tailored resume (within your daily limit).</p>
+            </div>
+            <button className="btn-primary min-h-9 text-[13px]" disabled={busy} onClick={async () => {
+              setBusy(true);
+              const r = await fetch("/api/agent/tasks/requeue", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" }).catch(() => null);
+              const d = r ? await r.json().catch(() => ({})) : { error: "Network error" };
+              setBusy(false);
+              setToast(r?.ok ? (d.queued ? `${d.queued} job${d.queued > 1 ? "s" : ""} back in line — your agent is starting.${d.capped ? " The rest wait for tomorrow's limit." : ""}` : "Nothing to re-apply.") : d.error || "Couldn't re-apply.");
+              load();
+            }}><RotateCcw size={15} /> Apply to all again</button>
+          </div>
+        )}
         <ul className="space-y-2">
-          {shown.map((t) => <TaskRow key={t.id} t={t} role={roleTitle(t)} pos={queuePos.get(t.id)} onChange={load} />)}
+          {shown.map((t) => <TaskRow key={t.id} t={t} role={roleTitle(t)} pos={queuePos.get(t.id)} stage={stages.get(t.id)} onChange={load} />)}
         </ul>
       </section>
       <Toast message={toast} onClose={() => setToast(null)} />
@@ -564,7 +623,18 @@ function NeedCard({ t, hasMailbox, consent, onDone }: { t: AgentTask; hasMailbox
   );
 }
 
-function TaskRow({ t, role, pos, onChange }: { t: AgentTask; role: string | null; pos?: number; onChange: () => void }) {
+/** Where a submitted application stands with the company — from their emails, never guessed. */
+const STAGE: Record<string, { label: string; tone: "green" | "red" | "orange" | "blue" | "pink" | "gray" }> = {
+  applied: { label: "Applied · waiting to hear", tone: "blue" },
+  in_review: { label: "Under review", tone: "gray" },
+  assessment: { label: "Assessment", tone: "orange" },
+  interview: { label: "Interview", tone: "pink" },
+  offer: { label: "Offer", tone: "green" },
+  rejected: { label: "Not selected", tone: "gray" },
+  withdrawn: { label: "Withdrawn", tone: "gray" },
+};
+
+function TaskRow({ t, role, pos, stage, onChange }: { t: AgentTask; role: string | null; pos?: number; stage?: string; onChange: () => void }) {
   const [open, setOpen] = useState(false);
   const [proof, setProof] = useState<string | null>(null);
   const meta = STATUS_META[t.status] || { label: t.status, tone: "gray" as const };
@@ -583,7 +653,7 @@ function TaskRow({ t, role, pos, onChange }: { t: AgentTask; role: string | null
           <span className="block truncate text-xs text-muted">{t.job.company}{role ? ` · ${role}` : ""} · {statusLine(t, pos)}</span>
         </span>
         <span className="hidden text-xs text-muted sm:block">{timeAgo(t.updated_at)}</span>
-        <Badge tone={meta.tone}>{meta.label}</Badge>
+        {t.status === "submitted" && stage && STAGE[stage] ? <Badge tone={STAGE[stage].tone}>{STAGE[stage].label}</Badge> : <Badge tone={meta.tone}>{meta.label}</Badge>}
         <ChevronDown size={16} className={`text-subtle transition ${open ? "rotate-180" : ""}`} />
       </button>
       {open && (
@@ -603,7 +673,8 @@ function TaskRow({ t, role, pos, onChange }: { t: AgentTask; role: string | null
                     {current.slice(-14).map((l, i) => (
                       <li key={i} className="relative"><span className="absolute -left-[21px] top-1.5 h-2 w-2 rounded-full bg-brand" />{l.text} <span className="text-xs text-muted">· {timeAgo(l.at)}</span></li>
                     ))}
-                    {t.status === "queued" && <li className="relative font-medium"><span className="absolute -left-[21px] top-1.5 h-2 w-2 animate-pulse rounded-full bg-brand" />{statusLine(t)} — it starts by itself, usually within a minute.</li>}
+                    {t.status === "queued" && <li className="relative font-medium"><span className="absolute -left-[21px] top-1.5 h-2 w-2 animate-pulse rounded-full bg-brand" />{pos && pos > 1 ? `#${pos} in line — your agent applies one job at a time and starts this one automatically when its turn comes.` : "Next in line — starting automatically."}</li>}
+                    {t.status === "cancelled" && <li className="relative text-muted"><span className="absolute -left-[21px] top-1.5 h-2 w-2 rounded-full bg-line-2" />Cancelled{t.finished_at ? ` ${timeAgo(t.finished_at)}` : ""}. Nothing was sent to {t.job.company}. Press “Apply again” to put it back in line.</li>}
                     {t.status === "submitted" && <li className="relative font-semibold text-green-ink"><span className="absolute -left-[21px] top-1.5 h-2 w-2 rounded-full bg-green" />Submitted on {t.job.company}&apos;s site. The confirmation page is saved as proof, and their email will appear in your Inbox.</li>}
                     {!log.length && t.status !== "queued" && <li className="text-muted">Waiting to start.</li>}
                   </ol>
@@ -617,10 +688,11 @@ function TaskRow({ t, role, pos, onChange }: { t: AgentTask; role: string | null
               );
             })()}
             <div className="mt-4 flex flex-wrap gap-2">
-              {t.resume_id && <a className="btn-secondary min-h-9 text-xs" href={`/api/resume/${t.resume_id}/pdf?inline=1`} target="_blank" rel="noopener noreferrer"><FileText size={14} /> Resume sent</a>}
+              {t.status === "queued" && <button className="btn-primary min-h-9 text-xs" onClick={async () => { await patch(t.id, { action: "apply_now" }); onChange(); }}><Sparkles size={14} /> Apply now</button>}
+              {["failed", "cancelled"].includes(t.status) && <button className="btn-primary min-h-9 text-xs" onClick={async () => { await patch(t.id, { action: "apply_now" }); onChange(); }}><RotateCcw size={13} /> Apply again</button>}
+              {t.resume_id && <a className="btn-secondary min-h-9 text-xs" href={`/api/resume/${t.resume_id}/pdf?inline=1`} target="_blank" rel="noopener noreferrer"><FileText size={14} /> {t.status === "submitted" ? "Resume sent" : "Tailored resume"}</a>}
               {t.resume_id && t.cover_letter && <a className="btn-secondary min-h-9 text-xs" href={`/api/resume/${t.resume_id}/pdf?kind=cover&inline=1`} target="_blank" rel="noopener noreferrer">Cover letter</a>}
               <a className="btn-ghost min-h-9 text-xs" href={t.job.url || t.apply_url} target="_blank" rel="noopener noreferrer">Job posting <ExternalLink size={13} /></a>
-              {["failed", "cancelled"].includes(t.status) && <button className="btn-ghost min-h-9 text-xs" onClick={async () => { await patch(t.id, { action: "retry" }); onChange(); }}><RotateCcw size={13} /> Retry</button>}
               {["queued", "awaiting_approval"].includes(t.status) && <button className="btn-ghost min-h-9 text-xs" onClick={async () => { await patch(t.id, { action: "cancel" }); onChange(); }}>Cancel</button>}
               {t.application_id && <Link className="btn-ghost min-h-9 text-xs" href="/app/applications">Track it <ArrowRight size={13} /></Link>}
             </div>

@@ -3,7 +3,7 @@ import type { LetterTone, ResumeStyle } from "@/lib/types";
 export type ArmStats = Record<string, { sent: number; interviews: number }>;
 
 const WIN = new Set(["interview", "offer"]);
-const SENT = new Set(["applied", "in_review", "interview", "offer", "rejected"]);
+const SENT = new Set(["applied", "in_review", "assessment", "interview", "offer", "rejected"]);
 
 export function styleStats(apps: { status: string; resume_style: string | null; letter_tone: string | null }[]) {
   const styles: ArmStats = {};

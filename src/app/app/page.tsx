@@ -33,7 +33,7 @@ export default function Dashboard() {
   const [now] = useState(() => Date.now());
   const weekAgo = now - 7 * 864e5;
   const appliedWeek = apps.filter((a) => a.applied_at && Date.parse(a.applied_at) > weekAgo).length;
-  const replies = apps.filter((a) => ["in_review", "interview", "offer", "rejected"].includes(a.status)).length;
+  const replies = apps.filter((a) => ["in_review", "assessment", "interview", "offer", "rejected"].includes(a.status)).length;
   const interviews = apps.filter((a) => a.status === "interview").length;
   const toApply = apps.filter((a) => ["saved", "ready"].includes(a.status)).length;
 

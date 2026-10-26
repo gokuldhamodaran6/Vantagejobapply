@@ -15,11 +15,12 @@ const KIND: Record<string, { label: string; tone: "green" | "red" | "orange" | "
   offer: { label: "Offer", tone: "green" },
   assessment: { label: "Assessment", tone: "orange" },
   received: { label: "Application received", tone: "green" },
+  in_review: { label: "Under review", tone: "gray" },
   rejection: { label: "Not moving forward", tone: "red" },
   verification: { label: "Verification", tone: "blue" },
   other: { label: "Other", tone: "gray" },
 };
-const TABS = [["all", "All"], ["interview", "Interviews"], ["received", "Confirmations"], ["verification", "Codes"], ["rejection", "Rejections"]] as const;
+const TABS = [["all", "All"], ["interview", "Interviews"], ["assessment", "Assessments"], ["received", "Confirmations"], ["verification", "Codes"], ["rejection", "Rejections"]] as const;
 
 export default function InboxPage() {
   const { userId } = useMe();

@@ -22,18 +22,19 @@ const STATUS: Record<AppStatus, { label: string; cls: string; dot: string }> = {
   saved: { label: "Saved", cls: "bg-[#eef0f4] text-ink-2", dot: "#a3a9b6" },
   ready: { label: "Ready to apply", cls: "bg-orange-tint text-orange-ink", dot: "#f7862b" },
   applied: { label: "Applied", cls: "bg-brand-tint text-brand-ink", dot: "#2f5beb" },
-  in_review: { label: "In review", cls: "bg-[#eef0f4] text-ink-2", dot: "#7c8aa5" },
+  in_review: { label: "Under review", cls: "bg-[#eef0f4] text-ink-2", dot: "#7c8aa5" },
+  assessment: { label: "Assessment", cls: "bg-[#fff4e5] text-orange-ink", dot: "#e8930c" },
   interview: { label: "Interview", cls: "bg-pink-tint text-pink-ink", dot: "#e0457b" },
   offer: { label: "Offer", cls: "bg-green-tint text-green-ink", dot: "#22a05b" },
   rejected: { label: "Not selected", cls: "bg-[#eef0f4] text-subtle", dot: "#c3c8d3" },
   withdrawn: { label: "Withdrawn", cls: "bg-[#eef0f4] text-subtle", dot: "#c3c8d3" },
 };
 const STAGES: { key: AppStatus; label: string }[] = [
-  { key: "applied", label: "Applied" }, { key: "in_review", label: "Heard back" }, { key: "interview", label: "Interview" }, { key: "offer", label: "Offer" },
+  { key: "applied", label: "Applied" }, { key: "in_review", label: "Under review" }, { key: "assessment", label: "Assessment" }, { key: "interview", label: "Interview" }, { key: "offer", label: "Offer" },
 ];
-const STAGE_INDEX: Record<AppStatus, number> = { saved: -1, ready: -1, applied: 0, in_review: 1, interview: 2, offer: 3, rejected: 1, withdrawn: 0 };
+const STAGE_INDEX: Record<AppStatus, number> = { saved: -1, ready: -1, applied: 0, in_review: 1, assessment: 2, interview: 3, offer: 4, rejected: 1, withdrawn: 0 };
 const COLUMNS: { ids: AppStatus[]; title: string; dot: string }[] = [
-  { ids: ["saved", "ready"], title: "To apply", dot: "#f7862b" }, { ids: ["applied"], title: "Applied", dot: "#2f5beb" }, { ids: ["in_review"], title: "Heard back", dot: "#7c8aa5" },
+  { ids: ["saved", "ready"], title: "To apply", dot: "#f7862b" }, { ids: ["applied"], title: "Applied", dot: "#2f5beb" }, { ids: ["in_review"], title: "Under review", dot: "#7c8aa5" }, { ids: ["assessment"], title: "Assessment", dot: "#e8930c" },
   { ids: ["interview"], title: "Interview", dot: "#e0457b" }, { ids: ["offer"], title: "Offer", dot: "#22a05b" }, { ids: ["rejected", "withdrawn"], title: "Closed", dot: "#a3a9b6" },
 ];
 const RANGE_DAYS: Record<Range, number> = { today: 1, week: 7, month: 30, all: 0 };
@@ -85,7 +86,7 @@ export default function ApplicationsPage() {
   const inRange = useMemo(() => (apps || []).filter((a) => sentAt(a) >= since), [apps, since]);
   const prevRange = useMemo(() => (days ? (apps || []).filter((a) => sentAt(a) >= since - days * 864e5 && sentAt(a) < since) : []), [apps, since, days]);
   const sent = (l: App[]) => l.filter((a) => !["saved", "ready"].includes(a.status));
-  const heard = (l: App[]) => l.filter((a) => ["in_review", "interview", "offer", "rejected"].includes(a.status));
+  const heard = (l: App[]) => l.filter((a) => ["in_review", "assessment", "interview", "offer", "rejected"].includes(a.status));
   const intv = (l: App[]) => l.filter((a) => ["interview", "offer"].includes(a.status));
   const offers = (l: App[]) => l.filter((a) => a.status === "offer");
 
@@ -93,7 +94,7 @@ export default function ApplicationsPage() {
     const needle = q.trim().toLowerCase();
     return inRange.filter((a) => {
       if (needle && !`${a.job.company} ${a.job.title} ${a.job.location || ""}`.toLowerCase().includes(needle)) return false;
-      if (status === "active") return ["applied", "in_review", "interview"].includes(a.status);
+      if (status === "active") return ["applied", "in_review", "assessment", "interview"].includes(a.status);
       if (status === "interviewing") return a.status === "interview";
       if (status === "offers") return a.status === "offer";
       if (status === "closed") return ["rejected", "withdrawn"].includes(a.status);
@@ -315,13 +316,15 @@ function dayLabel(t: number, now: number) {
   return new Date(t).toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" });
 }
 
+const stageColor = (k: AppStatus) => (k === "offer" ? "bg-green" : k === "interview" ? "bg-pink" : k === "assessment" ? "bg-[#e8930c]" : "bg-brand");
+
 function Progress({ s }: { s: AppStatus }) {
   const idx = STAGE_INDEX[s];
   const closed = s === "rejected" || s === "withdrawn";
   return (
     <div className="flex items-center gap-1" aria-label={`Stage: ${STATUS[s].label}`}>
       {STAGES.map((st, i) => (
-        <span key={st.key} title={st.label} className={`h-1.5 w-6 rounded-full ${i <= idx ? (closed ? "bg-[#c3c8d3]" : i === 3 ? "bg-green" : i === 2 ? "bg-pink" : "bg-brand") : "bg-line-2"}`} />
+        <span key={st.key} title={st.label} className={`h-1.5 w-6 rounded-full ${i <= idx ? (closed ? "bg-[#c3c8d3]" : stageColor(st.key)) : "bg-line-2"}`} />
       ))}
     </div>
   );
@@ -390,7 +393,7 @@ function Detail({ a, resume, roleName, onClose, onMove, onSaved }: { a: App; res
 
   const stageAt = (k: AppStatus) => {
     if (k === "applied") return a.applied_at;
-    const types: Record<string, string[]> = { in_review: ["in_review", "assessment", "received", "rejection"], interview: ["interview", "interview_scheduled"], offer: ["offer"] };
+    const types: Record<string, string[]> = { in_review: ["in_review", "received", "rejection"], assessment: ["assessment"], interview: ["interview", "interview_scheduled"], offer: ["offer"] };
     return (a.events || []).find((e) => types[k]?.includes(e.type))?.at || null;
   };
   const timeline = [
@@ -424,14 +427,15 @@ function Detail({ a, resume, roleName, onClose, onMove, onSaved }: { a: App; res
         <div className="space-y-6 p-5">
           {/* Stage tracker */}
           <div>
-            <div className="grid grid-cols-4 gap-2">
+            <div className="grid grid-cols-5 gap-2">
               {STAGES.map((st, i) => {
                 const done = i <= idx && !["rejected", "withdrawn"].includes(a.status);
                 const at = stageAt(st.key);
                 return (
                   <div key={st.key} className="text-center">
-                    <div className={`mx-auto h-1.5 rounded-full ${done ? (i === 3 ? "bg-green" : i === 2 ? "bg-pink" : "bg-brand") : "bg-line-2"}`} />
+                    <div className={`mx-auto h-1.5 rounded-full ${done ? stageColor(st.key) : "bg-line-2"}`} />
                     <p className={`mt-2 text-xs font-semibold ${done ? "text-ink" : "text-subtle"}`}>{st.label}</p>
+                    {st.key === "assessment" && done && !at && <p className="text-[11px] text-subtle">skipped</p>}
                     <p className="text-[11px] text-muted">{at && done ? new Date(at).toLocaleDateString(undefined, { month: "short", day: "numeric" }) : ""}</p>
                   </div>
                 );

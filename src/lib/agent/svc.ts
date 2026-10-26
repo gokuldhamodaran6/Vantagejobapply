@@ -23,22 +23,39 @@ export function agentSecretOk(req: Request) {
 }
 
 /**
- * Wake the browser worker (on the free plan it sleeps when idle) and ask it to work through the queue.
- * A GET wakes a sleeping instance; the POST then starts the queue. Retries a few times while it boots.
+ * Start the browser worker and ask it to work through the queue. Free instances sleep when idle and need
+ * ~50s to boot, so the first request is held open long enough for a cold start (short requests just get a 502).
  */
 export async function wakeWorker(): Promise<boolean> {
   const url = process.env.WORKER_URL?.replace(/\/$/, "");
   if (!url || !process.env.AGENT_SECRET) return false;
-  for (let i = 0; i < 4; i++) {
+  const started = Date.now();
+  while (Date.now() - started < 100_000) {
     try {
-      await fetch(`${url}/health`, { signal: AbortSignal.timeout(20_000) }).catch(() => null);
-      const r = await fetch(`${url}/tick`, { method: "POST", headers: { "x-agent-secret": process.env.AGENT_SECRET }, signal: AbortSignal.timeout(15_000) });
-      if (r.ok) return true;
+      const h = await fetch(`${url}/health`, { signal: AbortSignal.timeout(90_000), cache: "no-store" });
+      if (h.ok) {
+        const r = await fetch(`${url}/tick`, { method: "POST", headers: { "x-agent-secret": process.env.AGENT_SECRET }, signal: AbortSignal.timeout(15_000) });
+        if (r.ok) return true;
+      }
     } catch {
-      /* booting */
+      /* still booting */
     }
-    await new Promise((r) => setTimeout(r, 4000 * (i + 1)));
+    await new Promise((r) => setTimeout(r, 3000));
   }
   console.error("worker did not wake");
   return false;
+}
+
+/** Is the worker up right now, and what is it doing? (Never wakes it.) */
+export async function workerState(): Promise<{ up: boolean; running?: boolean; current?: { company?: string } | null }> {
+  const url = process.env.WORKER_URL?.replace(/\/$/, "");
+  if (!url) return { up: false };
+  try {
+    const r = await fetch(`${url}/health`, { signal: AbortSignal.timeout(2500), cache: "no-store" });
+    if (!r.ok) return { up: false };
+    const d = await r.json().catch(() => ({}));
+    return { up: true, running: Boolean(d.running), current: d.current || null };
+  } catch {
+    return { up: false };
+  }
 }

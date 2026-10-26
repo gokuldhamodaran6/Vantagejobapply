@@ -43,7 +43,7 @@ export default function InterviewsPage() {
     const s = supabaseBrowser();
     const [iv, ap, mail] = await Promise.all([
       s.from("interviews").select("*").order("starts_at"),
-      s.from("applications").select("id,job,status,events,updated_at").in("status", ["applied", "in_review", "interview", "offer"]).order("updated_at", { ascending: false }).limit(500),
+      s.from("applications").select("id,job,status,events,updated_at").in("status", ["applied", "in_review", "assessment", "interview", "offer"]).order("updated_at", { ascending: false }).limit(500),
       s.from("inbox_messages").select("id,subject,from_name,company,received_at,application_id,event").eq("kind", "interview").not("event", "is", null).order("received_at", { ascending: false }).limit(30),
     ]);
     const list = (iv.data as Interview[]) || [];

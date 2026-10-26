@@ -24,6 +24,12 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       await set({ status: "queued", error: null, needs: [], locked_at: null });
       void wakeWorker();
       return json({ ok: true });
+    case "apply_now": {
+      const { data: ok, error } = await ctx.supabase.rpc("apply_now", { p_task: id });
+      if (error || !ok) return json({ error: error?.message || "This job can't be moved right now." }, 400);
+      void wakeWorker();
+      return json({ ok: true });
+    }
     case "cancel":
       await set({ status: "cancelled", finished_at: new Date().toISOString() });
       return json({ ok: true });

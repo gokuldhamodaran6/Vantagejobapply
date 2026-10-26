@@ -2,6 +2,8 @@ import "server-only";
 import { ImapFlow } from "imapflow";
 import { simpleParser } from "mailparser";
 import { extractCode } from "./mail-code";
+import { classifyMail } from "./mail-classify";
+import { cleanCompany } from "./company";
 import { parseEventText, parseIcs, type MailEvent } from "@/lib/mail-event";
 
 export const MAIL_PROVIDERS: Record<string, { label: string; host: string; port: number; help: string }> = {
@@ -24,6 +26,8 @@ export type ParsedMail = {
   body: string;
   received_at: string;
   kind: string;
+  /** false when the wording suggests a stage but doesn't settle it (confirmed with AI before acting) */
+  sure?: boolean;
   code: string | null;
   link: string | null;
   company: string | null;
@@ -86,7 +90,11 @@ export async function fetchNew(acct: MailAccount, password: string, opts: { days
           // Interview time: a calendar invite beats anything we read from the text.
           const ics = (p.attachments || []).find((a) => /text\/calendar|application\/ics/i.test(a.contentType || "") || /\.ics$/i.test(a.filename || ""));
           let event: MailEvent | null = ics ? parseIcs(ics.content.toString("utf8")) : null;
-          if (event && c2.kind === "other" && /interview|call|chat|screen|meet|conversation/i.test(`${subject} ${event.title || ""}`)) c2.kind = "interview";
+          if (event && ["other", "received", "in_review"].includes(c2.kind) && /interview|call|chat|screen|meet|conversation/i.test(`${subject} ${event.title || ""}`)) {
+            // A real calendar invite for a call is the strongest interview signal there is.
+            c2.kind = "interview";
+            c2.sure = true;
+          }
           if (!event && c2.kind === "interview") event = parseEventText(`${subject}\n${text}`, p.date || new Date());
           out.push({
             msg_id: (p.messageId || `${box}:${m.uid}`).slice(0, 300),
@@ -119,18 +127,8 @@ function htmlToText(html: string) {
 const ATS_SENDERS = /(greenhouse|lever|ashbyhq|myworkday|workday|icims|taleo|successfactors|smartrecruiters|workable|recruitee|jobvite|bamboohr|breezy|jazzhr|oracle|avature|eightfold|phenom|gem\.com|rippling)/i;
 
 /** Decide what an email is and pull out any verification code or link. */
-export function classify(fromAddr: string, fromName: string, subject: string, text: string, html: string): { kind: string; code: string | null; link: string | null; company: string | null } {
-  const s = `${subject}\n${text}`.toLowerCase();
-  // Google's own account notices (security alerts, 2-Step Verification) are not job mail and carry no code for us.
-  if (/@accounts\.google\.com$|@google\.com$/i.test(fromAddr.trim())) return { kind: "other", code: null, link: null, company: guessCompany(fromAddr, fromName, subject) };
-  let kind = "other";
-  if (/verif|confirm your (email|account)|activate your account|one[- ]time|passcode|security code|sign[- ]in code|login code|otp|validate your email/.test(s)) kind = "verification";
-  else if (/interview|schedule (a|your) (call|chat|time)|availability|calendly|goodtime|book a time|phone screen|next steps/.test(s) && !/unfortunately/.test(s)) kind = "interview";
-  else if (/assessment|coding challenge|hackerrank|codility|codesignal|take-home|online test|hirevue/.test(s)) kind = "assessment";
-  else if (/unfortunately|not (be )?moving forward|other candidates|not selected|decided to pursue|regret to inform|position has been filled|will not be proceeding/.test(s)) kind = "rejection";
-  else if (/offer letter|pleased to offer|extend (you )?an offer/.test(s)) kind = "offer";
-  else if (/thank you for (applying|your application|your interest)|application (has been )?(received|submitted)|we('ve| have) received your application/.test(s)) kind = "received";
-
+export function classify(fromAddr: string, fromName: string, subject: string, text: string, html: string): { kind: string; sure: boolean; code: string | null; link: string | null; company: string | null } {
+  const { kind, sure } = classifyMail(fromAddr, subject, text || html.replace(/<[^>]+>/g, " "));
   const code = kind === "verification" ? extractCode(text || html.replace(/<[^>]+>/g, " ")) : null;
   let link: string | null = null;
   if (kind === "verification") {
@@ -139,7 +137,7 @@ export function classify(fromAddr: string, fromName: string, subject: string, te
     link = urls.find((u) => /verif|confirm|activate|validate|token|auth|magic|login|signin|sign-in|password/i.test(u) && !/unsubscribe|privacy|help|support/i.test(u)) || null;
   }
   const company = guessCompany(fromAddr, fromName, subject);
-  return { kind, code, link, company };
+  return { kind, sure, code, link, company };
 }
 
 function guessCompany(addr: string, name: string, subject: string): string | null {
@@ -152,10 +150,19 @@ function guessCompany(addr: string, name: string, subject: string): string | nul
   return null;
 }
 
-export function matchApplication(company: string | null, subject: string, apps: { id: string; company: string; title: string; status: string }[]) {
-  const text = `${company || ""} ${subject}`.toLowerCase();
+/**
+ * Which application an email is about. Company names are compared in their clean form
+ * ("Datadog Careers | Datadog" → "Datadog"), and the job title can appear in the subject or the body.
+ */
+export function matchApplication(company: string | null, text: string, apps: { id: string; company: string; title: string; status: string }[]) {
+  const hay = `${company || ""} ${text}`.toLowerCase();
   const scored = apps
-    .map((a) => ({ a, s: (text.includes(a.company.toLowerCase()) ? 2 : 0) + (text.includes(a.title.toLowerCase()) ? 1 : 0) }))
+    .map((a) => {
+      const co = cleanCompany(a.company).toLowerCase();
+      const hit = co.length > 1 && new RegExp(`\\b${co.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`).test(hay);
+      const title = a.title.toLowerCase().replace(/\s*\(.*?\)\s*/g, " ").trim();
+      return { a, s: (hit ? 2 : 0) + (title && hay.includes(title) ? 1 : 0) + (["applied", "in_review", "assessment", "interview"].includes(a.status) ? 0.5 : 0) };
+    })
     .filter((x) => x.s >= 2)
     .sort((x, y) => y.s - x.s);
   return scored[0]?.a || null;

@@ -19,7 +19,7 @@ const COUNTRY_WORDS: [RegExp, string][] = [
   [/\bnetherlands\b/i, "NL"], [/\bindia\b/i, "IN"],
 ];
 
-const STATUS_TEXT: Record<string, string> = { saved: "saved", ready: "prepared", applied: "waiting on the company", in_review: "in review", interview: "interview stage", offer: "offer", rejected: "closed", withdrawn: "withdrawn" };
+const STATUS_TEXT: Record<string, string> = { saved: "saved", ready: "prepared", applied: "waiting on the company", in_review: "under review", assessment: "assessment (next round)", interview: "interview stage", offer: "offer", rejected: "closed", withdrawn: "withdrawn" };
 
 function splitNames(s: string) {
   return s.split(/,|\band\b|&/i).map((x) => x.replace(/^(the)\s+/i, "").replace(/[.?!]$/, "").trim()).filter((x) => x.length > 1 && x.length < 60);

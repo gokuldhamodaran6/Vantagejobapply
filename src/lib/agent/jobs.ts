@@ -3,6 +3,7 @@ import { boardFromUrl, fetchBoard, fetchDescription, type Board } from "@/lib/jo
 import { analyzeText, stripHtml } from "@/lib/jobs/signals";
 import { detectCountry } from "@/lib/jobs/geo";
 import { isSafePublicUrl, safeFetch } from "@/lib/net";
+import { cleanCompany } from "@/lib/company";
 import type { Job } from "@/lib/types";
 
 export type ApplyTarget = { ats: string; url: string; host: string };
@@ -141,8 +142,4 @@ function decodeEntities(s: string) {
   return s.replace(/&amp;/g, "&").replace(/&#39;|&apos;/g, "'").replace(/&quot;/g, '"').replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/\s+[|–-]\s+.*careers.*$/i, "");
 }
 
-/** "Datadog Careers | Datadog" → "Datadog"; "Careers at Acme" → "Acme". */
-export function cleanCompany(name: string) {
-  const parts = name.split(/\s[|·–—-]\s/).map((x) => x.replace(/\b(careers?|jobs?|job board|work with us|join us)\b/gi, "").replace(/^\s*(at|@)\s+/i, "").trim()).filter(Boolean);
-  return (parts.sort((a, b) => a.length - b.length)[0] || name).trim();
-}
+export { cleanCompany } from "@/lib/company";

@@ -91,6 +91,7 @@ export type AppStatus =
   | "ready"
   | "applied"
   | "in_review"
+  | "assessment"
   | "interview"
   | "offer"
   | "rejected"

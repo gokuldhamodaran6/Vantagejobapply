@@ -1,3 +1,4 @@
+import { classifyMail, nextStatus } from "../src/lib/mail-classify";
 import { extractCode } from "../src/lib/mail-code";
 // Quick sanity checks for the eligibility engine. Run: npx tsx scripts/selftest.ts
 import { matchJob } from "../src/lib/jobs/match";
@@ -135,6 +136,20 @@ async function plannerChecks() {
   ok(extractCode("Copy and paste this code into the field: After that, Resubmit") === null, "never mistakes words for codes");
   ok(extractCode("Your verification code is 482913. It expires in 10 minutes.") === "482913" && extractCode("Use code: 7741 to sign in") === "7741", "reads numeric codes");
   ok(extractCode("2-Step Verification turned on. Your Google Account is now protected") === null, "ignores emails without a code");
+}
+
+// Job emails sorted into the right stage.
+{
+  const k = (subject: string, body: string, from = "no-reply@company.com") => classifyMail(from, subject, body).kind;
+  ok(k("Thank you for applying to Robinhood", "Hi Gokul, Thanks for applying to Robinhood! Your application has been received, and our team is in the process of reviewing it. If your profile is a good fit for the role, we'll be in touch shortly with next steps.") === "received", "a 'thanks for applying… next steps' receipt is not an interview");
+  ok(k("Thank you for applying to Datadog", "Thank you for your interest in Datadog! We wanted to confirm that we have received your application for the Product Operations Manager job. Our recruiting team manually reviews every single candidate's profile, so it may be a couple of weeks before we can get in touch with you regarding the next steps. We will be in touch soon!") === "received", "Datadog's receipt is a receipt");
+  ok(k("Interview invitation – Datadog", "We'd like to schedule a 30-minute call with you. Please pick a time: https://calendly.com/dd/30min") === "interview", "a scheduling invitation is an interview");
+  ok(k("Update on your application", "Thank you for your interest in the role and for taking the time to interview with us. Unfortunately, we have decided to move forward with other candidates.") === "rejection", "a rejection that mentions an interview is a rejection");
+  ok(k("Next step: HackerRank assessment", "Please complete the coding challenge within 5 days.") === "assessment", "an assessment is its own next round");
+  ok(k("Your offer from Stripe", "We are pleased to extend an offer of employment for the role of Product Manager.") === "offer", "offers are recognised");
+  ok(k("Security code for your application to Datadog", "Copy and paste this code into the security code field on your application: O2YJR3FJ") === "verification", "security codes are verification mail");
+  ok(k("New jobs for you", "10 new product manager jobs near Chicago") === "other", "job alerts are not application mail");
+  ok(nextStatus("applied", "received") === "in_review" && nextStatus("interview", "received") === undefined && nextStatus("rejected", "received") === undefined && nextStatus("in_review", "assessment") === "assessment" && nextStatus("interview", "rejection") === "rejected" && nextStatus("offer", "rejection") === undefined, "applications only move forward through the pipeline");
 }
 
 // Network guard.

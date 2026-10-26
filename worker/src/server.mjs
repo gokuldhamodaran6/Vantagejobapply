@@ -66,7 +66,7 @@ const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host}`);
   if (url.pathname === "/health" || url.pathname === "/") {
     res.writeHead(200, { "content-type": "application/json" });
-    return res.end(JSON.stringify({ ok: true }));
+    return res.end(JSON.stringify({ ok: true, running, current: stats.current ? { company: stats.current.company } : null, done: stats.done }));
   }
   if (url.pathname === "/tick" && req.method === "POST") {
     const want = process.env.AGENT_SECRET || "";
