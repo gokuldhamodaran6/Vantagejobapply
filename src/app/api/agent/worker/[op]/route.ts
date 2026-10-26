@@ -1,14 +1,21 @@
 import { agentSecretOk, rpc } from "@/lib/agent/svc";
 import { filesFor, loadBundle } from "@/lib/agent/bundle";
 import { ensureFreshTailoring } from "@/lib/agent/prepare";
-import { planFields, type FormField } from "@/lib/agent/fields";
+import { planFields, qkeyOf, type FormField } from "@/lib/agent/fields";
+import { ingestSecret, supabaseAnon } from "@/lib/supabase/server";
 import { syncAccount } from "@/lib/agent/mailsync";
 import { encryptFor, generatePassword } from "@/lib/vault";
 import type { MailAccount } from "@/lib/mail";
 import { baseDomain, isSafePublicUrl } from "@/lib/net";
 import { hostOf } from "@/lib/agent/bundle";
+import { siteKey } from "@/lib/agent/sites";
 
 export const maxDuration = 120;
+
+function reviewedAnswers(input: Record<string, unknown> | null | undefined) {
+  const r = (input?.reviewed || {}) as Record<string, string>;
+  return Object.entries(r).map(([question, answer]) => ({ qkey: qkeyOf(question), question, answer: String(answer) }));
+}
 
 const j = (d: unknown, status = 200) => new Response(JSON.stringify(d), { status, headers: { "Content-Type": "application/json", "Cache-Control": "no-store" } });
 
@@ -42,13 +49,32 @@ export async function POST(req: Request, { params }: { params: Promise<{ op: str
           if (nb) Object.assign(b, nb);
         }
       }
+      // Adults only, and not yet in Québec.
+      const prof = (b.raw.profile || {}) as { adult_confirmed_at?: string | null; region?: string | null; home_country?: string | null };
+      const app = (b.raw.applicant || {}) as { state?: string | null; country?: string | null };
+      const quebec = prof.region === "QC" || ((prof.home_country === "CA" || /canada/i.test(app.country || "")) && /^(qc|qu[eé]bec)$/i.test(String(app.state || "").trim()));
+      if (!prof.adult_confirmed_at || quebec) {
+        await rpc("update", { task_id: t.id, status: "manual", error: quebec ? "Vantage's agent isn't available in Québec yet." : "Confirm you're 18 or older on the Your agent page, then press Try again." });
+        return j({ task: null, retry: true });
+      }
+      // Kill switch: an employer whose site refused automated access (or asked for no automation) gets no more bot visits.
+      const blocked = await supabaseAnon().rpc("site_blocked", { secret: ingestSecret(), p_key: siteKey(b.target.url) }).then((r) => (r.data as string | null) || null, () => null);
+      if (blocked) {
+        await rpc("update", { task_id: t.id, status: "manual", error: `${b.task.job.company}'s careers site doesn't accept automated applications (${blocked}). Open the job link to apply yourself — the Vantage Chrome extension can fill the form while you press Submit.` });
+        return j({ task: null, retry: true });
+      }
       if (!(await isSafePublicUrl(b.target.url, { httpsOnly: true }))) {
         await rpc("update", { task_id: t.id, status: "failed", error: "This application link isn't a public https page, so your agent won't open it." });
         return j({ task: null });
       }
       const files = await filesFor(b);
+      // The first application on each kind of careers site waits for the person's review before Submit.
+      const reviewFirst = (b.raw.profile as { review_first?: boolean | null } | null)?.review_first !== false;
+      const review = reviewFirst && !b.task.user_input?.review_ok
+        ? await supabaseAnon().rpc("review_needed", { secret: ingestSecret(), p_user: b.task.user_id, p_ats: b.target.ats }).then((r) => r.data !== false, () => true)
+        : false;
       return j({
-        task: { id: b.task.id, ats: b.target.ats, url: b.target.url, host: b.host, job: b.task.job, attempts: b.task.attempts, userInput: b.task.user_input, mode: b.task.mode },
+        task: { id: b.task.id, ats: b.target.ats, url: b.target.url, host: b.host, job: b.task.job, attempts: b.task.attempts, userInput: b.task.user_input, mode: b.task.mode, review, consent: Boolean(b.raw.applicant?.agent_consent) },
         identity: { email: b.identity, name: b.facts.full_name, firstName: b.facts.first_name, lastName: b.facts.last_name, phone: b.facts.phone },
         credential: b.credential,
         hasMailbox: b.hasMailbox,
@@ -62,13 +88,35 @@ export async function POST(req: Request, { params }: { params: Promise<{ op: str
       const consent = Boolean(b.raw.applicant?.agent_consent);
       const out = await planFields(((body.fields as FormField[]) || []).slice(0, 80), {
         facts: b.facts,
-        answers: b.raw.answers,
+        // Answers the person approved in the review step come first, so the submitted form matches what they saw.
+        answers: [...reviewedAnswers(b.task.user_input), ...b.raw.answers],
         job: { title: b.task.job.title, company: b.task.job.company },
         resume: b.resume,
         coverLetter: b.task.cover_letter,
         consent,
       });
       return j(out);
+    }
+
+    if (op === "block") {
+      const key = String(body.key || "").slice(0, 200);
+      if (key) {
+        await supabaseAnon().rpc("block_site", {
+          secret: ingestSecret(), p_key: key, p_reason: String(body.reason || "blocked").slice(0, 40), p_status: Number(body.status || 0),
+          p_detail: `${String(body.url || "").slice(0, 300)} — ${String(body.snippet || "").replace(/\s+/g, " ").slice(0, 300)}`, p_task: taskId || null,
+        });
+      }
+      return j({ ok: true });
+    }
+
+    if (op === "terms") {
+      const b = await loadBundle(taskId);
+      if (!b) return j({ error: "task not found" }, 404);
+      await supabaseAnon().rpc("record_terms", {
+        secret: ingestSecret(), p_user: b.task.user_id, p_task: taskId, p_key: String(body.key || "").slice(0, 200),
+        p_url: String(body.url || "").slice(0, 300), p_items: ((body.items as string[]) || []).slice(0, 10), p_links: ((body.links as unknown[]) || []).slice(0, 8),
+      });
+      return j({ ok: true });
     }
 
     if (op === "update") {

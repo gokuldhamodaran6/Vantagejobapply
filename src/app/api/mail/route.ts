@@ -50,5 +50,7 @@ export async function DELETE() {
   const ctx = await loadUserContext();
   if (!ctx) return json({ error: "Log in first." }, 401);
   await ctx.supabase.from("mail_accounts").delete().eq("user_id", ctx.user.id);
+  // Disconnecting also forgets the job emails Vantage had stored from that mailbox.
+  await ctx.supabase.rpc("forget_my_mail").then(() => {}, () => {});
   return json({ ok: true });
 }

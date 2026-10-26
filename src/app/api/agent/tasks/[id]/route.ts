@@ -19,7 +19,16 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   };
 
   switch (body.action) {
-    case "approve":
+    case "approve": {
+      // Approving a reviewed form: submit exactly what the person saw.
+      const review = ((task.needs as Need[]) || []).filter((n) => n.type === "review");
+      const input = review.length
+        ? { ...(task.user_input || {}), review_ok: true, reviewed: Object.fromEntries(review.map((n) => [n.label, String((n as Need & { value?: string }).value || "")])) }
+        : task.user_input;
+      await set({ status: "queued", error: null, needs: [], locked_at: null, user_input: input });
+      void wakeWorker();
+      return json({ ok: true });
+    }
     case "retry":
       await set({ status: "queued", error: null, needs: [], locked_at: null });
       void wakeWorker();

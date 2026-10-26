@@ -255,10 +255,12 @@
     const steps = (state.steps || []).map((s) => `<li class="${s.state}"><span class="dot"></span><span>${esc(s.text)}</span></li>`).join("");
     const qs = (state.missing || []).map((m, i) => {
       const id = `q${i}`;
+      const sel = (o) => (m.suggest && o === m.suggest ? " selected" : "");
       const input = m.options?.length
-        ? `<select id="${id}"><option value="">Choose…</option>${m.options.map((o) => `<option>${esc(o)}</option>`).join("")}</select>`
-        : m.type === "textarea" || m.label.length > 90 ? `<textarea id="${id}"></textarea>` : `<input id="${id}" />`;
-      return `<div class="q"><label for="${id}">${esc(m.label)}</label>${input}</div>`;
+        ? `<select id="${id}"><option value="">Choose…</option>${m.options.map((o) => `<option${sel(o)}>${esc(o)}</option>`).join("")}</select>`
+        : m.type === "textarea" || m.label.length > 90 ? `<textarea id="${id}">${esc(m.suggest || "")}</textarea>` : `<input id="${id}" value="${esc(m.suggest || "")}" />`;
+      const note = m.locked ? `<div class="muted" style="margin-top:4px">A statement in your name — Vantage never guesses it.${m.suggest ? " Pre-selected from your profile; check it's true for this exact question." : ""}</div>` : "";
+      return `<div class="q"><label for="${id}">${esc(m.label)}</label>${note}${input}</div>`;
     }).join("");
     root.innerHTML = `<style>${CSS_TEXT}</style><div class="p" role="dialog" aria-label="Vantage">
       <div class="h"><span class="logo">V</span> Vantage <button class="x" aria-label="Close">×</button></div>

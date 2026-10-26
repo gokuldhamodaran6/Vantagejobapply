@@ -159,6 +159,18 @@ export default function AgentPage() {
         actions={<Link href="/app/settings#agent-mode" className="btn-secondary">{profile?.autonomy === "fully_automatic" ? "Fully automatic" : profile?.autonomy === "approve_all" ? "Approve every application" : "Approve important ones"}</Link>}
       />
 
+      {profile && !(profile as { adult_confirmed_at?: string | null }).adult_confirmed_at && (
+        <section className="mb-5 card flex flex-wrap items-center gap-3 border-orange/30 p-4">
+          <ShieldCheck size={18} className="text-orange" aria-hidden />
+          <p className="min-w-0 flex-1 text-sm"><span className="font-semibold">One quick check before your agent applies:</span> Vantage is for adults. Please confirm you&apos;re 18 or older.</p>
+          <button className="btn-primary min-h-9" onClick={async () => {
+            await supabaseBrowser().from("profiles").update({ adult_confirmed_at: new Date().toISOString() }).eq("id", userId!);
+            await refresh();
+            setToast("Thanks — confirmed.");
+          }}>I&apos;m 18 or older</button>
+        </section>
+      )}
+
       <section className="card relative overflow-hidden p-5 sm:p-6">
         <div aria-hidden className="pointer-events-none absolute -right-16 -top-20 h-56 w-56 rounded-full bg-gradient-to-br from-brand/15 via-pink/10 to-orange/10 blur-2xl" />
         <div className="relative">
@@ -168,7 +180,7 @@ export default function AgentPage() {
             <input className="input flex-1" placeholder="https://boards.greenhouse.io/… · jobs.lever.co/… · company.wd5.myworkdayjobs.com/…" value={link} onChange={(e) => setLink(e.target.value)} aria-label="Job link" />
             <button className="btn-pink whitespace-nowrap" disabled={busy || !link.trim()}>{busy ? <Loader2 size={16} className="animate-spin" /> : <Sparkles size={16} />} Apply with agent</button>
           </form>
-          <p className="mt-2 text-xs text-muted">Works with Greenhouse, Lever, Ashby, Workday, SmartRecruiters, Workable and most company sites. Vantage also starts watching that company for new roles.</p>
+          <p className="mt-2 text-xs text-muted">Works with Greenhouse, Lever, Ashby, Workday, Workable and most company sites. Vantage also starts watching that company for new roles.</p>
         </div>
       </section>
 
@@ -177,7 +189,7 @@ export default function AgentPage() {
           <p className="font-bold">Auto-apply {profile?.agent_enabled ? <span className="text-green-ink">is on</span> : <span className="text-muted">is off</span>}</p>
           <p className="text-sm text-muted">
             {profile?.agent_enabled
-              ? `Your agent applies to your best new matches (up to ${profile?.daily_limit || 25} a day)${profile?.autonomy === "approve_important" ? ", and asks you first for target companies and top matches" : profile?.autonomy === "approve_all" ? ", and waits for your OK on each one" : ""}.`
+              ? `Your agent applies to your best new matches (up to ${Math.min(profile?.daily_limit || 20, (profile as { high_volume_ok?: boolean } | null)?.high_volume_ok ? 200 : 20)} a day)${profile?.autonomy === "approve_important" ? ", and asks you first for target companies and top matches" : profile?.autonomy === "approve_all" ? ", and waits for your OK on each one" : ""}.`
               : "Your agent only applies when you press “Apply with agent” or paste a link. Turn this on to let it find and apply to new matches by itself."}
           </p>
         </div>
@@ -469,8 +481,55 @@ function CodeCard({ t, hasMailbox, head, onDone }: { t: AgentTask; hasMailbox: b
   );
 }
 
+/** First application on a kind of careers site: the form is filled and waiting — the person checks it before anything is sent. */
+function ReviewCard({ t, head, busy, act }: { t: AgentTask; head: ReactNode; busy: boolean; act: (body: Record<string, unknown>, msg: string) => void }) {
+  const [shot, setShot] = useState<string | null>(null);
+  useEffect(() => {
+    supabaseBrowser().from("agent_proofs").select("image").eq("task_id", t.id).maybeSingle().then(({ data }) => setShot((data as { image: string } | null)?.image || null));
+  }, [t.id]);
+  const rows = (t.needs || []).filter((n) => n.type === "review") as (AgentTask["needs"][number] & { value?: string })[];
+  const legal = (l: string) => /authori[sz]|sponsor|citizen|visa|convict|criminal|veteran|disab|gender|race|ethnic|hispanic|salary|certify|attest|agree|consent|true and (complete|correct)/i.test(l);
+  return (
+    <div className="card border-brand/30 p-5">
+      {head}
+      <p className="mt-2 text-sm">
+        <span className="font-semibold">Your first application on {t.job.company}&apos;s kind of careers site is filled in and waiting — nothing has been sent.</span>{" "}
+        Check the answers below. Whatever is submitted is a statement in your name.
+      </p>
+      <div className="mt-3 max-h-80 overflow-auto rounded-xl border border-line">
+        <table className="w-full text-sm">
+          <tbody>
+            {rows.map((r) => (
+              <tr key={r.id} className={`border-b border-line last:border-0 ${legal(r.label) ? "bg-orange/5" : ""}`}>
+                <td className="w-1/2 px-3 py-2 align-top text-muted">{r.label}</td>
+                <td className="px-3 py-2 align-top font-medium">{r.value}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <p className="mt-2 text-xs text-muted">Highlighted rows are eligibility or legal statements. Files (resume, cover letter) are attached as shown in the buttons below.</p>
+      {shot && (
+        <details className="mt-3">
+          <summary className="cursor-pointer text-sm font-semibold text-brand-ink">See the filled form</summary>
+          <a href={`data:image/jpeg;base64,${shot}`} target="_blank" rel="noopener noreferrer"><img src={`data:image/jpeg;base64,${shot}`} alt={`The filled ${t.job.company} application`} className="mt-2 w-full rounded-lg border border-line" /></a>
+        </details>
+      )}
+      <div className="mt-4 flex flex-wrap gap-2">
+        <button className="btn-primary" disabled={busy} onClick={() => act({ action: "approve" }, "Approved — your agent is submitting exactly these answers.")}><Check size={16} /> Looks right — submit</button>
+        {t.resume_id && <a className="btn-secondary" href={`/api/resume/${t.resume_id}/pdf?inline=1`} target="_blank" rel="noopener noreferrer"><FileText size={16} /> Resume</a>}
+        {t.resume_id && t.cover_letter && <a className="btn-secondary" href={`/api/resume/${t.resume_id}/pdf?kind=cover&inline=1`} target="_blank" rel="noopener noreferrer">Cover letter</a>}
+        <a className="btn-ghost" href={t.job.url || t.apply_url} target="_blank" rel="noopener noreferrer">Fix it myself <ExternalLink size={15} /></a>
+        <button className="btn-ghost" disabled={busy} onClick={() => act({ action: "cancel" }, "Skipped — nothing was sent.")}><X size={16} /> Don&apos;t send</button>
+      </div>
+      <p className="mt-3 text-xs text-muted">After you approve one application on this kind of site, later ones go straight through. You can turn reviews off in Settings.</p>
+    </div>
+  );
+}
+
 function NeedCard({ t, hasMailbox, consent, onDone }: { t: AgentTask; hasMailbox: boolean; consent: boolean; onDone: (msg: string) => void }) {
-  const [vals, setVals] = useState<Record<string, string>>({});
+  // Eligibility questions come with what your profile suggests, pre-selected — you confirm it for this exact wording.
+  const [vals, setVals] = useState<Record<string, string>>(() => Object.fromEntries((t.needs || []).filter((n) => n.suggest).map((n) => [n.id, n.suggest as string])));
   const [busy, setBusy] = useState(false);
   const [always, setAlways] = useState(true);
   const [liveUrl, setLiveUrl] = useState<string | null>(null);
@@ -534,6 +593,14 @@ function NeedCard({ t, hasMailbox, consent, onDone }: { t: AgentTask; hasMailbox
           {questions.map((n) => (
             <label key={n.id} className="block text-sm font-semibold">
               {n.label}
+              {n.locked && (
+                <span className="mt-1 flex items-start gap-1.5 rounded-lg bg-orange/10 px-2.5 py-1.5 text-xs font-normal text-ink-2">
+                  <ShieldCheck size={14} className="mt-px shrink-0 text-orange" aria-hidden />
+                  <span>
+                    This is a statement in your name, so your agent never guesses it. {n.suggest ? "We pre-selected what your profile says — check it’s true for this exact question." : "Pick the answer that's true for you."} It&apos;s reused only for this exact wording.
+                  </span>
+                </span>
+              )}
               {n.tried && <span className="mt-0.5 block text-xs font-normal text-muted">The site didn&apos;t accept “{n.tried}”. Pick the option that fits.</span>}
               {n.type === "checkbox" && !n.options?.length ? (
                 <span className="mt-2 flex gap-2">
@@ -601,6 +668,7 @@ function NeedCard({ t, hasMailbox, consent, onDone }: { t: AgentTask; hasMailbox
     );
   }
   if (t.status === "waiting_code") return <CodeCard t={t} hasMailbox={hasMailbox} head={head} onDone={onDone} />;
+  if (t.status === "awaiting_approval" && t.needs?.some((n) => n.type === "review")) return <ReviewCard t={t} head={head} busy={busy} act={act} />;
   if (t.status === "awaiting_approval") {
     return (
       <div className="card border-pink/30 p-5">

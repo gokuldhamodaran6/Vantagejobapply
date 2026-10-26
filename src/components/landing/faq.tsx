@@ -8,15 +8,15 @@ const FAQ = [
   },
   {
     q: "Can someone from India apply for sponsored jobs in the UK, US, Canada or Australia?",
-    a: "Yes. You set your citizenship and where you want to work, and Vantage only shows jobs that can legally hire you — for example, UK employers on the licensed sponsor register for degree-level roles. If your occupation isn't eligible for sponsorship in that country (UK lorry drivers, for instance), Vantage tells you plainly instead of wasting your applications.",
+    a: "Yes. You set your citizenship and where you want to work, and Vantage filters out jobs that say they can't hire you — for example, it checks UK employers on the licensed sponsor register for degree-level roles. If your occupation isn't eligible for sponsorship in that country (UK lorry drivers, for instance), Vantage tells you plainly instead of wasting your applications.",
   },
   {
     q: "Where do the jobs come from, and how fresh are they?",
-    a: "Only from employers' own official careers systems — Workday, Greenhouse, Lever, Ashby, SmartRecruiters, Workable and Recruitee. Every Apply button opens the company's official posting, never a middleman job board. Feeds refresh continuously; most jobs you see are hours old.",
+    a: "Only from employers' own official careers systems — Greenhouse, Lever, Ashby, Workday, Workable, Recruitee, Personio, Teamtailor, Rippling, BambooHR and more. Every Apply button opens the company's official posting, never a middleman job board. Each company's feed is re-read every few hours (every 15 minutes for companies you target), and closed jobs are removed.",
   },
   {
     q: "Will Vantage lie on my application to get me through?",
-    a: "Never. Your work-authorization answers are saved once and used truthfully everywhere, and resumes are written only from experience you've confirmed. Recruiters check — honesty is what gets you hired and keeps you hired.",
+    a: "No. Eligibility questions — work authorization, sponsorship, citizenship, criminal record, pay history — are only ever answered with your own answer to that exact question; anything worded differently comes to you. Resumes are written only from experience you've confirmed, and your first application on each kind of careers site waits for your review.",
   },
   {
     q: "Does my resume pass ATS software?",
@@ -24,7 +24,7 @@ const FAQ = [
   },
   {
     q: "Does the agent apply for me automatically?",
-    a: "The agent prepares each application for you — tailored resume, cover letter and truthful answers — and opens the employer's official form. You choose how independent it is: approve every application, approve only important ones, or fully automatic. Automatic form-filling on employer sites is rolling out during early access.",
+    a: "The agent prepares each application for you — tailored resume, cover letter and truthful answers — and opens the employer's official form. It fills and submits the form on the employer's official site within the rules you set: approve every application, approve only important ones, or fully automatic — 20 a day by default. It hands human checks (like CAPTCHAs) to you and stops on any site that doesn't allow automated applications. Vantage doesn't promise interviews; it gives every application its best, honest shot.",
   },
   {
     q: "Is this immigration advice?",

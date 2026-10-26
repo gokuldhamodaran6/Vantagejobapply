@@ -155,7 +155,7 @@ export async function answer(
       countries: ctx.prefs?.countries,
       places: ctx.prefs?.locations,
       companies: ctx.prefs?.companies,
-      work_authorisation: ctx.auth.map((a) => ({ country: a.country, status: a.status })),
+      // Immigration status is sensitive personal data and never goes to the AI.
       applications: apps.slice(0, 60).map((a) => ({ title: a.job.title, company: a.job.company, status: a.status, applied: a.applied_at, last: a.events?.[a.events.length - 1]?.text })),
       agent_queue: tasks.slice(0, 40).map((t) => ({ title: t.job.title, company: t.job.company, status: t.status, step: t.step })),
       recent_replies: (inbox || []).slice(0, 20),

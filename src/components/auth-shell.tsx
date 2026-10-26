@@ -12,7 +12,7 @@ export function AuthShell({ title, subtitle, children, aside }: { title: string;
           <div className="mt-8">{children}</div>
         </div>
         <p className="text-center text-xs text-subtle">
-          By continuing you agree to the <Link href="/legal/terms" className="underline">Terms</Link> and{" "}
+          Vantage is for adults (18+). By continuing you agree to the <Link href="/legal/terms" className="underline">Terms</Link> and{" "}
           <Link href="/legal/privacy" className="underline">Privacy Policy</Link>.
         </p>
       </div>

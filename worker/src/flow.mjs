@@ -2,10 +2,29 @@ import { call, log, update } from "./api.mjs";
 import { ACCOUNT_GATE, codeChallenge, declineCookies, enterCode, extractFields, findAccountButton, findVerify, isCodeField, fillField, findEntry, findNext, findSubmit, human, humanCheckVisible, isConfirmation, pageText, readComboOptions, visibleErrors } from "./forms.mjs";
 import { live } from "./live.mjs";
 import { allowedUrl, baseDomain } from "./guard.mjs";
+import { BOT_WALL, NO_AUTOMATION, siteKey } from "./sites.mjs";
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const TASK_BUDGET_MS = 9 * 60 * 1000; // active work, excluding time spent waiting for the user
 const HARD_CAP_MS = 25 * 60 * 1000; // everything included
+
+/**
+ * Kill switch. If an employer's site refuses the visitor (403/429/451 or a block page) or its form says automated
+ * applications aren't allowed, Vantage stops applying there for everyone and hands the job to the person.
+ */
+async function stopIfRefused(bundle, page, text) {
+  const { task } = bundle;
+  const status = bundle.lastStatus || 0;
+  let reason = null;
+  if ([401, 403, 429, 451].includes(status) && (BOT_WALL.test(text) || text.length < 4000)) reason = status === 429 ? "rate_limited" : "blocked";
+  else if (text.length < 2500 && BOT_WALL.test(text)) reason = "blocked";
+  else if (NO_AUTOMATION.test(text)) reason = "no_automation";
+  if (!reason) return;
+  const key = siteKey(page.url()) || siteKey(task.url);
+  await call("block", { taskId: task.id, key, reason, status, url: page.url().slice(0, 300), snippet: text.slice(0, 400) }).catch((e) => console.error("block report failed", e.message));
+  const why = reason === "no_automation" ? "asks applicants not to use automated tools" : reason === "rate_limited" ? "is limiting automated visits right now" : "refused automated access";
+  throw new Stop("manual", `${task.job.company}'s careers site ${why}, so Vantage has stopped applying there. Open the job link to apply yourself — the Vantage Chrome extension can fill the form while you press Submit.`);
+}
 
 class Stop extends Error {
   constructor(status, message, extra = {}) {
@@ -46,7 +65,8 @@ export async function runTask(bundle, browser) {
   bundle.dryMissing = [];
   const goto = async (url) => {
     if (!(await allowedUrl(url))) throw new Stop("failed", "This link isn't a public web page, so your agent won't open it.");
-    await page.goto(url, { waitUntil: "domcontentloaded", timeout: 45_000 });
+    const resp = await page.goto(url, { waitUntil: "domcontentloaded", timeout: 45_000 });
+    bundle.lastStatus = resp ? resp.status() : 0;
   };
   bundle.goto = goto;
 
@@ -65,6 +85,7 @@ export async function runTask(bundle, browser) {
       }
       const text = await pageText(page);
       if (isConfirmation(page.url(), text)) break;
+      await stopIfRefused(bundle, page, text);
 
       if (await humanCheckVisible(page)) {
         if (bundle.dry) throw new Stop("manual", "Dry run: the site showed a human check");
@@ -164,6 +185,19 @@ export async function runTask(bundle, browser) {
         const diag = await diagnose(page, bundle);
         await update(task.id, { status: "manual", step: `Dry run: stopped before ${submit ? "submitting" : "the next step"} (${bundle.dryMissing.length} unanswered)`, needs: diag, proof: shotFull ? shotFull.toString("base64") : undefined, log: `Dry run finished on ${page.url().slice(0, 120)}` });
         return "manual";
+      }
+      // First application on this kind of careers site: stop before Submit so the person can check every answer.
+      if (submit && task.review && !task.userInput?.review_ok) {
+        const shotFull = await page.screenshot({ type: "jpeg", quality: 55, fullPage: true }).catch(() => null);
+        const review = Object.entries(filled).slice(0, 80).map(([label, value], i) => ({ id: `r${i}`, qkey: "", label, type: "review", value }));
+        await update(task.id, {
+          status: "awaiting_approval",
+          step: "Ready for your review — nothing has been sent yet",
+          needs: review.length ? review : [{ id: "r0", qkey: "", label: "Application form", type: "review", value: "Filled and ready" }],
+          proof: shotFull ? shotFull.toString("base64") : undefined,
+          log: `Filled ${task.job.company}'s form and stopped before Submit so you can review your first application on this site`,
+        });
+        return "awaiting_approval";
       }
       if (submit) {
         await log(task.id, "Submitting the application", "Submitting");
@@ -394,7 +428,18 @@ async function handleAccount(bundle, page, fields, allPasswords) {
   const emailField = fields.find((f) => ["email", "text"].includes(f.type) && /e-?mail|user ?name|login/i.test(`${f.label} ${f.name}`));
   if (emailField) await fillField(page, emailField, { value: cred.login }, {});
   for (const p of passwords) await fillField(page, p, { value: cred.password }, {});
-  for (const f of fields.filter((x) => x.type === "checkbox" && /agree|terms|privacy|consent|acknowledge/i.test(x.label))) await fillField(page, f, { check: true }, {});
+  const termsBoxes = fields.filter((x) => x.type === "checkbox" && /agree|terms|privacy|consent|acknowledge/i.test(x.label));
+  if (termsBoxes.length && !task.consent) {
+    throw new Stop("needs_user", `${task.job.company}'s careers site asks you to agree to its terms before it creates your account`, {
+      needs: termsBoxes.map((f) => ({ id: f.id, qkey: "", label: f.label, type: "checkbox", required: true, kind: "consent" })),
+    });
+  }
+  if (termsBoxes.length) {
+    // Keep a record of exactly what was agreed to on the person's behalf, with links to the documents.
+    const links = await page.$$eval("a[href]", (as) => as.filter((a) => /terms|privacy|conditions|policy|notice|consent/i.test(a.textContent || "")).slice(0, 8).map((a) => ({ text: (a.textContent || "").trim().slice(0, 120), href: a.href }))).catch(() => []);
+    await call("terms", { taskId: task.id, key: siteKey(page.url()), url: page.url().slice(0, 300), items: termsBoxes.map((f) => f.label.slice(0, 600)), links }).catch(() => {});
+  }
+  for (const f of termsBoxes) await fillField(page, f, { check: true }, {});
   // Other simple sign-up fields (first/last name, phone, country) go through the planner.
   const others = fields.filter((f) => !["password", "checkbox"].includes(f.type) && f !== emailField);
   if (others.length) {

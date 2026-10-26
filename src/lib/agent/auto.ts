@@ -4,7 +4,7 @@ import { matchJob } from "@/lib/jobs/match";
 import { searchVariants } from "@/lib/jobs/roles";
 import { titleTsQuery } from "@/lib/jobs/engine";
 import { normCompany } from "@/lib/jobs/signals";
-import { effectivePlan } from "@/lib/access";
+import { dailyLimit, effectivePlan, PER_EMPLOYER_30D } from "@/lib/access";
 import { prepareAndQueue } from "./prepare";
 import { inPreferredPlace } from "@/lib/jobs/places";
 import { rpc, wakeWorker } from "./svc";
@@ -12,7 +12,7 @@ import { ingestSecret, supabaseAnon } from "@/lib/supabase/server";
 import type { Job, TargetPrefs, TargetRole, WorkAuth } from "@/lib/types";
 
 type AutoUser = {
-  user_id: string; autonomy: string; daily_limit: number; name: string | null; role?: string | null;
+  user_id: string; autonomy: string; daily_limit: number; high_volume_ok?: boolean | null; name: string | null; role?: string | null;
   prefs: TargetPrefs | null; roles: TargetRole[]; auth: WorkAuth[]; today: number; known_jobs: string[];
 };
 
@@ -35,7 +35,10 @@ export async function autoSource(deadline: number) {
   const summary: Record<string, number> = {};
   for (const u of users) {
     if (Date.now() > deadline) break;
-    const limit = Math.min(u.daily_limit || 25, effectivePlan(null, u.role).limits.autoApplyPerDay);
+    // auto_users doesn't carry every setting; read the person's volume settings and recent employers.
+    const lim = await supabaseAnon().rpc("agent_limits", { secret: ingestSecret(), p_user: u.user_id }).then((r) => (r.data as { daily_limit: number | null; high_volume_ok: boolean | null; employers: Record<string, number> } | null), () => null);
+    const limit = dailyLimit({ daily_limit: lim?.daily_limit ?? u.daily_limit, high_volume_ok: lim?.high_volume_ok ?? u.high_volume_ok }, effectivePlan(null, u.role));
+    const recentByEmployer = lim?.employers || {};
     const remaining = limit - (u.today || 0);
     if (remaining <= 0 || !u.roles.length) continue;
     const perRun = Math.min(remaining, 8);
@@ -70,8 +73,11 @@ export async function autoSource(deadline: number) {
       if (made >= perRun || Date.now() > deadline) break;
       const co = normCompany(c.job.company);
       if (seen.has(co)) continue;
+      // Never more than a few applications to one employer in 30 days.
+      if ((recentByEmployer[co] || 0) >= PER_EMPLOYER_30D) continue;
       seen.add(co);
-      const status = u.autonomy === "approve_important" && c.important ? "awaiting_approval" : "queued";
+      // "Approve every application" means exactly that, whatever the queue looks like.
+      const status = u.autonomy === "approve_all" || (u.autonomy === "approve_important" && c.important) ? "awaiting_approval" : "queued";
       const r = await prepareAndQueue({ userId: u.user_id, name: u.name || "", job: c.job, roleId: c.roleId, match: c.score, status, priority: c.important ? 3 : 5 }).catch((e) => ({ taskCreated: false, error: String(e) }));
       if (r.taskCreated) made += 1;
     }

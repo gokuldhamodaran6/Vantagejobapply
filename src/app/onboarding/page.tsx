@@ -51,6 +51,8 @@ export default function OnboardingPage() {
   const [living, setLiving] = useState("IN");
   const [phone, setPhone] = useState("");
   const [linkedin, setLinkedin] = useState("");
+  const [adult, setAdult] = useState(false);
+  const [province, setProvince] = useState("");
 
   const [countries, setCountries] = useState<string[]>(["US"]);
   const [cities, setCities] = useState<Record<string, string[]>>({});
@@ -100,7 +102,8 @@ export default function OnboardingPage() {
 
   const canNext = useMemo(() => {
     if (step === S.resume) return resumeState !== "reading";
-    if (step === S.about) return fullName.trim().length > 1;
+    // 18+ only, and not yet available in Québec (its privacy law needs an assessment Vantage hasn't finished).
+    if (step === S.about) return fullName.trim().length > 1 && adult && !(living === "CA" && (!province || province === "QC"));
     if (step === S.where) return countries.length > 0;
     if (step === S.roles) return roles.length > 0;
     return true;
@@ -159,7 +162,7 @@ export default function OnboardingPage() {
     try {
       const p1 = await supabase.from("profiles").update({
         full_name: fullName.trim(), citizenship, home_country: living, phone: phone || null,
-        linkedin_url: linkedin || null, autonomy,
+        linkedin_url: linkedin || null, autonomy, adult_confirmed_at: new Date().toISOString(), region: living === "CA" ? province : null,
       }).eq("id", userId);
       if (p1.error) throw p1.error;
 
@@ -306,6 +309,23 @@ export default function OnboardingPage() {
                     <input id="li" className="input" value={linkedin} onChange={(e) => setLinkedin(e.target.value)} placeholder="linkedin.com/in/…" />
                   </div>
                 </div>
+                {living === "CA" && (
+                  <div>
+                    <label className="label" htmlFor="prov">Province or territory</label>
+                    <select id="prov" className="input" value={province} onChange={(e) => setProvince(e.target.value)}>
+                      <option value="">Choose…</option>
+                      {[["AB", "Alberta"], ["BC", "British Columbia"], ["MB", "Manitoba"], ["NB", "New Brunswick"], ["NL", "Newfoundland and Labrador"], ["NS", "Nova Scotia"], ["NT", "Northwest Territories"], ["NU", "Nunavut"], ["ON", "Ontario"], ["PE", "Prince Edward Island"], ["QC", "Québec"], ["SK", "Saskatchewan"], ["YT", "Yukon"]].map(([c, n]) => <option key={c} value={c}>{n}</option>)}
+                    </select>
+                    {province === "QC" && <p className="mt-2 rounded-xl bg-orange/10 p-3 text-sm">Vantage isn&apos;t available in Québec yet — Québec&apos;s privacy law asks for an assessment we&apos;re still completing. We&apos;re sorry, and we&apos;ll open it as soon as we can.</p>}
+                  </div>
+                )}
+                <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-line p-4 text-sm">
+                  <input type="checkbox" className="mt-0.5 size-4 shrink-0 accent-[var(--color-brand)]" checked={adult} onChange={(e) => setAdult(e.target.checked)} />
+                  <span>
+                    <span className="font-semibold">I&apos;m 18 or older</span>
+                    <span className="block text-xs text-muted">Vantage is for adults. We use this when an application asks whether you&apos;re at least 18.</span>
+                  </span>
+                </label>
               </div>
             )}
 

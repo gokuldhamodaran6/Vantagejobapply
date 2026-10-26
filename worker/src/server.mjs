@@ -34,7 +34,11 @@ async function drain() {
         console.error("claim failed", e.message);
         return { task: null };
       });
-      if (!bundle.task) break;
+      if (!bundle.task) {
+        // A job was skipped (e.g. its site blocks automation): look for the next one.
+        if (bundle.retry) continue;
+        break;
+      }
       lastWork = Date.now();
       stats.current = { id: bundle.task.id, company: bundle.task.job?.company };
       try {

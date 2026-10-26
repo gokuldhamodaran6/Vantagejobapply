@@ -1,5 +1,6 @@
 import { json, loadUserContext } from "@/lib/server-user";
 import { wakeWorker } from "@/lib/agent/svc";
+import { dailyLimit } from "@/lib/access";
 
 /**
  * Put cancelled or unfinished jobs back in line in one go ("Apply to all again").
@@ -15,8 +16,9 @@ export async function POST(req: Request) {
     ctx.supabase.from("agent_tasks").select("id", { count: "exact", head: true }).eq("status", "submitted").gte("finished_at", today.toISOString()),
     ctx.supabase.from("agent_tasks").select("id", { count: "exact", head: true }).in("status", ["queued", "running", "waiting_code", "needs_human"]),
   ]);
-  const room = Math.max(0, ctx.plan.limits.autoApplyPerDay - (appliedToday || 0) - (inLine || 0));
-  if (!room) return json({ error: `You've reached today's limit of ${ctx.plan.limits.autoApplyPerDay} applications. The rest can go tomorrow.` }, 429);
+  const limit = dailyLimit(ctx.profile as { daily_limit?: number; high_volume_ok?: boolean }, ctx.plan);
+  const room = Math.max(0, limit - (appliedToday || 0) - (inLine || 0));
+  if (!room) return json({ error: `You've reached today's limit of ${limit} applications. The rest can go tomorrow — or raise your daily limit in Settings.` }, 429);
   let q = ctx.supabase.from("agent_tasks").select("id,job_id,job").in("status", ["cancelled", "failed"]).order("created_at", { ascending: false }).limit(room);
   if (body.ids?.length) q = q.in("id", body.ids.slice(0, 500));
   const { data: rows } = await q;

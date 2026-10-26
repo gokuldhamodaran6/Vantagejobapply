@@ -14,7 +14,7 @@ const STEPS = [
   },
   {
     title: "Get only jobs that fit",
-    body: "Live jobs are checked against your status: sponsor registers, employer history and the posting's own wording. Dead ends never reach you.",
+    body: "Live jobs are checked against your status: sponsor registers, employer history and the posting's own wording. Jobs that say they can't hire you are filtered out.",
   },
   {
     title: "Apply with a resume built for the role",
@@ -135,7 +135,7 @@ export function Features() {
               <span className="flex h-10 w-10 items-center justify-center rounded-lg bg-brand-tint text-brand-ink"><FileCheck2 size={20} /></span>
               <h3 className="text-xl font-semibold">A resume for every target role</h3>
             </div>
-            <p className="mt-3 text-[15px] text-muted">Industry-standard format for your level, tested against the systems employers use. Nothing invented — ever.</p>
+            <p className="mt-3 text-[15px] text-muted">Industry-standard format for your level, in the single-column layout applicant tracking systems read reliably. Written only from facts you&apos;ve confirmed.</p>
             <div className="mt-6 rounded-xl border border-line p-4"><AtsDemo /></div>
           </div>
         </div>

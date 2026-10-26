@@ -3,6 +3,7 @@ import { jobFromLink } from "@/lib/agent/jobs";
 import { prepareAndQueue } from "@/lib/agent/prepare";
 import { rpcExt, wakeWorker } from "@/lib/agent/svc";
 import { matchJob } from "@/lib/jobs/match";
+import { dailyLimit } from "@/lib/access";
 import { ingestSecret, supabaseAnon } from "@/lib/supabase/server";
 import type { Job, LetterTone, ResumeContent, ResumeStyle } from "@/lib/types";
 
@@ -35,6 +36,20 @@ export async function POST(req: Request) {
     }
   }
   if (!job) return json({ error: "Job not found." }, 404);
+
+  // The daily limit covers every application the agent sends, including ones you start yourself.
+  if (!body.later) {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const [{ count: sentToday }, { count: inLine }] = await Promise.all([
+      ctx.supabase.from("agent_tasks").select("id", { count: "exact", head: true }).eq("status", "submitted").gte("finished_at", today.toISOString()),
+      ctx.supabase.from("agent_tasks").select("id", { count: "exact", head: true }).in("status", ["queued", "running", "waiting_code", "needs_human"]),
+    ]);
+    const limit = dailyLimit(ctx.profile as { daily_limit?: number; high_volume_ok?: boolean }, ctx.plan);
+    if ((sentToday || 0) + (inLine || 0) >= limit) {
+      return json({ error: `You've reached today's limit of ${limit} applications by your agent. Save it for tomorrow, apply yourself with the Chrome extension, or raise the limit in Settings.` }, 429);
+    }
+  }
 
   const match = matchJob(job, { roles: ctx.roles, prefs: ctx.prefs, auth: ctx.auth });
   if (!match.eligible && body.jobId) return json({ error: `This job can't hire you: ${match.blockers[0]}.` }, 400);

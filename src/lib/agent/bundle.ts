@@ -42,7 +42,7 @@ export async function loadBundle(taskId: string, hostOverride?: string) {
   const resume = b.resume?.content || b.master?.content || null;
   const country = b.task.job.country || "US";
   const identity = b.mail?.status === "active" || b.mail?.status === "pending" ? b.mail.address : b.profile?.email || "";
-  const facts: Facts = buildFacts({ email: identity, name: bestName(b.profile?.full_name, resume?.name || b.master?.content?.name) || "", applicant: b.applicant, resume, auth: b.auth.find((a) => a.country === country), country, prefs: b.prefs });
+  const facts: Facts = buildFacts({ email: identity, name: bestName(b.profile?.full_name, resume?.name || b.master?.content?.name) || "", applicant: b.applicant, resume, auth: b.auth.find((a) => a.country === country), country, prefs: b.prefs, adult: Boolean((b.profile as { adult_confirmed_at?: string | null } | null)?.adult_confirmed_at) });
   const cred = b.vault[0];
   let password: string | null = null;
   if (cred) {

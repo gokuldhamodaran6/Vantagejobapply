@@ -1,0 +1,4 @@
+-- Applied via the Supabase connector as migration "safety_build_1" (26 Oct 2026). Kept here for reference.
+-- profiles: adult_confirmed_at, region, high_volume_ok, review_first; daily_limit default 20
+-- site_blocks (kill switch), site_terms (terms accepted on the user's behalf)
+-- functions: site_blocked, block_site, record_terms, review_needed, agent_limits, private.mail_retention (+ daily cron)

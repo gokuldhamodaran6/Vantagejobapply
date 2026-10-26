@@ -9,7 +9,7 @@ import { parseResumeText, scoreResume, extractKeywords } from "../src/lib/ats";
 import { readFileSync } from "fs";
 import { workAuthAnswers } from "../src/lib/answers";
 import { roleSimilarity } from "../src/lib/jobs/roles";
-import { bestOption, bestName, buildFacts, coreLabel, placeFromResume, planFields } from "../src/lib/agent/fields";
+import { bestOption, bestName, qkeyOf, buildFacts, coreLabel, placeFromResume, planFields } from "../src/lib/agent/fields";
 import { isPrivateIp } from "../src/lib/net";
 import { parseEventText, parseIcs } from "../src/lib/mail-event";
 import { resumeIssues, tidyResume } from "../src/lib/resume/health";
@@ -92,7 +92,14 @@ async function plannerChecks() {
     { id: "d", label: "Last Name*", type: "text", required: true },
   ], { facts, answers: [], job: { title: "PM", company: "Datadog" }, resume: null, coverLetter: null, consent: false });
   const v = Object.fromEntries(plan.fills.map((x) => [x.id, x.value]));
-  ok(v.a === "Yes" && v.b === "United States" && v.c === "Datadog Careers Page" && v.d === "Dhamodaran" && plan.missing.length === 0, "real Greenhouse questions answered (work auth, country, source, last name)");
+  const ma = plan.missing.find((m) => m.id === "a");
+  ok(!v.a && ma?.locked === "work_auth" && ma.suggest === "Yes" && v.b === "United States" && v.c === "Datadog Careers Page" && v.d === "Dhamodaran" && plan.missing.length === 1, "work-authorisation question asked (suggested Yes), other Greenhouse questions answered");
+  const authQ = "Are you legally authorised to work full-time in the country where this job is based?";
+  const confirmed = await planFields([
+    { id: "a", label: `${authQ}* ${authQ}`, type: "combobox", options: ["Yes", "No"], required: true },
+    { id: "a2", label: "Are you authorized to work in the US without restriction?*", type: "combobox", options: ["Yes", "No"], required: true },
+  ], { facts, answers: [{ qkey: qkeyOf(authQ), question: authQ, answer: "Yes" }], job: { title: "PM", company: "Datadog" }, resume: null, coverLetter: null, consent: false });
+  ok(confirmed.fills.some((x) => x.id === "a" && x.value === "Yes") && confirmed.missing.some((m) => m.id === "a2") && !confirmed.fills.some((x) => x.id === "a2"), "confirmed answer reused only for the exact same wording");
   const p2 = await planFields([
     { id: "e", label: "Are you legally authorised to work full-time in the country where this job is based?*", type: "combobox", options: ["Yes, no restriction.", "Yes, but I will require sponsorship in the future", "No"], required: true },
     { id: "f", label: "Will you now require immigration sponsorship (e.g., H-1B, STEM OPT, or any immigration work authorization)?*", type: "combobox", options: ["Yes", "No"], required: true },
@@ -102,7 +109,15 @@ async function plannerChecks() {
     { id: "j", label: "Have you worked at DoorDash?*", type: "combobox", options: ["I have never worked at DoorDash", "I am a previous employee", "I am a previous DoorDash Dasher"], required: true },
   ], { facts, answers: [], job: { title: "PM", company: "Datadog" }, resume: { name: "x", experience: [{ title: "Analyst", company: "Kaar Tech", start: "2021", end: "2024", bullets: [] }] } as never, coverLetter: null, consent: false });
   const w = Object.fromEntries(p2.fills.map((x) => [x.id, x.value]));
-  ok(w.e === "Yes, but I will require sponsorship in the future" && w.f === "No" && w.g === "Yes" && w.h === "No" && w.j === "I have never worked at DoorDash" && p2.missing.some((m) => m.id === "i") && !w.i, "OPT: authorised now with future sponsorship, never 'no restriction'; passport asked, not guessed");
+  const sug = Object.fromEntries(p2.missing.map((m) => [m.id, m.suggest]));
+  ok(!w.e && !w.f && !w.g && sug.e === "Yes, but I will require sponsorship in the future" && sug.f === "No" && sug.g === "Yes" && w.h === "No" && w.j === "I have never worked at DoorDash" && p2.missing.some((m) => m.id === "i") && !w.i, "OPT: eligibility asked with correct suggestions (never 'no restriction'); passport asked, not guessed");
+  const p3 = await planFields([
+    { id: "k", label: "Have you ever been convicted of a felony?*", type: "combobox", options: ["Yes", "No"], required: true },
+    { id: "l", label: "What is your current salary?", type: "text", required: false },
+    { id: "m", label: "Are you at least 18 years of age?*", type: "combobox", options: ["Yes", "No"], required: true },
+  ], { facts: { ...facts, adult: "Yes" }, answers: [{ qkey: qkeyOf("Have you ever been convicted of a crime?"), question: "Have you ever been convicted of a crime?", answer: "No" }], job: { title: "PM", company: "Datadog" }, resume: null, coverLetter: null, consent: false });
+  const z = Object.fromEntries(p3.fills.map((x) => [x.id, x.value]));
+  ok(!z.k && p3.missing.some((m) => m.id === "k" && m.locked === "conviction") && !z.l && !p3.missing.some((m) => m.id === "l") && z.m === "Yes", "conviction never taken from a similar answer; optional salary history left blank; 18+ from confirmation");
 }
 
 // Interview times from emails.

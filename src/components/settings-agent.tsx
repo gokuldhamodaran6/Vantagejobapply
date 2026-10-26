@@ -221,6 +221,8 @@ export function VaultCard({ onToast }: { onToast: (m: string) => void }) {
   const [rows, setRows] = useState<{ id: string; host: string; label: string | null; login: string; created_at: string; last_used_at: string | null }[] | null>(null);
   const [shown, setShown] = useState<Record<string, string>>({});
   const [copied, setCopied] = useState<string | null>(null);
+  const [askPw, setAskPw] = useState<string | null>(null);
+  const [pw, setPw] = useState("");
   const load = useCallback(async () => {
     const { data } = await supabaseBrowser().from("vault_credentials").select("id,host,label,login,created_at,last_used_at").order("created_at", { ascending: false });
     setRows((data as typeof rows) || []);
@@ -228,11 +230,18 @@ export function VaultCard({ onToast }: { onToast: (m: string) => void }) {
   useEffect(() => {
     if (userId) load();
   }, [userId, load]);
-  async function reveal(id: string) {
-    if (shown[id]) return setShown(({ [id]: _, ...rest }) => (void _, rest));
-    const r = await fetch("/api/vault", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id }) });
+  async function reveal(id: string, password?: string) {
+    if (shown[id] && !password) return setShown(({ [id]: _, ...rest }) => (void _, rest));
+    const r = await fetch("/api/vault", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, password }) });
     const d = await r.json();
+    if (d.needPassword) {
+      setAskPw(id);
+      if (password) onToast(d.error);
+      return;
+    }
     if (!r.ok) return onToast(d.error || "Couldn't reveal");
+    setAskPw(null);
+    setPw("");
     setShown((s) => ({ ...s, [id]: d.password }));
     setTimeout(() => setShown(({ [id]: _, ...rest }) => (void _, rest)), 30000);
   }
@@ -252,7 +261,7 @@ export function VaultCard({ onToast }: { onToast: (m: string) => void }) {
         <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-pink-tint text-pink-ink"><KeyRound size={19} /></span>
         <div>
           <h2 className="text-lg font-bold">Careers-site accounts</h2>
-          <p className="text-sm text-muted">Logins your agent created on employers&apos; sites, each with its own strong password. Only you can reveal them; they&apos;re encrypted and never shown to staff or the AI.</p>
+          <p className="text-sm text-muted">Logins your agent created on employers&apos; sites, each with its own strong password. Only you can reveal them, after confirming it&apos;s you; they&apos;re encrypted and never shown to staff or the AI.</p>
         </div>
       </div>
       {rows === null && <div className="skeleton mt-4 h-20" />}
@@ -266,6 +275,12 @@ export function VaultCard({ onToast }: { onToast: (m: string) => void }) {
             </div>
             {shown[r.id] && <code className="rounded-lg bg-canvas px-2.5 py-1 text-sm">{shown[r.id]}</code>}
             {shown[r.id] && <button className="rounded-lg p-2 text-subtle hover:text-ink" onClick={() => copy(shown[r.id], r.id)} aria-label="Copy password">{copied === r.id ? <Check size={16} className="text-green" /> : <Copy size={16} />}</button>}
+            {askPw === r.id && (
+              <form className="flex w-full flex-wrap items-center gap-2 sm:w-auto" onSubmit={(e) => { e.preventDefault(); if (pw) reveal(r.id, pw); }}>
+                <input type="password" autoComplete="current-password" className="input min-h-9 w-48 text-sm" placeholder="Your Vantage password" value={pw} onChange={(e) => setPw(e.target.value)} aria-label="Your Vantage password" autoFocus />
+                <button className="btn-secondary min-h-9 text-xs" disabled={!pw}>Confirm it&apos;s you</button>
+              </form>
+            )}
             <button className="btn-ghost min-h-9 text-xs" onClick={() => reveal(r.id)}>{shown[r.id] ? <><EyeOff size={14} /> Hide</> : <><Eye size={14} /> Reveal</>}</button>
             <a className="btn-ghost min-h-9 text-xs" href={`https://${r.host}`} target="_blank" rel="noopener noreferrer">Open site</a>
             <button className="rounded-lg p-2 text-subtle hover:text-red-ink" onClick={() => del(r.id)} aria-label="Remove login"><Trash2 size={16} /></button>

@@ -16,7 +16,37 @@ export type FormField = {
 };
 
 export type Fill = { id: string; value?: string; file?: "resume" | "cover_letter"; check?: boolean };
-export type Missing = { id: string; qkey: string; label: string; type: FormField["type"]; options?: string[]; required: boolean; kind?: "consent" };
+export type Missing = {
+  id: string; qkey: string; label: string; type: FormField["type"]; options?: string[]; required: boolean; kind?: "consent";
+  /** A legal statement in the user's name (eligibility, history, pay): only their own answer to this exact question is used. */
+  locked?: LockedKind;
+  /** What the profile suggests — shown pre-selected, but the user confirms it for this exact wording. */
+  suggest?: string;
+};
+
+export type LockedKind = "citizenship" | "work_auth" | "sponsorship" | "conviction" | "salary_history" | "clearance" | "age";
+
+/**
+ * Questions whose answer is a statement of fact the employer relies on — citizenship, right to work, sponsorship,
+ * criminal record, pay history, clearances, age. A wrong answer here can have legal or immigration consequences for the
+ * person, so the agent never infers or rewords these: it uses only the answer the person confirmed for the same wording,
+ * and asks them for anything worded differently.
+ */
+const LOCKED: [LockedKind, RegExp][] = [
+  ["sponsorship", /sponsor/],
+  ["work_auth", /authori[sz]ed to work|authori[sz]ation to work|eligib(le|ility) to work|right to work|legally (able|permitted|allowed|entitled|eligible) to (work|be employed)|work permit|employment authori[sz]ation|work visa|visa status|immigration status/],
+  ["citizenship", /\bcitizen|citizenship|nationality|national of\b|green card|permanent resident|lawful permanent/],
+  ["conviction", /convict|criminal|felon|misdemeanou?r|arrested|offen[cs]e|pending charges|guilty/],
+  ["salary_history", /(current|present|previous|prior|last|most recent) (base |annual |total )?(salary|compensation|pay|wage|ctc)|salary history|compensation history|pay history/],
+  ["clearance", /security clearance|clearance level|active clearance|\bitar\b|export control|\bu\.?s\.? person\b/],
+  ["age", /(at least|over|older than|under|younger than) (the age of )?1[68]\b|\b1[68] years|legal (working )?age|age of majority|minimum age/],
+];
+
+export function lockedKind(label: string): LockedKind | null {
+  const l = label.toLowerCase();
+  for (const [k, re] of LOCKED) if (re.test(l)) return k;
+  return null;
+}
 
 export type Facts = {
   first_name: string; last_name: string; full_name: string; preferred_name: string;
@@ -28,6 +58,8 @@ export type Facts = {
   work_authorized: string; sponsorship: string; sponsorship_detail: string; work_status: string;
   preferred_locations: string; remote_ok: string;
   sponsorship_now: string; sponsorship_future: string; eeo_private: string;
+  /** "Yes" when the person confirmed they are 18 or older. */
+  adult: string;
 };
 
 export function qkeyOf(label: string) {
@@ -45,6 +77,7 @@ export function buildFacts(input: {
   auth: WorkAuth | undefined;
   country: string;
   prefs?: { locations?: { city?: string; state?: string; country?: string }[] | null; remote_ok?: boolean | null } | null;
+  adult?: boolean;
 }): Facts {
   const a = input.applicant || {};
   const r = input.resume || ({ name: input.name } as ResumeContent);
@@ -105,6 +138,7 @@ export function buildFacts(input: {
     sponsorship_now: input.auth ? (authorisedNow(input.auth) ? "No" : "Yes") : "",
     sponsorship_future: input.auth ? (needsSponsorshipLater(input.auth) ? "Yes" : "No") : "",
     eeo_private: DECLINE,
+    adult: input.adult ? "Yes" : "",
   };
 }
 
@@ -250,6 +284,7 @@ export async function planFields(
 ): Promise<{ fills: Fill[]; missing: Missing[] }> {
   const fills: Fill[] = [];
   const open: FormField[] = [];
+  const missing: Missing[] = [];
   const bank = new Map(ctx.answers.map((a) => [a.qkey, a.answer]));
   const bankKeys = ctx.answers.map((a) => ({ k: a.qkey, set: new Set(a.qkey.split(" ")) }));
 
@@ -269,6 +304,22 @@ export async function planFields(
   for (const f of fields) {
     const label = `${f.label} ${f.name || ""} ${f.placeholder || ""}`.toLowerCase().replace(/[*_]/g, " ").trim();
     if (f.type === "password") continue; // credentials are handled by the worker, never by this planner or the AI
+    const lk = f.type === "file" ? null : lockedKind(label);
+    if (lk) {
+      // Exact wording only — never the fuzzy saved-answer match, never a rule, never AI.
+      let v = bank.get(qkeyOf(f.label)) || null;
+      if (!v && lk === "age" && ctx.facts.adult === "Yes" && /(at least|over|older than) (the age of )?18\b|\b18 years (of age )?or older|18 or (older|over)|legal (working )?age|age of majority/.test(label) && !/under|younger/.test(label)) v = "Yes";
+      const opt = v && f.options?.length ? bestOption(f.options, v) : null;
+      if (v && f.options?.length && opt) fills.push({ id: f.id, value: opt });
+      else if (v && !f.options?.length && f.type === "checkbox") {
+        if (/^(yes|true)/i.test(v)) fills.push({ id: f.id, check: true });
+      } else if (v && !f.options?.length) fills.push({ id: f.id, value: v });
+      else if (f.required || !v) {
+        // Optional statements are left blank rather than guessed.
+        if (f.required) missing.push({ id: f.id, qkey: qkeyOf(f.label), label: coreLabel(f.label), type: f.type, options: f.options, required: true, locked: lk, suggest: suggestLocked(lk, label, f, ctx.facts) || undefined });
+      }
+      continue;
+    }
     const saved = fromBank(f.label);
     const core = coreLabel(f.label);
     const yesNo = (f.options || []).filter((o) => !/^(select|choose|please select|--)/i.test(o.trim())).every((o) => /^(yes|no)\b/i.test(o.trim())) && (f.options || []).length > 0;
@@ -356,7 +407,6 @@ export async function planFields(
   }
 
   // Open questions: AI may answer motivation / experience questions from the resume; personal facts are always asked.
-  const missing: Missing[] = [];
   let aiAnswers: Record<string, string> = {};
   // Certifications, legal, eligibility and identity questions are never answered by AI: only by the user's own saved answers.
   const isConsent = (f: FormField) => /privacy|consent|i agree|acknowledge|terms|certify|attest|accurate and complete|true and correct|data (processing|retention)|i understand/.test(f.label.toLowerCase());
@@ -373,7 +423,7 @@ Rules:
 Return ONLY JSON {"<id>": "<value or ASK>"}.`,
       [{
         role: "user",
-        content: `JOB: ${ctx.job.title} at ${ctx.job.company}\n${(ctx.job.description || "").slice(0, 3000)}\n\nCANDIDATE FACTS: ${JSON.stringify(aiFacts(ctx.facts))}\nRESUME: ${JSON.stringify(ctx.resume || {}).slice(0, 7000)}\nSAVED ANSWERS: ${JSON.stringify(relevantAnswers(ctx.answers, askable))}\n\nFIELDS: ${JSON.stringify(askable.map((f) => ({ id: f.id, label: f.label, type: f.type, options: f.options?.slice(0, 40), required: f.required })))}`,
+        content: `JOB: ${ctx.job.title} at ${ctx.job.company}\n${(ctx.job.description || "").slice(0, 3000)}\n\nCANDIDATE FACTS: ${JSON.stringify(aiFacts(ctx.facts))}\nRESUME: ${JSON.stringify(aiResume(ctx.resume)).slice(0, 7000)}\nSAVED ANSWERS: ${JSON.stringify(relevantAnswers(ctx.answers, askable))}\n\nFIELDS: ${JSON.stringify(askable.map((f) => ({ id: f.id, label: f.label, type: f.type, options: f.options?.slice(0, 40), required: f.required })))}`,
       }],
       2500,
       { model: "fast", temperature: 0.2 },
@@ -399,6 +449,24 @@ Return ONLY JSON {"<id>": "<value or ASK>"}.`,
   return { fills, missing };
 }
 
+/** What the person's profile suggests for a locked question. Shown pre-selected; the person still confirms it. */
+function suggestLocked(kind: LockedKind, label: string, f: FormField, facts: Facts): string | null {
+  let v: string | null = null;
+  if (kind === "sponsorship") v = sponsorshipFor(label, facts);
+  else if (kind === "work_auth") {
+    v = facts.work_authorized ? (/^yes/i.test(facts.work_authorized) ? "Yes" : "No") : null;
+    const yesOpts = (f.options || []).filter((o) => /^yes\b/i.test(o.trim()));
+    if (v === "Yes" && yesOpts.length > 1) {
+      const needs = facts.sponsorship_future === "Yes" || facts.sponsorship_now === "Yes";
+      const limited = yesOpts.find((o) => /sponsor|visa|restrict|temporar|require|permit|\bopt\b|\bead\b|limited/i.test(o) && !/no restriction|without (any )?(restriction|sponsorship)|unrestricted/i.test(o));
+      const full = yesOpts.find((o) => /no restriction|without (any )?(restriction|sponsorship)|unrestricted|citizen|permanent/i.test(o));
+      v = (needs ? limited : full) || null;
+    }
+  } else if (kind === "age" && facts.adult === "Yes" && !/under|younger/.test(label)) v = "Yes";
+  if (!v) return null;
+  return f.options?.length ? bestOption(f.options, v) : v;
+}
+
 /** Only professional facts go to the AI — never contact details, demographics or immigration status. */
 function aiFacts(f: Facts) {
   return {
@@ -406,6 +474,14 @@ function aiFacts(f: Facts) {
     years_experience: f.years_experience, city: f.city, state: f.state, country: f.country, relocate: f.relocate, start: f.start, notice: f.notice,
     preferred_locations: f.preferred_locations, remote_ok: f.remote_ok,
   };
+}
+
+/** The resume without contact details: the AI only needs the professional history. */
+function aiResume(r: ResumeContent | null) {
+  if (!r) return {};
+  const { name: _n, email: _e, phone: _p, links: _l, location: _loc, ...rest } = r;
+  void _n; void _e; void _p; void _l; void _loc;
+  return rest;
 }
 
 /** Only saved answers that share meaningful words with the fields being asked go to the AI. */

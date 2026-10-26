@@ -8,7 +8,7 @@ export type AgentTask = {
   apply_url: string;
   status: string;
   step: string | null;
-  needs: { id: string; qkey: string; label: string; type: string; options?: string[]; required?: boolean; kind?: "consent"; tried?: string }[];
+  needs: { id: string; qkey: string; label: string; type: string; options?: string[]; required?: boolean; kind?: "consent"; tried?: string; locked?: string; suggest?: string }[];
   user_input: Record<string, unknown>;
   log: { at: string; text: string }[];
   resume_id: string | null;

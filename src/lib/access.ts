@@ -9,8 +9,22 @@ export const EARLY_ACCESS_PLAN: EffectivePlan = {
   id: "early",
   name: "Early access",
   // Focused, high-quality volume: what gets interviews, and safe for careers sites.
-  limits: { roles: 5, countries: 3, tailorsPerMonth: 300, autoApplyPerDay: 25, trackLimit: 100000 },
+  limits: { roles: 5, countries: 3, tailorsPerMonth: 300, autoApplyPerDay: 200, trackLimit: 100000 },
 };
+
+/**
+ * Daily applications by the agent. Fewer, tailored applications get more interviews and keep careers sites happy,
+ * so the default is 20; up to 200 only when the person explicitly opts in to high volume.
+ */
+export const DEFAULT_DAILY = 20;
+export const HIGH_VOLUME_MAX = 200;
+/** At most this many applications to the same employer in 30 days (the agent never floods one company). */
+export const PER_EMPLOYER_30D = 3;
+
+export function dailyLimit(profile: { daily_limit?: number | null; high_volume_ok?: boolean | null } | null | undefined, plan: EffectivePlan): number {
+  const cap = profile?.high_volume_ok ? Math.min(HIGH_VOLUME_MAX, plan.limits.autoApplyPerDay) : Math.min(DEFAULT_DAILY, plan.limits.autoApplyPerDay);
+  return Math.max(0, Math.min(profile?.daily_limit || DEFAULT_DAILY, cap));
+}
 
 /** The owner and admins test without limits. */
 export const OWNER_PLAN: EffectivePlan = {
