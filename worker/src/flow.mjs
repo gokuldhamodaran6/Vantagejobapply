@@ -368,7 +368,7 @@ async function verifyEmail(bundle, page, sinceIso) {
   }
 }
 
-const ATS_NAMES = [["greenhouse", "Greenhouse"], ["lever.co", "Lever"], ["ashbyhq", "Ashby"], ["myworkday", "Workday"], ["icims", "iCIMS"], ["smartrecruiters", "SmartRecruiters"], ["workable", "Workable"]];
+const ATS_NAMES = [["greenhouse", "Greenhouse"], ["lever", "Lever"], ["ashby", "Ashby"], ["workday", "Workday"], ["icims", "iCIMS"], ["smartrecruiters", "SmartRecruiters"], ["workable", "Workable"]];
 const systemOf = (url, company) => (ATS_NAMES.find(([k]) => url.includes(k)) || [null, `${company}'s careers site`])[1];
 const cleanCo = (c) => String(c || "").split(/\s*[|\-–]\s*/).filter(Boolean).pop()?.replace(/\bcareers?\b/i, "").trim() || c;
 
@@ -380,7 +380,9 @@ const cleanCo = (c) => String(c || "").split(/\s*[|\-–]\s*/).filter(Boolean).p
 async function passCode(bundle, page, ch) {
   const { task } = bundle;
   const company = cleanCo(task.job.company);
-  const system = systemOf(page.url(), company);
+  // Careers pages often embed the ATS in a frame (Datadog → Greenhouse), so look at every frame and the task's ATS.
+  const urls = [page.url(), ...page.frames().map((f) => f.url()), String(task.ats || "")].join(" ").toLowerCase();
+  const system = systemOf(urls, company);
   const sentTo = ch.sentTo || bundle.identity.email;
   const waitStart = Date.now();
   const tried = new Set();
