@@ -94,9 +94,11 @@ async function plannerChecks() {
     { id: "f", label: "Will you now require immigration sponsorship (e.g., H-1B, STEM OPT, or any immigration work authorization)?*", type: "combobox", options: ["Yes", "No"], required: true },
     { id: "g", label: "Will you in the future require immigration sponsorship (e.g., H-1B, STEM OPT)?*", type: "combobox", options: ["Yes", "No"], required: true },
     { id: "h", label: "Have you ever been previously employed by Datadog?*", type: "checkboxes", options: ["No", "Yes - Intern", "Yes - Full Time Employment"], required: true },
+    { id: "i", label: "Passport Country*", type: "text", required: true },
+    { id: "j", label: "Have you worked at DoorDash?*", type: "combobox", options: ["I have never worked at DoorDash", "I am a previous employee", "I am a previous DoorDash Dasher"], required: true },
   ], { facts, answers: [], job: { title: "PM", company: "Datadog" }, resume: { name: "x", experience: [{ title: "Analyst", company: "Kaar Tech", start: "2021", end: "2024", bullets: [] }] } as never, coverLetter: null, consent: false });
   const w = Object.fromEntries(p2.fills.map((x) => [x.id, x.value]));
-  ok(w.e === "Yes, but I will require sponsorship in the future" && w.f === "No" && w.g === "Yes" && w.h === "No", "OPT: authorised now with future sponsorship, never 'no restriction'");
+  ok(w.e === "Yes, but I will require sponsorship in the future" && w.f === "No" && w.g === "Yes" && w.h === "No" && w.j === "I have never worked at DoorDash" && p2.missing.some((m) => m.id === "i") && !w.i, "OPT: authorised now with future sponsorship, never 'no restriction'; passport asked, not guessed");
 }
 
 // Interview times from emails.

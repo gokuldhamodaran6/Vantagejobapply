@@ -70,6 +70,8 @@ function extractInPage() {
     const isFile = type === "file";
     if (!isFile && type !== "radio" && type !== "checkbox" && !visible(el)) continue;
     if (el.closest("[aria-hidden='true']") && !isFile) continue;
+    // Site search boxes (job keyword / location search in the header) are not part of the application.
+    if (el.closest("header, nav, [role='search'], [role='banner'], form[action*='search' i]") || /search|keyword|query/i.test(`${el.id} ${el.name} ${el.getAttribute("placeholder") || ""} ${el.getAttribute("aria-label") || ""}`)) continue;
     // react-select puts the real input inside a combobox container; skip duplicates
     if (el.tagName === "INPUT" && el.closest("[role='combobox']") && el.getAttribute("role") !== "combobox") continue;
 

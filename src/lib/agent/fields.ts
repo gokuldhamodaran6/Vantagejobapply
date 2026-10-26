@@ -217,7 +217,7 @@ export function bestOption(options: string[], want: string): string | null {
   const yes = /^(yes|y|true)\b/.test(w);
   const no = /^(no|n|false)\b/.test(w);
   if (yes) return opts.find((o) => /^yes\b/i.test(o.trim())) || null;
-  if (no) return opts.find((o) => /^no\b/i.test(o.trim())) || null;
+  if (no) return opts.find((o) => /^no\b/i.test(o.trim())) || opts.find((o) => /\b(never|have not|haven't|i am not|not (a |an )?(current|previous|former))\b/i.test(o) && !/\byes\b/i.test(o)) || null;
   if (/decline|don.?t wish|prefer not|not to (say|answer|disclose)/.test(w)) {
     return opts.find((o) => /decline|don.?t wish|prefer not|not to (say|answer|disclose|self)|choose not|(do not|don.?t) want to (answer|say|disclose|identify)|rather not/i.test(o)) || null;
   }
@@ -270,7 +270,9 @@ export async function planFields(
     const yesNo = (f.options || []).filter((o) => !/^(select|choose|please select|--)/i.test(o.trim())).every((o) => /^(yes|no)\b/i.test(o.trim())) && (f.options || []).length > 0;
     // Short personal facts (name, city, country, school…) only answer short labels — never a question that merely mentions them,
     // and never a Yes/No question.
-    const rule = RULES.find(([re, key]) => re.test(label) && !(SHORT_FACTS.has(key) && (core.length > 60 || yesNo)));
+    // Passport, nationality and citizenship are never inferred from where someone lives: only their own saved answer.
+    const identity = /passport|nationality|citizenship|citizen of|country of (birth|origin)|place of birth/.test(label);
+    const rule = identity ? undefined : RULES.find(([re, key]) => re.test(label) && !(SHORT_FACTS.has(key) && (core.length > 60 || yesNo)));
     let value: string | null = null;
 
     if (f.type === "file") {
@@ -354,7 +356,7 @@ export async function planFields(
   let aiAnswers: Record<string, string> = {};
   // Certifications, legal, eligibility and identity questions are never answered by AI: only by the user's own saved answers.
   const isConsent = (f: FormField) => /privacy|consent|i agree|acknowledge|terms|certify|attest|accurate and complete|true and correct|data (processing|retention)|i understand/.test(f.label.toLowerCase());
-  const NO_AI = /cities|city|location|relocat|on-?site|in the office|commut|travel|authori[sz]ed to work|eligible to work|right to work|sponsor|visa|citizen|immigration|green card|clearance|export control|itar|us person|veteran|disabilit|gender|\brace\b|ethnic|hispanic|pronoun|salary|compensation/;
+  const NO_AI = /passport|nationality|citizen|age of|years of age|\b18\b|cities|city|location|relocat|on-?site|in the office|commut|travel|authori[sz]ed to work|eligible to work|right to work|sponsor|visa|citizen|immigration|green card|clearance|export control|itar|us person|veteran|disabilit|gender|\brace\b|ethnic|hispanic|pronoun|salary|compensation/;
   const askable = open.filter((f) => !SENSITIVE.test(f.label.toLowerCase()) && !NO_AI.test(f.label.toLowerCase()) && !isConsent(f));
   if (aiConfigured() && askable.length) {
     const out = await claude(
