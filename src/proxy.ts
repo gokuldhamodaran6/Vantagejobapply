@@ -20,7 +20,9 @@ export async function proxy(request: NextRequest) {
     },
   });
 
-  const { data } = await supabase.auth.getUser();
+  // Verifies the session token locally (signing keys) and refreshes it when needed — no auth-server round trip per page.
+  const { data: c } = await supabase.auth.getClaims();
+  const data = { user: c?.claims?.sub ? { id: c.claims.sub } : null };
   const path = request.nextUrl.pathname;
   const isProtected = path.startsWith("/app") || path.startsWith("/admin") || path.startsWith("/onboarding");
 

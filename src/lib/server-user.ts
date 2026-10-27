@@ -5,9 +5,13 @@ import type { Profile, TargetPrefs, TargetRole, WorkAuth } from "@/lib/types";
 
 export async function loadUserContext() {
   const supabase = await supabaseServer();
-  const { data: u } = await supabase.auth.getUser();
-  if (!u.user) return null;
-  const uid = u.user.id;
+  // Verifies the signed login token locally when the project uses signing keys (no round trip to the auth server);
+  // otherwise it asks the auth server, exactly like getUser().
+  const { data: c } = await supabase.auth.getClaims();
+  const claims = c?.claims as { sub?: string; email?: string } | undefined;
+  if (!claims?.sub) return null;
+  const uid = claims.sub;
+  const u = { user: { id: uid, email: claims.email } };
   const [p, pr, r, a] = await Promise.all([
     supabase.from("profiles").select("*").eq("id", uid).single(),
     supabase.from("target_prefs").select("*").eq("user_id", uid).maybeSingle(),

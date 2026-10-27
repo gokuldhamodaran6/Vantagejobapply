@@ -20,8 +20,9 @@ export function MeProvider({ children }: { children: React.ReactNode }) {
 
   const refresh = useCallback(async () => {
     const supabase = supabaseBrowser();
-    const { data: u } = await supabase.auth.getUser();
-    const uid = u.user?.id ?? null;
+    // The signed-in session is read locally (no network); the data itself is protected by row security.
+    const { data: sess } = await supabase.auth.getSession();
+    const uid = sess.session?.user.id ?? null;
     if (!uid) {
       setState((s) => ({ ...s, loading: false, userId: null }));
       return;
@@ -59,7 +60,8 @@ export function useMe(): Me {
 
 export function track(type: string, meta: Record<string, unknown> = {}) {
   const supabase = supabaseBrowser();
-  supabase.auth.getUser().then(({ data }) => {
-    if (data.user) supabase.from("usage_events").insert({ user_id: data.user.id, type, meta }).then(() => {});
+  supabase.auth.getSession().then(({ data }) => {
+    const id = data.session?.user.id;
+    if (id) supabase.from("usage_events").insert({ user_id: id, type, meta }).then(() => {});
   });
 }

@@ -38,6 +38,7 @@ export function ingestSecret(): string {
 
 export async function requireUser() {
   const supabase = await supabaseServer();
-  const { data } = await supabase.auth.getUser();
-  return { supabase, user: data.user };
+  const { data: c } = await supabase.auth.getClaims();
+  const claims = c?.claims as { sub?: string; email?: string } | undefined;
+  return { supabase, user: claims?.sub ? { id: claims.sub, email: claims.email } : null };
 }
