@@ -70,6 +70,7 @@ export function matchJob(job: Job, ctx: MatchCtx): MatchResult {
   const blockers: string[] = [];
   const signals = analyzeText(job.title, job.description);
   let tooSenior = false;
+  let stretchUp = false;
 
   // 1. Role fit
   let best: TargetRole | undefined;
@@ -100,6 +101,7 @@ export function matchJob(job: Job, ctx: MatchCtx): MatchResult {
     } else if (dist === 1) {
       score += 4;
       warnings.push(`Stretch: listed as ${signals.level}`);
+      if (got > Math.max(...want)) stretchUp = true;
     } else {
       score -= 12;
       warnings.push(`Level mismatch: listed as ${signals.level}`);
@@ -228,5 +230,5 @@ export function matchJob(job: Job, ctx: MatchCtx): MatchResult {
   score = Math.max(0, Math.min(100, score));
   const eligible = blockers.length === 0;
   const verdict: MatchResult["verdict"] = !eligible ? "blocked" : score >= 75 ? "great" : score >= 55 ? "good" : "stretch";
-  return { score: eligible ? score : Math.min(score, 30), eligible, verdict, reasons, warnings, blockers, role: best, tooSenior, roleFit: roleScore };
+  return { score: eligible ? score : Math.min(score, 30), eligible, verdict, reasons, warnings, blockers, role: best, tooSenior, stretchUp, roleFit: roleScore };
 }

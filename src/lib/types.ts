@@ -154,6 +154,8 @@ export type MatchResult = {
   blockers: string[];
   role?: TargetRole;
   tooSenior?: boolean;
+  /** One level above what you picked (e.g. Senior when you chose Entry and Mid): shown in Live jobs, never auto-applied. */
+  stretchUp?: boolean;
   roleFit?: number;
 };
 

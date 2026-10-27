@@ -21,8 +21,19 @@ export const STAGE: Record<string, { label: string; tone: "green" | "red" | "ora
 };
 
 /** Every task, without the heavy columns: enough for counts, stats and filters. */
-export type LightTask = Pick<AgentTask, "id" | "status" | "job_id" | "job" | "priority" | "attempts" | "created_at" | "updated_at" | "started_at" | "finished_at">;
-const LIGHT = "id,status,job_id,job,priority,attempts,created_at,updated_at,started_at,finished_at";
+export type LightTask = Pick<AgentTask, "id" | "status" | "job_id" | "job" | "priority" | "attempts" | "created_at" | "updated_at" | "started_at" | "finished_at" | "submit_clicked_at" | "cancel_reason" | "step">;
+const LIGHT = "id,status,job_id,job,priority,attempts,created_at,updated_at,started_at,finished_at,submit_clicked_at,cancel_reason,step";
+
+/**
+ * Applications the agent counts against today's limit: ones it ran itself since midnight UTC (when the database's
+ * day starts) — not ones you filled in your own browser, and not ones skipped before they started.
+ */
+export function countsToday(t: Pick<LightTask, "created_at" | "status" | "started_at">, dayStart: number) {
+  return Date.parse(t.created_at) >= dayStart && t.status !== "extension" && !(t.status === "cancelled" && !t.started_at);
+}
+
+/** A job that didn't finish: what retrying it would do (from the server's duplicate and safety checks). */
+export type RetryRow = { id: string; title: string; company: string; status: string; why: string | null };
 /** Statuses the top of the page works with in full (live card, up next, needs-you cards). */
 const WORKING = [...new Set([...ACTIVE, ...NEEDS_YOU])];
 
@@ -122,5 +133,7 @@ export function agoShort(at: number | null, now: number) {
   if (s < 10) return "just now";
   if (s < 60) return `${s}s ago`;
   const m = Math.round(s / 60);
-  return m < 60 ? `${m} min ago` : `${Math.round(m / 60)} h ago`;
+  if (m < 60) return `${m} min ago`;
+  const h = Math.round(m / 60);
+  return h < 36 ? `${h} h ago` : `${Math.round(h / 24)} days ago`;
 }

@@ -162,12 +162,16 @@ function CompanyDrawer({ board, onClose, roles, prefs, auth, onToast, isTarget, 
   useEffect(() => {
     setJobs(null);
     if (!board) return;
-    supabaseBrowser().from("jobs").select(JOB_COLS).eq("company_norm", board.name_norm).order("posted_at", { ascending: false, nullsFirst: false }).limit(300).then(({ data }) => setJobs((data as Job[]) || []));
+    // Open jobs from the last 60 days only — the same window as Live jobs. Closed postings never appear.
+    const since = new Date(Date.now() - 60 * 864e5).toISOString();
+    supabaseBrowser().from("jobs").select(JOB_COLS).eq("company_norm", board.name_norm).is("closed_at", null).gte("posted_at", since).order("posted_at", { ascending: false, nullsFirst: false }).limit(300).then(({ data }) => setJobs((data as Job[]) || []));
   }, [board]);
   if (!board) return null;
   const scored = (jobs || []).map((j) => ({ j, m: matchJob(j, { roles, prefs, auth }) }));
-  const list = onlyFit ? scored.filter((x) => x.m.eligible && (x.m.roleFit ?? 0) >= 0.45).sort((a, b) => b.m.score - a.m.score) : scored;
+  const list = onlyFit ? scored.filter((x) => x.m.eligible && !x.m.tooSenior && (x.m.roleFit ?? 0) >= 0.45 && x.m.score >= 30).sort((a, b) => b.m.score - a.m.score) : scored;
   async function apply(j: Job) {
+    // A real application goes to the employer: say so before sending.
+    if (!window.confirm(`Send a real application to ${j.company} for “${j.title}”?\n\nYour agent tailors your resume and applies on their official site.`)) return;
     setBusy(j.id);
     const r = await fetch("/api/agent/tasks", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ jobId: j.id }) }).catch(() => null);
     const d = r ? await r.json().catch(() => ({})) : {};

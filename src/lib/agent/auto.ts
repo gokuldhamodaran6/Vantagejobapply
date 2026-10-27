@@ -5,15 +5,17 @@ import { titleTsQuery } from "@/lib/jobs/engine";
 import { normCompany } from "@/lib/jobs/signals";
 import { dailyLimit, effectivePlan, PER_EMPLOYER_30D } from "@/lib/access";
 import { prepareAndQueue } from "./prepare";
-import { autoSkipReason, DEFAULT_FRESH_DAYS, interleaveByPriority, taskPriority } from "./plan";
+import { autoSkipReason, DEFAULT_FRESH_DAYS, interleaveByPriority, roleKey, taskPriority } from "./plan";
 import { rpc, wakeWorker } from "./svc";
 import { ingestSecret, supabaseAnon } from "@/lib/supabase/server";
 import type { Job, TargetPrefs, TargetRole, WorkAuth } from "@/lib/types";
 
 type AutoUser = {
   user_id: string; autonomy: string; daily_limit: number; high_volume_ok?: boolean | null; name: string | null; role?: string | null;
-  prefs: TargetPrefs | null; roles: TargetRole[]; auth: WorkAuth[]; today: number; known_jobs: string[];
+  prefs: TargetPrefs | null; roles: TargetRole[]; auth: WorkAuth[]; today: number; known_jobs: string[]; known_roles?: string[];
 };
+
+
 
 /**
  * The agent's sourcing loop. For users on "fully automatic" or "approve important":
@@ -42,15 +44,17 @@ export async function autoSource(deadline: number) {
     if (remaining <= 0 || !u.roles.length) continue;
     const perRun = Math.min(remaining, 8);
     const known = new Set(u.known_jobs || []);
+    const sentRoles = new Set(u.known_roles || []);
     const since = new Date(Date.now() - (u.prefs?.max_days_old || DEFAULT_FRESH_DAYS) * 864e5).toISOString();
     const phrases = [...new Set(u.roles.flatMap((r) => searchVariants(r.title, 10)))];
     const candidates: { job: Job; score: number; important: boolean; roleId?: string; rolePriority?: number }[] = [];
     for (const country of (u.prefs?.countries?.length ? u.prefs.countries : ["US"]).slice(0, 6)) {
-      const jobs = (await rpc<Job[]>("search", { country, tsquery: titleTsQuery(phrases), since, limit: 300 })) || [];
+      // One slow country never stops the rest (a timeout used to stop auto-apply for everyone).
+      const jobs = (await rpc<Job[]>("search", { country, tsquery: titleTsQuery(phrases), since, limit: 400 }).catch((e) => { console.error("auto search failed", country, String(e).slice(0, 200)); return null; })) || [];
       await loadBoards(jobs.map((j) => boardOfJob(j.id)));
       const targets = new Set((u.prefs?.companies || []).map(normCompany));
       for (const job of jobs) {
-        if (known.has(job.id)) continue;
+        if (known.has(job.id) || sentRoles.has(roleKey(job.company, job.title))) continue;
         const info = boardInfo.get(boardOfJob(job.id));
         const vetted = Boolean(info) && !info!.added_by;
         const mine = Boolean(info) && targets.has(normCompany(info!.name));

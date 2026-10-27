@@ -1,7 +1,7 @@
 import { json, loadUserContext } from "@/lib/server-user";
 import { pipelineForUser } from "@/lib/jobs/engine";
 import { dailyLimit, recentByEmployer } from "@/lib/access";
-import { limitDayStart } from "@/lib/agent/plan";
+import { limitDayStart, roleKey } from "@/lib/agent/plan";
 
 export const maxDuration = 60;
 
@@ -15,13 +15,20 @@ export async function GET() {
   const started = Date.now();
   const dayStart = new Date(limitDayStart()).toISOString();
   const [tasks, apps, today, perEmployer] = await Promise.all([
-    ctx.supabase.from("agent_tasks").select("job_id").limit(10000),
-    ctx.supabase.from("applications").select("job_id").not("job_id", "is", null).limit(10000),
-    // The database counts the day's applications from midnight UTC, by when each task was created.
-    ctx.supabase.from("agent_tasks").select("id", { count: "exact", head: true }).gte("created_at", dayStart),
+    ctx.supabase.from("agent_tasks").select("job_id,job,status,submit_clicked_at").limit(10000),
+    ctx.supabase.from("applications").select("job_id,job,applied_at").limit(10000),
+    // Same rule as the agent: its own applications since midnight UTC — not browser ones, not ones skipped before starting.
+    ctx.supabase.from("agent_tasks").select("id", { count: "exact", head: true }).gte("created_at", dayStart).neq("status", "extension").or("status.neq.cancelled,started_at.not.is.null"),
     recentByEmployer(ctx.supabase),
   ]);
-  const known = new Set<string>([...(tasks.data || []), ...(apps.data || [])].map((r) => (r as { job_id: string }).job_id).filter(Boolean));
+  type K = { job_id: string | null; job: { company: string; title: string } | null; status?: string; submit_clicked_at?: string | null; applied_at?: string | null };
+  const rows = [...((tasks.data as K[]) || []), ...((apps.data as K[]) || [])];
+  const known = new Set<string>(rows.map((r) => r.job_id || "").filter(Boolean));
+  // A repost of a job already sent (new link, same company and title) is "handled" too.
+  for (const r of rows) {
+    const sent = r.applied_at || r.submit_clicked_at || ["submitted", "extension", "manual"].includes(r.status || "");
+    if (sent && r.job) known.add(`role:${roleKey(r.job.company, r.job.title)}`);
+  }
   const limit = dailyLimit(ctx.profile as { daily_limit?: number; high_volume_ok?: boolean }, ctx.plan);
   const usedToday = today.count || 0;
   try {

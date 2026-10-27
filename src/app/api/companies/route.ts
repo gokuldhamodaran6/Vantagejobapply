@@ -25,8 +25,11 @@ export async function POST(req: Request) {
   let board: Board | null = null;
   if (url) {
     const b = boardFromUrl(url);
-    if (!b) return json({ error: "That link isn't from a careers system we can read yet (Workday, Greenhouse, Lever, Ashby, SmartRecruiters, Workable or Recruitee). Try the company's own careers page link." }, 400);
-    board = { ...b, name: name?.trim() || b.token.replace(/[-_]/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()) };
+    if (!b) return json({ error: "That link isn't from a careers system we can read yet (Workday, Greenhouse, Lever, Ashby, Workable, Recruitee, BambooHR, Breezy, Rippling, Pinpoint, Teamtailor or Gem). Try a job link from the company's careers site." }, 400);
+    // A board that's already known keeps its name: one person's label never renames a company for everyone.
+    const { data: known } = await ctx.supabase.from("boards").select("name").eq("ats", b.ats).eq("token", b.token).limit(1);
+    const fromToken = b.token.replace(/[-_]/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+    board = { ...b, name: known?.[0]?.name || fromToken };
   } else if (name && name.trim().length > 1) {
     board = await resolveCompany(name.trim());
     if (!board) return json({ found: false, error: `We couldn't find ${name}'s careers feed automatically. Paste any job link from their careers site and we'll add it.` }, 404);

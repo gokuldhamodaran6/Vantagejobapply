@@ -201,13 +201,30 @@
   }
 
   const CONFIRM = /thank(s| you) for (applying|your application|submitting)|application (has been |was )?(received|submitted)|we('ve| have) received your application|successfully (submitted|applied)|your application is complete/i;
-  const isConfirmation = () => CONFIRM.test(document.body?.innerText?.slice(0, 20000) || "") || /\/(confirmation|thank-?you|applied|success)\b/i.test(location.pathname);
+  const visible = (el) => { const r = el.getBoundingClientRect(); const cs = getComputedStyle(el); return r.width > 2 && r.height > 2 && cs.visibility !== "hidden" && cs.display !== "none"; };
+  const openFields = () => [...document.querySelectorAll("input:not([type=hidden]):not([type=search]):not([type=submit]):not([type=button]), select, textarea")].filter(visible).length;
+  /**
+   * Is this the "thank you for applying" page? Only when the wording is in the page's headline area (a heading,
+   * a status message or the first lines of the page) and the form itself is gone. A job page that merely says
+   * "application received" in an FAQ, a sign-in page, or the next step of the form never counts.
+   */
+  const isConfirmation = () => {
+    if (document.querySelector("input[type=password]")) return false;
+    const heads = [...document.querySelectorAll("h1, h2, h3, [role=alert], [role=status], [role=dialog], [aria-live]")].filter(visible).map((n) => n.innerText || "").join("\n").slice(0, 4000);
+    const lead = (document.querySelector("main, [role=main]") || document.body)?.innerText?.slice(0, 1500) || "";
+    const said = CONFIRM.test(heads) || CONFIRM.test(lead) || (/\/(confirmation|thank-?you|application-?submitted)\b/i.test(location.pathname) && CONFIRM.test(document.body?.innerText?.slice(0, 6000) || ""));
+    return said && openFields() <= 3;
+  };
 
-  // After the user presses a submit-like button, watch for the confirmation (single-page apps don't reload).
+  // When the person presses the form's own final button, remember it (only a press on a filled-in form counts),
+  // then watch for the confirmation (single-page apps don't reload).
+  const FINAL = /^\s*(submit|send|finish|complete|apply)\b[^\n]{0,30}$/i;
   if (window === window.top) {
     document.addEventListener("click", (e) => {
       const b = e.target instanceof Element ? e.target.closest("button, input[type='submit'], [role='button']") : null;
-      if (!b || !/submit|apply|send|finish/i.test(b.innerText || b.value || "")) return;
+      if (!b || !FINAL.test(b.innerText || b.value || b.getAttribute("aria-label") || "")) return;
+      if (openFields() < 2) return; // an "Apply" link on a job page, not a form's submit
+      chrome.runtime.sendMessage({ type: "submit_click" }).catch(() => {});
       let n = 0;
       const t = setInterval(() => {
         if (isConfirmation()) { clearInterval(t); chrome.runtime.sendMessage({ type: "confirmation" }).catch(() => {}); }

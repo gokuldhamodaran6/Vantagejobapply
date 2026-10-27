@@ -64,7 +64,8 @@ export async function jobFromLink(raw: string): Promise<{ job: Job; board: (Omit
       if (b.ats === "smartrecruiters") return parts[1]?.split("-")[0];
       if (b.ats === "workable") return parts[parts.indexOf("j") + 1];
       if (b.ats === "recruitee") return parts[parts.indexOf("o") + 1];
-      if (b.ats === "workday") return u.pathname.match(/_([A-Z]*-?\d[\w-]*)$/)?.[1] || u.pathname.split("/").pop();
+      // ".../Senior-Analyst_JR2023490/apply/applyManually" is the same job as ".../Senior-Analyst_JR2023490".
+      if (b.ats === "workday") return u.pathname.replace(/\/apply(\/.*)?$/i, "").match(/_([A-Z]*-?\d[\w-]*)$/)?.[1] || u.pathname.split("/").pop();
       return null;
     })();
     const hit = jobs.find((j) => {
@@ -77,6 +78,9 @@ export async function jobFromLink(raw: string): Promise<{ job: Job; board: (Omit
       return { job: { ...hit, company: real }, board: { ...b, name: real } };
     }
   }
+  // The same posting always gets the same id, whichever step of the application the link points at.
+  const wdReq = b?.ats === "workday" ? u.pathname.replace(/\/apply(\/.*)?$/i, "").match(/_([A-Z]*-?\d[\w-]*)$/)?.[1] : null;
+  const stableId = wdReq ? `wd:${b!.token}:${wdReq}` : `link:${u.hostname}:${Buffer.from(u.pathname.replace(/\/(apply|application)(\/.*)?$/i, "") + u.search.replace(/[?&](utm_[^=&]+|source|src|ref|gh_src|trackingId|refId)=[^&]*/gi, "")).toString("base64url").slice(0, 60)}`;
   // Any other careers site: read the schema.org JobPosting most company sites publish for search engines.
   const page = await safeFetch(u.toString(), { headers: { "User-Agent": UA, Accept: "text/html" }, maxBytes: 3_000_000 });
   if (!page?.ok) return null;
@@ -93,7 +97,7 @@ export async function jobFromLink(raw: string): Promise<{ job: Job; board: (Omit
   const description = stripHtml(posting?.description || html.match(/<meta (?:name|property)="(?:og:)?description" content="([^"]+)"/i)?.[1] || "").slice(0, 15000);
   const s = analyzeText(title, description);
   const job: Job = {
-    id: `link:${u.hostname}:${Buffer.from(u.pathname + u.search).toString("base64url").slice(0, 60)}`,
+    id: stableId,
     source: "company_site",
     country: detectCountry(loc || "", "US") || "US",
     title: decodeEntities(title).trim(),

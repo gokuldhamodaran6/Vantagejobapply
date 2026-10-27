@@ -6,7 +6,7 @@ import { Check } from "lucide-react";
 const INCLUDED = [
   "Live jobs from employers' official careers sites",
   "Visa-aware filtering for the US, UK, Canada, Australia and more",
-  "Up to 10 target roles across 6 countries",
+  "Up to 100 target roles across 20 countries",
   "A tailored resume and cover letter for every job",
   "Ask your agent: status, targets and interview prep",
   "Every application, email and interview in one place",

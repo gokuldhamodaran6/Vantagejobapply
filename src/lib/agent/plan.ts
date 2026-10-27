@@ -6,6 +6,7 @@
 import { ghostRisk } from "@/lib/jobs/ghost";
 import { inPreferredPlace } from "@/lib/jobs/places";
 import { workModeOk } from "@/lib/jobs/match";
+import { normCompany } from "@/lib/jobs/signals";
 import type { Job, MatchResult, TargetPrefs } from "@/lib/types";
 
 /** A job must fit a target at least this well, and score at least this, before the agent spends an application on it. */
@@ -50,7 +51,8 @@ export function autoSkipReason(
 ): SkipReason | null {
   const now = opts.now ?? Date.now();
   if (!m.eligible) return "Visa or eligibility rules";
-  if (m.tooSenior) return "More senior than your levels";
+  // The agent sticks to the levels you picked; a step up is yours to choose in Live jobs.
+  if (m.tooSenior || m.stretchUp) return "More senior than your levels";
   if ((m.roleFit ?? 0) < AUTO_MIN_FIT || m.score < AUTO_MIN_SCORE) return "Not a close enough match";
   if (!inPreferredPlace(job, prefs)) return "Outside your locations";
   if (!workModeOk(job, prefs)) return "Not your work arrangement";
@@ -107,3 +109,14 @@ export function limitDayStart(now = Date.now()) {
   const d = new Date(now);
   return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
 }
+
+/** Same keys the database uses (private.co_key / private.title_key), so a repost of a job already sent is skipped. */
+export const roleKey = (company: string, title: string) => {
+  const co = normCompany(company).replace(/^\d+ /, "").trim();
+  const t = String(title || "").toLowerCase()
+    .replace(/^\s*apply (to|for)\s+/, "")
+    .replace(/\s*[-–|]\s*page \d+( of \d+)?\s*$/, "")
+    .replace(/( at [^|]*)?\s*\|\s*(linkedin|indeed)[^|]*$/, "")
+    .replace(/[^a-z0-9+#]+/g, " ").trim();
+  return `${co}|${t}`;
+};

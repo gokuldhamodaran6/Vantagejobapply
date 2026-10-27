@@ -7,7 +7,7 @@
  * `sure: false` means the wording is suggestive but not decisive; callers confirm those with AI before
  * moving an application forward.
  */
-export type MailKind = "verification" | "received" | "in_review" | "assessment" | "interview" | "offer" | "rejection" | "other";
+export type MailKind = "verification" | "received" | "action" | "in_review" | "assessment" | "interview" | "offer" | "rejection" | "other";
 
 const VERIFY = /security code|verification code|verify your (email|account|identity)|confirm your (email|account)|activate your account|one[- ]time (pass)?code|passcode|sign[- ]in code|login code|\botp\b|validate your email/;
 const OFFER = /pleased to (extend|offer)|offer letter|extend(ing)? (you )?an offer|offer of employment|(formal|verbal) offer|congratulations[^.]{0,80}\boffer\b/;
@@ -16,7 +16,20 @@ const REJECT = /unfortunately|not (to )?(be )?moving forward|move forward with o
 const INTERVIEW = /invite you (to|for) (an? |a short |a quick )?(interview|phone|video|call|chat|conversation|meet|onsite|on-site)|(like|love|want) to (schedule|set up|arrange|invite you|speak with you|chat with you|talk with you|meet with you)|schedule (an? |your |the )?(interview|call|phone screen|chat|conversation|time to (talk|chat|meet|speak))|interview (invitation|invite|request|availability|confirmation|confirmed|scheduled|details|loop)|your (upcoming|scheduled) (interview|call)|phone screen|recruiter (call|screen)|hiring manager (call|interview|screen)|calendly\.com|goodtime\.io|greenhouse\.io\/scheduling|select a time|pick a time|book a time|choose a time|share your availability|provide your availability|availability for (an? )?(interview|call|chat|conversation)|next round|(move|moving|advance|advancing) (you )?(forward )?to the next (stage|round|step)|meet the (team|hiring manager)|onsite interview|panel interview|final (round|interview)/;
 const ASSESS = /assessment|coding (challenge|exercise|test)|hackerrank|codility|codesignal|take[- ]home|online test|hirevue|skills test|case study|work sample|exercise to complete|technical (test|challenge)/;
 const RECEIVED = /thank(s| you) for (applying|your application|your interest|submitting|applying to)|application (has been |was |is )?(received|submitted|complete)|we('ve| have) received your application|successfully (submitted|applied)|received your (application|resume)|confirm(ing)? (receipt|we('ve)? received)|application confirmation/;
+// The site says the application isn't finished ("if you did not proceed to the final step, complete this form").
+const ACTION = /further action (may be |is )?required|action (is )?required (on|for) your application|complete your application|finish your application|(did not|didn['’]t) (proceed|complete|finish)[^.]{0,60}(application|final step)|application (is )?(incomplete|not (yet )?complete)/;
 const REVIEW = /under review|being reviewed|currently reviewing|in review|review(ing)? your (application|profile|candidacy)/;
+
+/**
+ * Sentences that only describe what happens *if* you're turned down ("If you are not selected, keep an eye on our
+ * jobs page") are boilerplate in receipts, not rejections. Drop them before looking for a rejection.
+ */
+function withoutConditionals(s: string) {
+  return s
+    .split(/(?<=[.!?])\s+/)
+    .filter((x) => !/\b(if|should|in the event|in case|whether or not|unless)\b[^.]{0,80}\b(not|unfortunately|other candidates|move forward|moving forward|selected|unsuccessful)/.test(x))
+    .join(" ");
+}
 
 export function classifyMail(fromAddr: string, subject: string, text: string): { kind: MailKind; sure: boolean } {
   const from = fromAddr.trim().toLowerCase();
@@ -25,7 +38,9 @@ export function classifyMail(fromAddr: string, subject: string, text: string): {
   const s = `${subj}\n${text.slice(0, 6000)}`.toLowerCase().replace(/\s+/g, " ");
   if (VERIFY.test(s) && !INTERVIEW.test(subj)) return { kind: "verification", sure: true };
   if (OFFER.test(s) && !REJECT.test(s)) return { kind: "offer", sure: false };
-  if (REJECT.test(s)) return { kind: "rejection", sure: !INTERVIEW.test(subj) };
+  const firm = withoutConditionals(s);
+  if (REJECT.test(firm)) return { kind: "rejection", sure: !INTERVIEW.test(subj) && !RECEIVED.test(subj) };
+  if (ACTION.test(s)) return { kind: "action", sure: true };
   if (INTERVIEW.test(s)) {
     // A receipt that merely mentions "we may schedule a call" is still a receipt.
     const receiptOnly = RECEIVED.test(subj) && !INTERVIEW.test(subj) && /(if|should) (your|you|we)[^.]{0,80}(fit|match|move forward|interested)/.test(s);
@@ -37,9 +52,11 @@ export function classifyMail(fromAddr: string, subject: string, text: string): {
   return { kind: "other", sure: true };
 }
 
-/** Application status a mail moves to, if any. A receipt means the company has it and it's under review. */
+/**
+ * Application status a mail moves to, if any. An automatic receipt is not a reply from a person: the application
+ * stays "Applied" (the receipt is recorded as an event), so "heard back" only counts real responses.
+ */
 export const STATUS_FOR: Partial<Record<MailKind, string>> = {
-  received: "in_review",
   in_review: "in_review",
   assessment: "assessment",
   interview: "interview",

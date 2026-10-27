@@ -280,7 +280,7 @@ export default function ApplicationsPage() {
 
       {layout === "board" && (
         <div className="-mx-4 overflow-x-auto px-4 pb-2 sm:mx-0 sm:px-0">
-          <div className="grid min-w-[1080px] grid-cols-6 gap-3">
+          <div className="grid min-w-[1260px] grid-cols-7 gap-3">
             {COLUMNS.map((col) => {
               const items = filtered.filter((a) => col.ids.includes(a.status));
               return (
@@ -364,7 +364,7 @@ function GroupCard({ g, group, roleName, resumes, onOpen, now }: {
                   </span>
                   <span className="min-w-0 text-xs text-muted">
                     <span className="flex items-center gap-1.5 truncate"><FileText size={13} className="shrink-0" />{r ? `${RESUME_STYLES[(r.style || "classic") as ResumeStyle]?.label || "Classic"} resume${r.ats_score ? ` · ATS ${r.ats_score}` : ""}` : "—"}</span>
-                    <span className="mt-0.5 flex items-center gap-1.5">{a.source === "agent" ? <><Bot size={13} /> Applied by your agent</> : <><User size={13} /> Added by you</>}</span>
+                    <span className="mt-0.5 flex items-center gap-1.5">{a.source === "agent" ? <><Bot size={13} /> Applied by your agent</> : a.source === "extension" ? <><User size={13} /> Applied by you · Vantage extension</> : <><User size={13} /> Added by you</>}</span>
                   </span>
                   <span className="flex items-center gap-3"><Progress s={a.status} /><span className={`chip ${STATUS[a.status].cls}`}>{STATUS[a.status].label}</span></span>
                   <span className="text-xs text-muted lg:w-24 lg:text-right">{a.applied_at ? new Date(a.applied_at).toLocaleDateString(undefined, { month: "short", day: "numeric" }) : "Not sent"}<span className="block">{a.applied_at && Date.parse(a.applied_at) > now - 864e5 * 2 ? timeAgo(a.applied_at) : ""}</span></span>
@@ -418,7 +418,7 @@ function Detail({ a, resume, roleName, onClose, onMove, onSaved }: { a: App; res
             <div className="min-w-0 flex-1">
               <p className="text-sm text-muted">{a.job.company} · {a.job.location || a.job.country}</p>
               <h2 className="text-xl font-bold leading-snug">{a.job.title}</h2>
-              <p className="mt-1 text-xs text-muted">{roleName}{a.match_score ? ` · ${a.match_score}% match` : ""} · {a.source === "agent" ? "Applied by your agent" : "Added by you"}</p>
+              <p className="mt-1 text-xs text-muted">{roleName}{a.match_score ? ` · ${a.match_score}% match` : ""} · {a.source === "agent" ? "Applied by your agent" : a.source === "extension" ? "Applied by you with the Vantage extension" : "Added by you"}</p>
             </div>
             <button onClick={onClose} className="rounded-lg p-2 hover:bg-canvas" aria-label="Close"><X size={20} /></button>
           </div>

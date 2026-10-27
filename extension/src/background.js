@@ -140,7 +140,7 @@ async function pilotLoop(tabId, t) {
       await store.setTab(tabId, { ...t, history, submit: { i: plan.submit, frameId: page.frameId } });
       return showPanel(tabId, { ...t.base, steps: steps(2), note: "Every page is filled and this is the last step. Look it over — then Vantage can submit it for you, or press Submit on the page yourself.", noteTone: "ok", buttons: [{ text: "Submit it for me", action: "submit_now" }, { text: "Check again", action: "continue", ghost: true }] });
     }
-    if (plan.status === "done") return markSubmitted(tabId, "detected");
+    if (plan.status === "done") return confirmed(tabId, "The page says the application went through.");
     if (plan.status === "ask") {
       await store.setTab(tabId, { ...t, history, missing: plan.ask });
       return showPanel(tabId, { ...t.base, steps: steps(1), missing: plan.ask, buttons: [{ text: "Save answers & continue", action: "answers" }, { text: "Pause", action: "pause", ghost: true }] });
@@ -158,7 +158,7 @@ async function pilotLoop(tabId, t) {
         await sleep(1000);
         if ((await store.tab(tabId))?.paused) return;
         await inject(tabId);
-        if (await top(tabId, () => window.__vantage?.isConfirmation())) return markSubmitted(tabId, "detected");
+        if (await top(tabId, () => window.__vantage?.isConfirmation())) return confirmed(tabId, "LinkedIn shows the application as sent.");
         const now = await readTab(tabId);
         if (now && JSON.stringify([now.snap.url, now.snap.headings, now.snap.dialog]) !== before) moved = true;
       }
@@ -246,10 +246,11 @@ async function onPanel(tabId, msg) {
   if (msg.action === "submit_now" && t.submit) {
     // The person checked the form and asked Vantage to press the final Submit.
     await showPanel(tabId, { ...t.base, steps: steps(2), note: "Submitting…", noteTone: "ok" });
+    await store.setTab(tabId, { ...t, submitAt: Date.now() });
     await inFrames(tabId, (x) => window.__vp?.act(x), [{ do: "click", i: t.submit.i, allowFinal: true }], [t.submit.frameId]);
     await sleep(3500);
     await inject(tabId);
-    if (await top(tabId, () => window.__vantage?.isConfirmation())) return markSubmitted(tabId, "detected");
+    if (await top(tabId, () => window.__vantage?.isConfirmation())) return confirmed(tabId, "The confirmation page appeared.");
     // Not confirmed yet (an error, a code, or one more step): carry on from the page as it is now.
     await store.setTab(tabId, { ...t, submit: null, submitted_click: true });
     return run(tabId, { resume: true });
@@ -261,6 +262,22 @@ async function onPanel(tabId, msg) {
     return run(tabId, { resume: true });
   }
   if (msg.action === "submitted") return markSubmitted(tabId, "manual");
+  if (msg.action === "not_yet") {
+    await store.setTab(tabId, { ...t, submitAt: 0 });
+    return showPanel(tabId, { ...t.base, steps: steps(1), note: "OK — it's not marked as applied. Finish the form, press the site's Submit, and Vantage records it when the confirmation appears.", noteTone: "ok", buttons: [{ text: "Continue filling", action: "continue" }, { text: "Close", action: "close", ghost: true }] });
+  }
+}
+
+/**
+ * The page looks like a confirmation. It only counts as applied by itself if the form's own Submit was pressed
+ * in the last 15 minutes (by the person, or by "Submit it for me"); otherwise the person is asked. Moving to
+ * another page, signing in or an "application received" line on a job page never marks a job as applied.
+ */
+async function confirmed(tabId, why) {
+  const t = await store.tab(tabId);
+  if (!t || t.sent) return;
+  if (t.submitAt && Date.now() - t.submitAt < 15 * 60_000) return markSubmitted(tabId, "detected");
+  return showPanel(tabId, { ...t.base, steps: steps(2), note: `${why} Did you submit this application?`, noteTone: "ok", buttons: [{ text: "Yes, I submitted it", action: "submitted" }, { text: "Not yet", action: "not_yet", ghost: true }] });
 }
 
 async function markSubmitted(tabId, how) {
@@ -283,8 +300,12 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
     } else if (msg.type === "panel" && sender.tab?.id) {
       await onPanel(sender.tab.id, msg);
       reply({ ok: true });
+    } else if (msg.type === "submit_click" && sender.tab?.id) {
+      const t = await store.tab(sender.tab.id);
+      if (t && !t.sent) await store.setTab(sender.tab.id, { ...t, submitAt: Date.now() });
+      reply({ ok: true });
     } else if (msg.type === "confirmation" && sender.tab?.id) {
-      await markSubmitted(sender.tab.id, "detected");
+      await confirmed(sender.tab.id, "The confirmation page appeared.");
       reply({ ok: true });
     } else if (msg.type === "status") {
       const token = await store.get("token");
@@ -311,11 +332,11 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, reply) => {
   return true;
 });
 
-// After a full page load in a tab we filled, look for the "thank you for applying" page.
+// After a full page load that follows a Submit press in a tab we filled, look for the "thank you for applying" page.
 chrome.tabs.onUpdated.addListener(async (tabId, info) => {
   if (info.status !== "complete") return;
   const t = await store.tab(tabId);
-  if (!t || t.sent || Date.now() - t.at > 3 * 3600_000) return;
+  if (!t || t.sent || !t.submitAt || Date.now() - t.submitAt > 15 * 60_000) return;
   await inject(tabId);
   const yes = await top(tabId, () => window.__vantage?.isConfirmation());
   if (yes) await markSubmitted(tabId, "detected");

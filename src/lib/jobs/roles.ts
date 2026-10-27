@@ -199,6 +199,11 @@ export function roleSimilarity(roleTitle: string, jobTitle: string): number {
   const exact = exactPhrase ? 0.15 : 0;
   // Product manager needs "product" AND a manager/owner seat; otherwise "Product Designer" would match.
   if (fam?.id === "product" && /product manag|product owner/i.test(roleTitle) && !/\b(manager|owner|management|pm|apm)\b/i.test(jobTitle)) return Math.min(0.35, dom * 0.4);
+  // "Product Marketing Manager" is a marketing job, not a Product Manager one (and "Product Designer" a design job):
+  // a compound discipline in the job title that the role doesn't have is a different job.
+  const COMPOUND = /\bproduct (marketing|design|designer|analyst|analytics|support|operations|ops|counsel|engineer(ing)?)\b/i;
+  const jc = jobTitle.match(COMPOUND)?.[0]?.toLowerCase();
+  if (jc && /product (manag|owner)/i.test(roleTitle) && !roleTitle.toLowerCase().includes(jc.split(" ")[1])) return Math.min(0.4, dom * 0.5);
   const sim = Math.min(1, dom * 0.78 + seat * 0.22 + exact);
   if (foreign && !exactPhrase) return Math.min(sim, 0.3);
   return sim;

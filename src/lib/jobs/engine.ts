@@ -6,7 +6,7 @@ import { matchJob, workModeOk } from "./match";
 import { analyzeText, normCompany } from "./signals";
 import { roleSimilarity, searchVariants } from "./roles";
 import { inPreferredPlace } from "./places";
-import { autoSkipReason, interleaveByPriority, LIVE_MAX_DAYS, type SkipReason } from "@/lib/agent/plan";
+import { roleKey, autoSkipReason, interleaveByPriority, LIVE_MAX_DAYS, type SkipReason } from "@/lib/agent/plan";
 import { PER_EMPLOYER_30D } from "@/lib/access";
 import { ingestSecret, supabaseAnon } from "@/lib/supabase/server";
 import type { Job, MatchResult, TargetPrefs, TargetRole, WorkAuth } from "@/lib/types";
@@ -262,6 +262,8 @@ export type Pipeline = {
   /** Why the rest are left for you to decide on in Live jobs. */
   skipped: Partial<Record<SkipReason | "Employer limit reached", number>>;
   roles: PipelineRole[];
+  /** The jobs the agent takes next, in its own order: the first `planned` fit in today's limit. */
+  upNext: { id: string; title: string; company: string; location: string | null; url: string; roleId: string | null; score: number; posted: string | null; today: boolean }[];
   computedAt: string;
 };
 
@@ -276,14 +278,14 @@ export async function pipelineForUser(
   const active = ctx.roles.filter((r) => r.active).slice(0, ctx.roleLimit);
   const countries = (ctx.prefs?.countries?.length ? ctx.prefs.countries : ["US"]).slice(0, Math.max(1, ctx.countryLimit));
   const freshDays = ctx.prefs?.max_days_old || 14;
-  const out: Pipeline = { countries, freshDays, live: 0, handled: 0, ready: 0, skipped: {}, roles: active.map((r) => ({ id: r.id, title: r.title, priority: r.priority, live: 0, ready: 0, planned: 0 })), computedAt: new Date().toISOString() };
+  const out: Pipeline = { countries, freshDays, live: 0, handled: 0, ready: 0, skipped: {}, roles: active.map((r) => ({ id: r.id, title: r.title, priority: r.priority, live: 0, ready: 0, planned: 0 })), upNext: [], computedAt: new Date().toISOString() };
   if (!active.length) return out;
   const byRole = new Map(out.roles.map((r) => [r.id, r]));
   const phrases = [...new Set(active.flatMap((r) => searchVariants(r.title, 10)))];
   const since = new Date(Date.now() - LIVE_MAX_DAYS * 864e5).toISOString();
   const sponsorsLoaded = await loadedSponsorCountries(supabase);
   const targets = new Set((ctx.prefs?.companies || []).map(normCompany));
-  const candidates: { roleId?: string; score: number; company: string }[] = [];
+  const candidates: { roleId?: string; score: number; company: string; job: Job & { first_seen_at?: string | null } }[] = [];
   const skip = (k: keyof Pipeline["skipped"]) => (out.skipped[k] = (out.skipped[k] || 0) + 1);
   const boardKey = (id: string) => id.split(":").slice(0, 2).join(":");
 
@@ -316,7 +318,7 @@ export async function pipelineForUser(
       }
       if (!visible) continue;
       out.live += 1;
-      if (ctx.known.has(job.id)) {
+      if (ctx.known.has(job.id) || ctx.known.has(`role:${roleKey(job.company, job.title)}`)) {
         out.handled += 1;
         continue;
       }
@@ -328,7 +330,7 @@ export async function pipelineForUser(
         skip(reason);
         continue;
       }
-      candidates.push({ roleId: m.role?.id, score: m.score + (targets.has(normCompany(job.company)) ? 15 : 0), company: normCompany(job.company) });
+      candidates.push({ roleId: m.role?.id, score: m.score + (targets.has(normCompany(job.company)) ? 15 : 0), company: normCompany(job.company), job });
     }
   }
   // Today's remaining applications, in the agent's own order and within its per-employer cap.
@@ -344,9 +346,13 @@ export async function pipelineForUser(
     out.ready += 1;
     const r = c.roleId ? byRole.get(c.roleId) : undefined;
     if (r) r.ready += 1;
-    if (room > 0) {
+    const today = room > 0;
+    if (today) {
       if (r) r.planned += 1;
       room -= 1;
+    }
+    if (out.upNext.length < 60) {
+      out.upNext.push({ id: c.job.id, title: c.job.title, company: c.job.company, location: c.job.location || null, url: c.job.url, roleId: c.roleId || null, score: Math.min(100, Math.round(c.score)), posted: c.job.posted_at || c.job.first_seen_at || null, today });
     }
   }
   return out;

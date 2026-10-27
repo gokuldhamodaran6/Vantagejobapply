@@ -18,7 +18,7 @@ const PRIORITY_TONE: Record<number, string> = { 1: "bg-pink-tint text-pink-ink",
  * per target, with the reasons the rest wait — and each target's priority editable in place.
  */
 export function MatchedWaiting({
-  roles, index, enabled, autonomy, limit, usedToday, onRolesChanged, onToast,
+  roles, index, enabled, autonomy, limit, usedToday, refreshKey = 0, onRolesChanged, onToast,
 }: {
   roles: TargetRole[];
   index: LightTask[] | null;
@@ -26,6 +26,8 @@ export function MatchedWaiting({
   autonomy: string | null | undefined;
   limit: number;
   usedToday: number;
+  /** Bumped by the page's Refresh button. */
+  refreshKey?: number;
   onRolesChanged: () => Promise<void>;
   onToast: (m: string) => void;
 }) {
@@ -49,7 +51,8 @@ export function MatchedWaiting({
   // Recount when targets change, and every few minutes while the page is open.
   useEffect(() => {
     void load();
-  }, [load, rolesKey]);
+  }, [load, rolesKey, refreshKey]);
+  const [showAll, setShowAll] = useState(false);
   useEffect(() => {
     const i = setInterval(() => { if (document.visibilityState === "visible") void load(); }, 180_000);
     return () => clearInterval(i);
@@ -150,7 +153,7 @@ export function MatchedWaiting({
                 <div className="min-w-0">
                   <p className="truncate font-semibold capitalize">{r.title}</p>
                   <p className="truncate text-xs text-muted">
-                    {mine?.inLine ? `${mine.inLine} in line` : "Nothing in line"}
+                    {mine?.inLine ? `${mine.inLine} in the queue now` : d ? `${d.planned} planned today` : "Counting…"}
                     {mine?.needs ? ` · ${mine.needs} need you` : ""}
                     {r.levels.length ? ` · ${r.levels.map((l) => (l === "entry" ? "entry" : l)).join(", ")}` : ""}
                   </p>
@@ -180,6 +183,45 @@ export function MatchedWaiting({
         </ul>
         {paused.length > 0 && (
           <p className="mt-2 text-xs text-muted">Paused: {paused.map((r) => r.title).join(", ")} · <Link href="/app/targets" className="font-semibold text-brand-ink">Turn back on</Link></p>
+        )}
+      </div>
+
+      {/* The actual jobs, in the agent's order */}
+      <div className="border-t border-line px-5 py-4">
+        <div className="flex flex-wrap items-baseline justify-between gap-2">
+          <h3 className="text-sm font-bold">
+            Up next for auto-apply
+            {data && <span className="ml-1.5 font-medium text-muted">· {data.upNext.filter((j) => j.today).length} today{data.ready > data.upNext.filter((j) => j.today).length ? ` · ${data.ready - data.upNext.filter((j) => j.today).length} after that` : ""}</span>}
+          </h3>
+          {!enabled && <span className="text-xs font-semibold text-orange-ink">Auto-apply is off — nothing here is sent until you turn it on</span>}
+        </div>
+        {!data ? (
+          <div className="mt-3 space-y-2">{[0, 1, 2].map((i) => <div key={i} className="skeleton h-10" />)}</div>
+        ) : data.upNext.length === 0 ? (
+          <p className="mt-2 text-sm text-muted">No new jobs pass every check right now. Your agent looks again every 10 minutes — widen levels, locations or freshness in <Link href="/app/targets" className="font-semibold text-brand-ink">My targets</Link> to give it more to work with.</p>
+        ) : (
+          <>
+            <ol className="mt-3 divide-y divide-line rounded-xl border border-line">
+              {(showAll ? data.upNext : data.upNext.slice(0, 8)).map((j, i) => {
+                const role = roles.find((r) => r.id === j.roleId);
+                return (
+                  <li key={j.id} className="flex items-center gap-3 px-3 py-2.5">
+                    <span className="w-6 shrink-0 text-xs font-bold tabular-nums text-subtle">{i + 1}</span>
+                    <span className="min-w-0 flex-1">
+                      <a href={j.url} target="_blank" rel="noopener noreferrer" className="block truncate text-sm font-semibold hover:text-brand-ink">{j.title}</a>
+                      <span className="block truncate text-xs text-muted">{j.company}{j.location ? ` · ${j.location}` : ""}{role ? ` · ${role.title}` : ""}{j.posted ? ` · posted ${agoShort(Date.parse(j.posted), now)}` : ""}</span>
+                    </span>
+                    <span className="hidden shrink-0 text-xs font-semibold tabular-nums text-green-ink sm:block">{j.score}% match</span>
+                    <span className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold ${j.today ? "bg-green-tint text-green-ink" : "bg-line-2 text-ink-2"}`}>{j.today ? "Today" : "Later"}</span>
+                  </li>
+                );
+              })}
+            </ol>
+            {data.upNext.length > 8 && (
+              <button className="mt-2 text-xs font-semibold text-brand-ink" onClick={() => setShowAll((v) => !v)}>{showAll ? "Show fewer" : `Show all ${data.upNext.length}${data.ready > data.upNext.length ? ` (of ${data.ready})` : ""}`}</button>
+            )}
+            <p className="mt-2 text-[11px] text-subtle">Your agent applies one job at a time, a few per run, at most one per company per run. A job already applied to — or a repost of one — is never sent again.</p>
+          </>
         )}
       </div>
 

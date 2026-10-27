@@ -20,8 +20,9 @@ export async function POST(req: Request) {
   if (!u) return extJson({ error: "Connect the extension to your Vantage account." }, 401);
   // Version 1.0 filled only the page it was on. Ask for the update (it fills every page and can submit).
   const ver = req.headers.get("x-vantage-ext") || "1.0.0";
-  if (ver.localeCompare("1.1.0", undefined, { numeric: true }) < 0) {
-    return extJson({ error: "Please update the Vantage extension: open vantagejobapply.onrender.com → Chrome extension → Download version 1.1, unzip it over the old folder, then press reload on Vantage in chrome://extensions. The new version fills every page and can submit for you." }, 426);
+  // 1.1.0 could mark a job "Applied" from a sign-in or next-step page; 1.1.1 only does after a real Submit.
+  if (ver.localeCompare("1.1.1", undefined, { numeric: true }) < 0) {
+    return extJson({ error: "Please update the Vantage extension: open vantagejobapply.onrender.com → Chrome extension → Download version 1.1.1, unzip it over the old folder, then press reload on Vantage in chrome://extensions. This version only records a job as applied after Submit is really pressed." }, 426);
   }
   const b = (await req.json().catch(() => ({}))) as { url?: string; title?: string; company?: string; description?: string; location?: string; force?: boolean };
   const url = String(b.url || "").slice(0, 2000);
@@ -29,15 +30,26 @@ export async function POST(req: Request) {
 
   // A sign-in or redirect page isn't a job: never create an application called "Sign in - Google Accounts".
   const host = new URL(url).hostname.toLowerCase();
-  const GENERIC = /^(sign in|log ?in|sign up|create (an )?account|recruitment|careers?( site| home)?|jobs?|job (search|application)|apply|home|federation redirector|candidate (home|experience)|welcome|my applications?|linkedin|indeed|search for jobs)\b|candidate experience site/i;
+  const GENERIC = /^(sign in|log ?in|sign up|create (an )?account|recruitment|careers?( site| home)?|jobs?|job (search|application)|apply|home|federation redirector|candidate (home|experience)|welcome|my applications?|linkedin|indeed|search for jobs)\b|candidate experience site|\b(careers?|jobs)( site| page| portal)?$|^[^a-z]*$/i;
   if (/(^|\.)(accounts\.google\.com|login\.microsoftonline\.com|appleid\.apple\.com)$/.test(host) || /\/(login|signin|sso|saml|oauth)\b/i.test(new URL(url).pathname)) {
     return extJson({ error: "This is a sign-in page. Sign in first, then press Apply with Vantage on the job's application page." }, 400);
   }
   let job: Job | null = (await jobFromLink(url).catch(() => null))?.job || null;
   if (!job) {
-    const title = String(b.title || "").replace(/\s+/g, " ").trim().slice(0, 200);
+    // Page titles carry noise: "Apply to X - page 1", "X at Acme — Austin, TX | LinkedIn Jobs".
+    let rawTitle = String(b.title || "").replace(/\s+/g, " ").trim();
+    let rawCompany = String(b.company || "").trim();
+    const li = rawTitle.match(/^(.+?) at (.+?)(?: [—–-] .*)?\s*\|\s*LinkedIn.*$/i);
+    if (li) { rawTitle = li[1]; rawCompany ||= li[2]; }
+    rawTitle = rawTitle.replace(/^apply (to|for)\s+/i, "").replace(/\s*[-–|]\s*page \d+( of \d+)?$/i, "").replace(/\s*[|–]\s*(linkedin|indeed).*$/i, "").trim();
+    const title = rawTitle.slice(0, 200);
     if (!title || GENERIC.test(title)) return extJson({ error: "Couldn't read the job title on this page. Open the job description (or the first page of the application), then press Apply with Vantage." }, 400);
-    const company = cleanCompany(String(b.company || "").trim() || new URL(url).hostname.replace(/^(www|careers|jobs|apply)\./, "").split(".")[0]);
+    // Shared careers platforms host many employers: their host name is never the company (silkroad, adp, linkedin…).
+    const SHARED = /(^|\.)(silkroad\.com|adp\.com|linkedin\.com|myworkdayjobs\.com|icims\.com|taleo\.net|oraclecloud\.com|successfactors\.(com|eu)|ultipro\.com|paylocity\.com|paycomonline\.net|jobvite\.com|smartrecruiters\.com|applytojob\.com|brassring\.com)$/i;
+    const pathCo = host.endsWith("silkroad.com") ? new URL(url).pathname.split("/").filter(Boolean)[0] || "" : "";
+    const fromHost = SHARED.test(host) ? pathCo.replace(/([a-z])([A-Z])/g, "$1 $2") : new URL(url).hostname.replace(/^(www|careers|jobs|apply)\./, "").split(".")[0];
+    const company = cleanCompany(rawCompany || fromHost);
+    if (!company) return extJson({ error: "Couldn't tell which company this job is at. Open the job description page first, then press Apply with Vantage." }, 400);
     if (!title) return extJson({ error: "Couldn't read the job title on this page." }, 400);
     const clean = url.split("#")[0].replace(/[?&](utm_[^=]+|gh_src|source|ref)=[^&]*/gi, "");
     job = {

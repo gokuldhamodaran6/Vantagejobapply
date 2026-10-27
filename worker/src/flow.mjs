@@ -287,6 +287,13 @@ export async function runTask(bundle, browser) {
         });
         return "awaiting_approval";
       }
+      if (finalStep) {
+        // Last check: the person may have cancelled while the form was being filled. Then record the moment of the
+        // final press, so an interrupted run is never retried (it may already be in the employer's system).
+        const last = await call("poll", { taskId: task.id, since: new Date().toISOString(), checkMail: false }).catch(() => ({}));
+        if (last.cancelled) throw new Stop("cancelled", "Cancelled");
+        await update(task.id, { submitClicked: true, step: "Submitting" });
+      }
       if (submit) {
         await log(task.id, "Submitting the application", "Submitting");
         await human(600, 1400);
@@ -321,7 +328,7 @@ export async function runTask(bundle, browser) {
     }
 
     const finalText = await pageText(page);
-    if (!isConfirmation(page.url(), finalText)) throw new Stop("manual", "The site didn't confirm the submission. Open the job link to check and finish it.");
+    if (!isConfirmation(page.url(), finalText)) throw new Stop("manual", "Submit was pressed, but the site didn't show a confirmation. Check your job email for a receipt before doing anything — it may already be sent.");
     const shot = await page.screenshot({ type: "jpeg", quality: 55 }).catch(() => null);
     const answers = Object.fromEntries(Object.values(filled).filter((x) => !x.info).map((x) => [x.label.slice(0, 120), x.value.slice(0, 500)]));
     await update(task.id, { status: "submitted", step: "Applied", needs: [], log: `Applied to ${task.job.title} at ${task.job.company}`, proof: shot ? shot.toString("base64") : undefined, answers });

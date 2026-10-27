@@ -65,7 +65,7 @@ export default function ExtensionPage() {
   const step = !ext?.installed ? 1 : !ext.connected ? 2 : 3;
   return (
     <>
-      <PageHeader title="Vantage for Chrome" subtitle="Fill any job application in one click — on the company's own page, with your answers and a resume written for that job. You review it and press Submit yourself." />
+      <PageHeader title="Vantage for Chrome" subtitle="Fill any job application in one click — on the company's own page, with your answers and a resume written for that job. You check it, then press Submit yourself — or ask Vantage to press it for you." />
 
       <section className="grid gap-4 lg:grid-cols-3">
         {[
@@ -81,11 +81,11 @@ export default function ExtensionPage() {
         ))}
       </section>
 
-      {ext?.installed && (!ext.version || ext.version < "1.1.0") && (
+      {ext?.installed && (!ext.version || ext.version.localeCompare("1.1.1", undefined, { numeric: true }) < 0) && (
         <section className="mt-5 card border-brand/40 p-5">
           <p className="font-semibold">A new version of the extension is ready</p>
-          <p className="mt-1 text-sm text-muted">It now fills every page of Workday and other multi-step forms by itself. Download it, unzip it over the old folder, then press the reload ↻ button on Vantage in <code className="rounded bg-canvas px-1">chrome://extensions</code>.</p>
-          <a href="/vantage-extension.zip" download className="btn-primary mt-3 min-h-9 text-[13px]"><Download size={15} /> Download version 1.1</a>
+          <p className="mt-1 text-sm text-muted">Version 1.1.1 fills every page of multi-step forms and only records a job as applied after Submit is really pressed — no more false “Applied” from sign-in or next-step pages. Download it, unzip it over the old folder, then press the reload ↻ button on Vantage in <code className="rounded bg-canvas px-1">chrome://extensions</code>.</p>
+          <a href="/vantage-extension.zip" download className="btn-primary mt-3 min-h-9 text-[13px]"><Download size={15} /> Download version 1.1.1</a>
         </section>
       )}
 
@@ -139,7 +139,7 @@ export default function ExtensionPage() {
           </ul>
         </section>
       )}
-      <p className="mt-4 text-xs text-muted">Privacy: the extension only reads a page when you press Fill, only sends that page&apos;s questions and job details to Vantage, and never presses Submit for you.</p>
+      <p className="mt-4 text-xs text-muted">Privacy: on careers sites the extension shows its “Apply with Vantage” button; it only reads a form and sends its questions and the job details to Vantage after you press it. It never types your passwords, and it only presses the final Submit when you click “Submit it for me”.</p>
       <Toast message={toast} onClose={() => setToast(null)} />
     </>
   );

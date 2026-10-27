@@ -135,7 +135,7 @@ export default function SettingsPage() {
               <h2 className="text-lg font-bold">You&apos;re an early access member</h2>
               <p className="mt-1 max-w-2xl text-[15px] text-muted">Every feature is unlocked and free while Vantage is in early access. If that ever changes, we&apos;ll tell you well in advance — nothing changes without your say.</p>
               <ul className="mt-4 grid gap-2 text-sm sm:grid-cols-2">
-                {[`Up to ${limits.roles} target roles`, `Up to ${limits.countries} countries`, `Up to ${limits.autoApplyPerDay} applications a day by your agent`, "Tailored resume and cover letter for every job"].map((f) => (
+                {[`Up to ${limits.roles} target roles`, `Up to ${limits.countries} countries`, `Up to ${Math.min(limits.autoApplyPerDay, 200)} applications a day by your agent (20 unless you allow more)`, "Tailored resume and cover letter for every job"].map((f) => (
                   <li key={f} className="flex gap-2"><Check size={16} className="mt-0.5 shrink-0 text-brand" />{f}</li>
                 ))}
               </ul>

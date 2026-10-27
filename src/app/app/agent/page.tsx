@@ -2,7 +2,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { AnimatePresence, motion } from "motion/react";
-import { Check, ExternalLink, FileText, Link2, Loader2, Mail, MonitorPlay, RotateCcw, ShieldCheck, Sparkles, UserRound, WifiOff, X } from "lucide-react";
+import { Check, ExternalLink, FileText, Link2, Loader2, Mail, MonitorPlay, RefreshCw, RotateCcw, ShieldCheck, Sparkles, UserRound, WifiOff, X } from "lucide-react";
 import { PageHeader } from "@/components/app-shell";
 import { Badge, Toast } from "@/components/ui";
 import { useMe } from "@/lib/me";
@@ -13,7 +13,7 @@ import { limitDayStart } from "@/lib/agent/plan";
 import { ACTIVE, NEEDS_YOU, STATUS_META, statusLine, type AgentTask } from "@/lib/agent/status";
 import { Activity } from "./activity";
 import { MatchedWaiting } from "./pipeline";
-import { agoShort, patch, useAgentData, useTicker } from "./shared";
+import { agoShort, countsToday, patch, useAgentData, useTicker, type RetryRow } from "./shared";
 
 type Setup = { mailbox: { address: string; status: string } | null; profileDone: boolean; consent: boolean; hasResume: boolean };
 
@@ -29,8 +29,15 @@ function stageOf(t: AgentTask) {
 
 export default function AgentPage() {
   const { userId, profile, refresh, roles } = useMe();
-  // Live: re-syncs by itself every few seconds while the tab is visible — no refresh button needed.
+  // Live: re-syncs by itself every few seconds while the tab is visible; Refresh also recounts matches.
   const { working, index, stages, totalApplied, version, syncedAt, offline, refresh: resync } = useAgentData(userId);
+  const [retry, setRetry] = useState<{ safe: RetryRow[]; held: RetryRow[] } | null>(null);
+  const [pipeKey, setPipeKey] = useState(0);
+  const [refreshing, setRefreshing] = useState(false);
+  const loadRetry = useCallback(async () => {
+    const d = await fetch("/api/agent/tasks/requeue").then((r) => (r.ok ? r.json() : null)).catch(() => null);
+    if (d && Array.isArray(d.safe)) setRetry({ safe: d.safe, held: d.held || [] });
+  }, []);
   const [setup, setSetup] = useState<Setup | null>(null);
   const [link, setLink] = useState("");
   const [busy, setBusy] = useState(false);
@@ -53,6 +60,18 @@ export default function AgentPage() {
       hasResume: (r.count || 0) > 0,
     });
   }, []);
+
+  // What "Retry" would do: re-checked whenever the task list changes.
+  useEffect(() => {
+    if (userId) void loadRetry();
+  }, [userId, version, loadRetry]);
+
+  async function refreshAll() {
+    setRefreshing(true);
+    await Promise.all([resync(), loadSetup(), loadRetry(), refresh()]);
+    setPipeKey((k) => k + 1);
+    setRefreshing(false);
+  }
 
   useEffect(() => {
     if (!userId) return;
@@ -97,13 +116,15 @@ export default function AgentPage() {
     void resync();
   }
 
-  async function requeueAll() {
+  async function retrySafe() {
+    if (!retry?.safe.length) return;
     setBusy(true);
-    const r = await fetch("/api/agent/tasks/requeue", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" }).catch(() => null);
+    const r = await fetch("/api/agent/tasks/requeue", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ids: retry.safe.map((x) => x.id) }) }).catch(() => null);
     const d = r ? await r.json().catch(() => ({})) : { error: "Network error" };
     setBusy(false);
-    setToast(r?.ok ? (d.queued ? `${d.queued} job${d.queued > 1 ? "s" : ""} back in line — your agent is starting.${d.capped ? " The rest wait for tomorrow's limit." : ""}` : "Nothing to re-apply.") : d.error || "Couldn't re-apply.");
+    setToast(r?.ok ? (d.queued ? `${d.queued} job${d.queued > 1 ? "s" : ""} back in line — your agent is starting.${d.capped ? " The rest wait for tomorrow's limit." : ""}` : "Nothing could be retried safely.") : d.error || "Couldn't retry.");
     void resync();
+    void loadRetry();
   }
 
   const hasMailbox = Boolean(setup?.mailbox);
@@ -122,13 +143,12 @@ export default function AgentPage() {
   })();
   const etaMin = (i: number) => Math.round((liveNow.length ? perJob * 0.5 : agentUp ? 0.5 : 1) + i * (perJob + 0.15));
   const stuckFor = upNext.length && !liveNow.length ? now - Math.min(...upNext.map((t) => Date.parse(t.updated_at))) : 0;
-  // Never offer to re-apply to a job that's already been sent (same posting, or same title at the same company).
-  const sentKey = new Set(ix.filter((t) => t.status === "submitted").flatMap((t) => [t.job_id, `${t.job.company}|${t.job.title}`.toLowerCase()]));
-  const retryable = ix.filter((t) => ["cancelled", "failed"].includes(t.status) && !sentKey.has(t.job_id) && !sentKey.has(`${t.job.company}|${t.job.title}`.toLowerCase())).length;
+  // Retrying is decided by the server's duplicate and safety checks (see /api/agent/tasks/requeue).
+  const retryable = retry?.safe.length || 0;
   const queuePos = new Map(upNext.map((t, i) => [t.id, i + 1]));
   const roleTitle = (t: AgentTask) => roles.find((r) => r.id === t.job.role_id)?.title || null;
   const limit = dailyLimit(profile as { daily_limit?: number | null; high_volume_ok?: boolean | null } | null, effectivePlan(profile?.plan, profile?.role));
-  const usedToday = ix.filter((t) => Date.parse(t.created_at) >= limitDayStart(now)).length;
+  const usedToday = ix.filter((t) => countsToday(t, limitDayStart(now))).length;
   const steps = setup
     ? [
         { done: setup.hasResume, title: "Upload your resume", body: "Your agent writes a tailored copy for every job.", href: "/app/resumes", icon: FileText },
@@ -163,6 +183,9 @@ export default function AgentPage() {
                 <><Loader2 size={13} className="animate-spin" aria-hidden /> Connecting…</>
               )}
             </span>
+            <button className="btn-secondary" onClick={() => void refreshAll()} disabled={refreshing} aria-label="Refresh everything on this page">
+              <RefreshCw size={15} className={refreshing ? "animate-spin" : ""} aria-hidden /> Refresh
+            </button>
             <Link href="/app/settings#agent-mode" className="btn-secondary">{profile?.autonomy === "fully_automatic" ? "Fully automatic" : profile?.autonomy === "approve_all" ? "Approve every application" : "Approve important ones"}</Link>
           </>
         }
@@ -173,9 +196,14 @@ export default function AgentPage() {
           <ShieldCheck size={18} className="text-orange" aria-hidden />
           <p className="min-w-0 flex-1 text-sm"><span className="font-semibold">One quick check before your agent applies:</span> Vantage is for adults. Please confirm you&apos;re 18 or older.</p>
           <button className="btn-primary min-h-9" onClick={async () => {
-            await supabaseBrowser().from("profiles").update({ adult_confirmed_at: new Date().toISOString() }).eq("id", userId!);
+            const { error } = await supabaseBrowser().from("profiles").update({ adult_confirmed_at: new Date().toISOString() }).eq("id", userId!);
+            if (error) return setToast(`Couldn't save that: ${error.message}`);
+            // Jobs that stopped only for this check can go again — they never opened the employer's site.
+            await supabaseBrowser().from("agent_tasks").update({ status: "queued", error: null, needs: [], locked_at: null, step: "Back in line — you confirmed you're 18 or older" })
+              .eq("status", "manual").ilike("error", "Confirm you're 18 or older%").is("submit_clicked_at", null);
             await refresh();
-            setToast("Thanks — confirmed.");
+            void resync();
+            setToast("Thanks — confirmed. Jobs that were waiting on this are back in line.");
           }}>I&apos;m 18 or older</button>
         </section>
       )}
@@ -287,7 +315,7 @@ export default function AgentPage() {
             <div className="p-5">
               <p className="text-xs font-bold uppercase tracking-wider text-muted">Right now</p>
               <p className="mt-2 text-lg font-bold">{needs.length ? `${needs.length} application${needs.length > 1 ? "s are" : " is"} paused for you` : profile?.agent_enabled ? (usedToday >= limit ? "Today's applications are done" : "Looking for your next best matches") : "Nothing in line"}</p>
-              <p className="mt-1 text-sm text-muted">{needs.length ? "Everything else is filled in. Answer below and your agent finishes and submits them right away." : profile?.agent_enabled ? (usedToday >= limit ? `Your agent has used all ${limit} of today's applications. It picks up again tomorrow — or raise the limit in Settings.` : "Auto-apply checks for new matching jobs every few minutes and lines up the best ones here.") : retryable ? `Paste a job link above, switch on Auto-apply, or put your ${retryable} cancelled job${retryable > 1 ? "s" : ""} back in line below.` : "Paste a job link above, or switch on Auto-apply."}</p>
+              <p className="mt-1 text-sm text-muted">{needs.length ? "Everything else is filled in. Answer below and your agent finishes and submits them right away." : profile?.agent_enabled ? (usedToday >= limit ? `Your agent has used all ${limit} of today's applications. It picks up again tomorrow — or raise the limit in Settings.` : "Auto-apply checks for new matching jobs every few minutes and lines up the best ones here.") : retryable ? `Paste a job link above, switch on Auto-apply, or retry the ${retryable} job${retryable > 1 ? "s" : ""} that stopped before anything was sent (below).` : "Paste a job link above, or switch on Auto-apply."}</p>
               {needs.length > 0 && <a href="#needs-you" className="btn-pink mt-3 min-h-9 text-[13px]">Answer now</a>}
             </div>
           )}
@@ -330,6 +358,7 @@ export default function AgentPage() {
         autonomy={profile?.autonomy}
         limit={limit}
         usedToday={usedToday}
+        refreshKey={pipeKey}
         onRolesChanged={refresh}
         onToast={setToast}
       />
@@ -355,9 +384,9 @@ export default function AgentPage() {
         roles={roles}
         queuePos={queuePos}
         stages={stages}
-        retryable={retryable}
+        retry={retry}
         busy={busy}
-        onRequeue={requeueAll}
+        onRetry={retrySafe}
         onChange={() => void resync()}
         onToast={setToast}
       />
@@ -670,11 +699,26 @@ function NeedCard({ t, hasMailbox, consent, onDone }: { t: AgentTask; hasMailbox
     );
   }
   // manual: the site needs the user to finish
+  if (t.submit_clicked_at) {
+    // Submit was pressed but no confirmation was seen: it may already be with the employer. Never offer a re-send.
+    return (
+      <div className="card border-orange/30 p-5">
+        {head}
+        <p className="mt-2 text-sm"><b>Submit was pressed, but {t.job.company}&apos;s site didn&apos;t show a confirmation.</b> It may already be sent — applying again could send it twice.</p>
+        <p className="mt-1 text-xs text-muted">Check your job email for a receipt from {t.job.company}. Receipts are matched automatically and this card updates by itself. If nothing arrives within a day, open the job and check your account on their site.</p>
+        <div className="mt-3 flex flex-wrap gap-2">
+          <a className="btn-secondary" href={t.job.url || t.apply_url} target="_blank" rel="noopener noreferrer"><ExternalLink size={15} /> Open the job</a>
+          <Link className="btn-ghost" href="/app/inbox">Check my inbox</Link>
+          <button className="btn-ghost" disabled={busy} onClick={() => act({ action: "cancel" }, "Dismissed.")}>Dismiss</button>
+        </div>
+      </div>
+    );
+  }
   return (
     <div className="card p-5">
       {head}
       <p className="mt-2 text-sm">{t.error || t.step || "This application needs you to finish it on the company's site."}</p>
-      <p className="mt-1 text-xs text-muted">“Finish in my browser” opens the job with the Vantage extension: it fills every page in your own Chrome, where sites rarely ask for puzzles, and you press Submit.</p>
+      <p className="mt-1 text-xs text-muted">Nothing was submitted. “Finish in my browser” opens the job with the Vantage extension (if it&apos;s installed): it fills every page in your own Chrome and you press Submit.</p>
       <div className="mt-3 flex flex-wrap gap-2">
         <a className="btn-primary" href={`${(t.apply_url || t.job.url).split("#")[0]}#vantage-apply`} target="_blank" rel="noopener noreferrer"><ExternalLink size={15} /> Finish in my browser</a>
         <button className="btn-secondary" disabled={busy} onClick={() => act({ action: "retry" }, "Your agent will try again.")}><RotateCcw size={16} /> Try again</button>

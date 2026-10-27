@@ -23,6 +23,10 @@ export type AgentTask = {
   created_at: string;
   updated_at: string;
   finished_at: string | null;
+  /** When the agent pressed the final Submit (set even if the site never confirmed). */
+  submit_clicked_at?: string | null;
+  /** Who cancelled: "user", "system" (setup pauses) or "duplicate" (already applied). */
+  cancel_reason?: string | null;
 };
 
 export const STATUS_META: Record<string, { label: string; tone: "green" | "red" | "orange" | "blue" | "pink" | "gray"; live?: boolean; needsYou?: boolean }> = {
@@ -35,8 +39,8 @@ export const STATUS_META: Record<string, { label: string; tone: "green" | "red" 
   submitted: { label: "Applied", tone: "green" },
   manual: { label: "Finish on site", tone: "orange", needsYou: true },
   failed: { label: "Couldn't apply", tone: "red" },
-  cancelled: { label: "Cancelled", tone: "gray" },
-  extension: { label: "Filled in your browser", tone: "blue" },
+  cancelled: { label: "Skipped", tone: "gray" },
+  extension: { label: "In your browser", tone: "blue" },
 };
 
 export const ACTIVE = ["queued", "running", "waiting_code", "needs_human"];
@@ -53,8 +57,8 @@ export function statusLine(t: AgentTask, queuePos?: number) {
     case "awaiting_approval": return "Waiting for your OK";
     case "submitted": return `Applied ${timeAgo(t.finished_at || t.updated_at)}`;
     case "manual": case "failed": return t.error || t.step || "Couldn't finish on this site";
-    case "cancelled": return "Cancelled";
-    case "extension": return "Filled by the Vantage extension — submit it on the company's page";
+    case "cancelled": return t.cancel_reason === "duplicate" ? t.step || "Skipped — already applied" : t.cancel_reason === "system" ? t.step || "Paused by Vantage" : "Skipped by you";
+    case "extension": return "Started in your browser with the Vantage extension — did you submit it?";
     default: return t.step || "";
   }
 }

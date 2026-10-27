@@ -115,7 +115,7 @@ export default function JobsPage() {
           <label className="flex items-center gap-2 text-sm font-medium">
             <span className="text-muted">Posted</span>
             <select className="input min-h-9 w-auto py-0 text-sm" value={days} onChange={(e) => setDays(Number(e.target.value))} aria-label="Posted within">
-              <option value={60}>Any time</option>
+              <option value={60}>Last 60 days</option>
               <option value={30}>Last 30 days</option>
               <option value={14}>Last 14 days</option>
               <option value={7}>Last 7 days</option>
@@ -135,7 +135,8 @@ export default function JobsPage() {
             <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-green-600" />
           </span>
           <span><span className="font-semibold text-ink">{data.meta.live.open_jobs.toLocaleString()}</span> <span className="text-muted">live jobs from</span> <span className="font-semibold text-ink">{(data.meta.live.companies || 0).toLocaleString()}</span> <span className="text-muted">companies, read straight from their careers sites</span></span>
-          {(data.meta.live.new_24h || 0) > 0 && <span className="text-muted">· {data.meta.live.new_24h!.toLocaleString()} new today</span>}
+          {/* "New today" only means something when it's a small share — after a full re-crawl every job looks new. */}
+          {(data.meta.live.new_24h || 0) > 0 && (data.meta.live.new_24h || 0) < (data.meta.live.open_jobs || 0) * 0.2 && <span className="text-muted">· {data.meta.live.new_24h!.toLocaleString()} new today</span>}
           <span className="text-muted">· closed jobs removed, reposts flagged</span>
         </div>
       ) : null}
@@ -149,7 +150,6 @@ export default function JobsPage() {
             </span>
             {sourcesText && <span>· from {sourcesText}</span>}
             {data.meta.sponsorCheck && <span className="inline-flex items-center gap-1 text-green-ink"><ShieldCheck size={14} /> Sponsor register checked</span>}
-            <span>· {Math.max(1, Math.round(data.tookMs))} ms</span>
           </p>
           {data.meta.hidden > 0 && !showBlocked && (
             <div className="flex flex-wrap items-center gap-2 rounded-xl border border-line bg-white px-3.5 py-2.5 text-sm">
@@ -226,7 +226,7 @@ function JobCard({ item, onOpen }: { item: Item; onOpen: () => void }) {
         </span>
       </div>
       <div className="mt-3 flex flex-wrap gap-1.5">
-        {job.sponsor_registered && <Badge tone="green">✓ Licensed visa sponsor</Badge>}
+        {job.sponsor_registered && <Badge tone="green">{job.country === "US" ? "✓ Has sponsored H-1B visas" : job.country === "GB" ? "✓ Licensed UK visa sponsor" : "✓ Known visa sponsor"}</Badge>}
         {job.sponsorship === "offers" && <Badge tone="green">✓ Offers sponsorship</Badge>}
         {job.sponsorship === "silent" && !job.sponsor_registered && <Badge tone="gray">Sponsorship not mentioned</Badge>}
         {job.remote && <Badge tone="blue">Remote</Badge>}

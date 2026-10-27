@@ -7,15 +7,16 @@ import { supabaseBrowser } from "@/lib/supabase/client";
 import { timeAgo } from "@/lib/format";
 import { NEEDS_YOU, STATUS_META, statusLine, type AgentTask } from "@/lib/agent/status";
 import type { TargetRole } from "@/lib/types";
-import { patch, STAGE, type LightTask } from "./shared";
+import { patch, STAGE, type LightTask, type RetryRow } from "./shared";
 
-type GroupKey = "all" | "needs" | "progress" | "applied" | "failed";
+type GroupKey = "all" | "needs" | "progress" | "browser" | "applied" | "failed";
 const GROUPS: { key: GroupKey; label: string; statuses: string[] | null }[] = [
   { key: "all", label: "All", statuses: null },
   { key: "needs", label: "Needs you", statuses: NEEDS_YOU },
-  { key: "progress", label: "In progress", statuses: ["queued", "running", "waiting_code", "extension"] },
+  { key: "progress", label: "In progress", statuses: ["queued", "running", "waiting_code", "needs_human"] },
+  { key: "browser", label: "In your browser", statuses: ["extension"] },
   { key: "applied", label: "Applied", statuses: ["submitted"] },
-  { key: "failed", label: "Couldn't apply", statuses: ["failed", "cancelled"] },
+  { key: "failed", label: "Skipped / couldn't apply", statuses: ["failed", "cancelled"] },
 ];
 type Range = "any" | "today" | "7d" | "30d";
 const RANGES: { value: Range; label: string }[] = [
@@ -42,16 +43,16 @@ function sinceOf(r: Range) {
 const cleanTerm = (s: string) => s.replace(/[,()*%\\:"']/g, " ").replace(/\s+/g, " ").trim().slice(0, 60);
 
 export function Activity({
-  index, version, roles, queuePos, stages, retryable, busy, onRequeue, onChange, onToast, initialGroup,
+  index, version, roles, queuePos, stages, retry, busy, onRetry, onChange, onToast, initialGroup,
 }: {
   index: LightTask[] | null;
   version: number;
   roles: TargetRole[];
   queuePos: Map<string, number>;
   stages: Map<string, string>;
-  retryable: number;
+  retry: { safe: RetryRow[]; held: RetryRow[] } | null;
   busy: boolean;
-  onRequeue: () => void;
+  onRetry: () => void;
   onChange: () => void;
   onToast: (m: string) => void;
   initialGroup?: GroupKey;
@@ -178,13 +179,24 @@ export function Activity({
         </div>
       </div>
 
-      {retryable > 0 && (group === "all" || group === "failed") && (
-        <div className="card mb-3 flex flex-wrap items-center gap-3 border-brand/20 bg-brand-tint/40 p-4">
-          <div className="min-w-0 flex-1">
-            <p className="text-sm font-semibold">{retryable} job{retryable > 1 ? "s were" : " was"} cancelled or couldn&apos;t finish</p>
-            <p className="text-xs text-muted">Put them back in line and your agent applies to them one by one, each with a freshly tailored resume (within your daily limit).</p>
+      {retry && (retry.safe.length > 0 || retry.held.length > 0) && (group === "all" || group === "failed") && (
+        <div className="card mb-3 border-brand/20 bg-brand-tint/30 p-4">
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-semibold">
+                {retry.safe.length ? `${retry.safe.length} job${retry.safe.length > 1 ? "s" : ""} stopped before anything was sent — safe to retry` : "Nothing to retry safely"}
+              </p>
+              <p className="text-xs text-muted">Retry only puts back jobs that never reached Submit and that you haven&apos;t applied to (or been turned down for) — never ones you chose to skip. Each gets a freshly tailored resume, within your daily limit.</p>
+            </div>
+            {retry.safe.length > 0 && <button className="btn-primary min-h-9 text-[13px]" disabled={busy} onClick={onRetry}><RotateCcw size={15} /> Retry {retry.safe.length}</button>}
           </div>
-          <button className="btn-primary min-h-9 text-[13px]" disabled={busy} onClick={onRequeue}><RotateCcw size={15} /> Apply to all again</button>
+          <details className="mt-3 text-[13px]">
+            <summary className="cursor-pointer font-semibold text-brand-ink">See which jobs{retry.held.length ? ` · ${retry.held.length} won't be retried, and why` : ""}</summary>
+            <ul className="mt-2 space-y-1">
+              {retry.safe.map((r) => <li key={r.id} className="flex gap-2"><Check size={14} className="mt-0.5 shrink-0 text-green" aria-hidden /><span className="min-w-0"><b>{r.title}</b> · {r.company}</span></li>)}
+              {retry.held.map((r) => <li key={r.id} className="flex gap-2 text-muted"><X size={14} className="mt-0.5 shrink-0" aria-hidden /><span className="min-w-0"><b className="text-ink-2">{r.title}</b> · {r.company} — {r.why}</span></li>)}
+            </ul>
+          </details>
         </div>
       )}
 
@@ -266,8 +278,8 @@ function TaskRow({ t, role, pos, stage, onChange, onToast }: { t: AgentTask; rol
                       <li key={i} className="relative"><span className="absolute -left-[21px] top-1.5 h-2 w-2 rounded-full bg-brand" />{l.text} <span className="text-xs text-muted">· {timeAgo(l.at)}</span></li>
                     ))}
                     {t.status === "queued" && <li className="relative font-medium"><span className="absolute -left-[21px] top-1.5 h-2 w-2 animate-pulse rounded-full bg-brand" />{pos && pos > 1 ? `#${pos} in line — your agent applies one job at a time and starts this one automatically when its turn comes.` : "Next in line — starting automatically."}</li>}
-                    {t.status === "cancelled" && <li className="relative text-muted"><span className="absolute -left-[21px] top-1.5 h-2 w-2 rounded-full bg-line-2" />Cancelled{t.finished_at ? ` ${timeAgo(t.finished_at)}` : ""}. Nothing was sent to {t.job.company}. Press “Apply again” to put it back in line.</li>}
-                    {t.status === "submitted" && <li className="relative font-semibold text-green-ink"><span className="absolute -left-[21px] top-1.5 h-2 w-2 rounded-full bg-green" />Submitted on {t.job.company}&apos;s site. The confirmation page is saved as proof, and their email will appear in your Inbox.</li>}
+                    {t.status === "cancelled" && <li className="relative text-muted"><span className="absolute -left-[21px] top-1.5 h-2 w-2 rounded-full bg-line-2" />{statusLine(t)}{t.finished_at ? ` · ${timeAgo(t.finished_at)}` : ""}.{t.submit_clicked_at ? "" : ` Nothing was sent to ${t.job.company}.`}</li>}
+                    {t.status === "submitted" && <li className="relative font-semibold text-green-ink"><span className="absolute -left-[21px] top-1.5 h-2 w-2 rounded-full bg-green" />Submitted on {t.job.company}&apos;s site{proof ? " — the confirmation page is saved as proof" : (t.log || []).some((l) => /extension/i.test(l.text)) ? " with the Vantage extension, in your own browser (no screenshot)" : ""}. Their emails will appear in your Inbox.</li>}
                     {!log.length && t.status !== "queued" && <li className="text-muted">Waiting to start.</li>}
                   </ol>
                   {earlier.length > 0 && (
@@ -281,11 +293,13 @@ function TaskRow({ t, role, pos, stage, onChange, onToast }: { t: AgentTask; rol
             })()}
             <div className="mt-4 flex flex-wrap gap-2">
               {t.status === "queued" && <button className="btn-primary min-h-9 text-xs" onClick={async () => { const r = await patch(t.id, { action: "apply_now" }); onToast(r.ok ? `${t.job.company} is next — starting now.` : r.error || "Couldn't move it."); onChange(); }}><Sparkles size={14} /> Apply now</button>}
-              {["failed", "cancelled"].includes(t.status) && <button className="btn-primary min-h-9 text-xs" onClick={async () => { const r = await patch(t.id, { action: "apply_now" }); onToast(r.ok ? `${t.job.company} is back in line and goes next.` : r.error || "Couldn't re-apply."); onChange(); }}><RotateCcw size={13} /> Apply again</button>}
+              {(t.status === "failed" || (t.status === "cancelled" && t.cancel_reason !== "duplicate")) && !t.submit_clicked_at && <button className="btn-secondary min-h-9 text-xs" onClick={async () => { const r = await patch(t.id, { action: "apply_now" }); onToast(r.ok ? `${t.job.company} is back in line and goes next.` : r.error || "Couldn't re-apply."); onChange(); }}><RotateCcw size={13} /> {t.status === "cancelled" && t.cancel_reason !== "system" ? "Apply after all" : "Try again"}</button>}
+              {t.status === "extension" && <button className="btn-primary min-h-9 text-xs" onClick={async () => { const r = await patch(t.id, { action: "submitted_myself" }); onToast(r.ok ? `${t.job.company} is in your Applications.` : r.error || "Couldn't save that."); onChange(); }}><Check size={14} /> I submitted it</button>}
+              {t.status === "extension" && <button className="btn-ghost min-h-9 text-xs" onClick={async () => { const r = await patch(t.id, { action: "cancel" }); onToast(r.ok ? "Marked as not applied." : r.error || "Couldn't save that."); onChange(); }}>I didn&apos;t apply</button>}
               {t.resume_id && <a className="btn-secondary min-h-9 text-xs" href={`/api/resume/${t.resume_id}/pdf?inline=1`} target="_blank" rel="noopener noreferrer"><FileText size={14} /> {t.status === "submitted" ? "Resume sent" : "Tailored resume"}</a>}
               {t.resume_id && t.cover_letter && <a className="btn-secondary min-h-9 text-xs" href={`/api/resume/${t.resume_id}/pdf?kind=cover&inline=1`} target="_blank" rel="noopener noreferrer">Cover letter</a>}
               <a className="btn-ghost min-h-9 text-xs" href={t.job.url || t.apply_url} target="_blank" rel="noopener noreferrer">Job posting <ExternalLink size={13} /></a>
-              {["queued", "awaiting_approval"].includes(t.status) && <button className="btn-ghost min-h-9 text-xs" onClick={async () => { await patch(t.id, { action: "cancel" }); onChange(); }}>Cancel</button>}
+              {["queued", "awaiting_approval"].includes(t.status) && <button className="btn-ghost min-h-9 text-xs" onClick={async () => { const r = await patch(t.id, { action: "cancel" }); onToast(r.ok ? `${t.job.company} skipped — nothing was sent.` : r.error || "Couldn't cancel."); onChange(); }}>Don&apos;t apply</button>}
               {t.application_id && <Link className="btn-ghost min-h-9 text-xs" href="/app/applications">Track it <ArrowRight size={13} /></Link>}
             </div>
             {t.resume_style && <p className="mt-3 text-xs text-muted">Resume style: {t.resume_style} · Letter tone: {t.letter_tone}</p>}
@@ -295,7 +309,7 @@ function TaskRow({ t, role, pos, stage, onChange, onToast }: { t: AgentTask; rol
             {proof ? (
               <a href={`data:image/jpeg;base64,${proof}`} target="_blank" rel="noopener noreferrer"><img src={`data:image/jpeg;base64,${proof}`} alt={`Screenshot of the ${t.job.company} application`} className="mt-2 w-full rounded-lg border border-line" /></a>
             ) : (
-              <p className="mt-2 text-xs text-muted">A screenshot of the confirmation page appears here after submitting.</p>
+              <p className="mt-2 text-xs text-muted">{t.status === "submitted" ? "No screenshot for this one — it was submitted in your own browser." : "When your agent submits, a screenshot of the confirmation page is saved here."}</p>
             )}
           </div>
         </div>

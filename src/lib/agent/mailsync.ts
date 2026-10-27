@@ -9,14 +9,15 @@ import { nextStatus, type MailKind } from "@/lib/mail-classify";
 import { isPublicHost } from "@/lib/net";
 
 const EVENT_TEXT: Record<string, (m: ParsedMail, company: string) => string> = {
-  received: (_m, c) => `${c} confirmed they received your application`,
+  received: (_m, c) => `${c} confirmed they received your application (an automatic receipt, not a reply yet)`,
+  action: (m) => `Action needed — the site says your application may not be finished: “${m.subject}”`,
   in_review: (m) => `Under review: “${m.subject}”`,
   assessment: (m) => `Next round — assessment: “${m.subject}”`,
   interview: (m) => `Next round — interview invitation: “${m.subject}”`,
   offer: (m) => `Offer: “${m.subject}”`,
   rejection: (m) => `Not selected: “${m.subject}”`,
 };
-const STAGES: MailKind[] = ["received", "in_review", "assessment", "interview", "offer", "rejection", "other"];
+const STAGES: MailKind[] = ["received", "action", "in_review", "assessment", "interview", "offer", "rejection", "other"];
 
 /**
  * Wording like "we'd love to chat" can be a receipt, a rejection or a real invitation. Before an unsure
@@ -29,11 +30,12 @@ async function confirmStage(m: ParsedMail): Promise<{ kind: MailKind; sure: bool
     ask(
       `You sort emails a job applicant received from employers. Reply with JSON only: {"stage": one of ${JSON.stringify(STAGES)}}.
 - received: confirms the application arrived ("thanks for applying", "we'll be in touch if…"). This is NOT an interview.
-- in_review: a status update that it is being reviewed.
+- action: the site says the application is not finished or asks the candidate to complete a step or form.
+- in_review: a person-written status update that it is being reviewed (not an automatic receipt).
 - assessment: asks the candidate to complete a test, challenge, case study or questionnaire.
 - interview: a concrete invitation to talk — schedule/book a call, interview, phone screen, or move to the next round.
 - offer: a job offer.
-- rejection: the company is not moving forward.
+- rejection: the company has decided not to move forward. A receipt that only says what happens *if* you're not selected is "received".
 - other: anything else (newsletters, job alerts, marketing).`,
       [{ role: "user", content: `From: ${m.from_name} <${m.from_addr}>\nSubject: ${m.subject}\n\n${(m.body || m.snippet || "").slice(0, 3500)}` }],
       60,

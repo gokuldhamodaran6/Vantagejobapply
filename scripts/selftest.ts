@@ -82,6 +82,8 @@ ok(pdf.education?.length === 2 && (pdf.certifications || []).includes("HubSpot: 
 // Role matching across title families.
 ok(roleSimilarity("Marketing Specialist", "Growth Marketing Manager") >= 0.6, "marketing specialist ≈ growth marketing manager");
 ok(roleSimilarity("Product Manager", "Product Designer") < 0.45, "product manager ≠ product designer");
+ok(roleSimilarity("Product Manager", "Senior Product Marketing Manager") < 0.45, "product manager ≠ product marketing manager");
+ok(roleSimilarity("Product Manager", "Senior Product Manager, Marketplace") >= 0.6, "product manager ≈ senior product manager");
 
 // A "Business Analyst" filter shows business analyst titles and real synonyms — never marketing or sales roles.
 for (const t of ["Business Analyst", "Senior Business Analyst", "IT Business Analyst", "Business Systems Analyst", "Business Analyst – Marketing Technology", "Operations Analyst", "Strategy & Operations Manager"]) {
@@ -222,7 +224,10 @@ async function plannerChecks() {
   ok(k("Your offer from Stripe", "We are pleased to extend an offer of employment for the role of Product Manager.") === "offer", "offers are recognised");
   ok(k("Security code for your application to Datadog", "Copy and paste this code into the security code field on your application: O2YJR3FJ") === "verification", "security codes are verification mail");
   ok(k("New jobs for you", "10 new product manager jobs near Chicago") === "other", "job alerts are not application mail");
-  ok(nextStatus("applied", "received") === "in_review" && nextStatus("interview", "received") === undefined && nextStatus("rejected", "received") === undefined && nextStatus("in_review", "assessment") === "assessment" && nextStatus("interview", "rejection") === "rejected" && nextStatus("offer", "rejection") === undefined, "applications only move forward through the pipeline");
+  ok(k("Thank you for your application to Loadsmart", "Hi Gokul, Thank you for your interest in Loadsmart! We wanted to let you know we received your application for Product Marketing Specialist. Our team will review your application and will be in touch if your qualifications match our needs for the role. If you are not selected for this position, keep an eye on our jobs page as we're growing.") === "received", "a receipt that says what happens if you're not selected is not a rejection");
+  ok(k("Further Action May Be Required For Your Job Application", "Your application has been received. THANK YOU FOR SUBMITTING YOUR RESUME/CV. IMPORTANT: If you did not proceed to the final step of the application process earlier, please complete this form now to be considered for employment.") === "action", "an 'application not finished' email asks for action");
+  ok(k("Your application", "Unfortunately, we will not be moving forward with your application at this time.") === "rejection", "a real rejection is still a rejection");
+  ok(nextStatus("applied", "received") === undefined && nextStatus("applied", "in_review") === "in_review" && nextStatus("interview", "received") === undefined && nextStatus("rejected", "received") === undefined && nextStatus("in_review", "assessment") === "assessment" && nextStatus("interview", "rejection") === "rejected" && nextStatus("offer", "rejection") === undefined, "applications only move forward through the pipeline");
 }
 
 // Ghost jobs.

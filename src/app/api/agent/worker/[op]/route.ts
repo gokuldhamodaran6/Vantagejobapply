@@ -156,6 +156,7 @@ async function handle(req: Request, op: string) {
       const patch: Record<string, unknown> = { task_id: taskId };
       for (const k of ["status", "step", "needs", "error", "log", "proof"]) if (body[k] !== undefined) patch[k] = body[k];
       if (body.clearInput) patch.clear_input = true;
+      if (body.submitClicked) patch.submit_clicked = true;
       const t = await rpc("update", patch);
       if (body.status === "submitted") await rpc("record_application", { task_id: taskId, answers: body.answers || {} });
       return j({ ok: true, task: t });

@@ -1,3 +1,4 @@
+import { limitDayStart } from "@/lib/agent/plan";
 import { json, loadUserContext } from "@/lib/server-user";
 import { jobFromLink } from "@/lib/agent/jobs";
 import { prepareAndQueue } from "@/lib/agent/prepare";
@@ -37,13 +38,18 @@ export async function POST(req: Request) {
     }
   }
   if (!job) return json({ error: "Job not found." }, 404);
+  if ((job as { closed_at?: string | null }).closed_at) return json({ error: `${job.company} has closed this job, so it can't be applied to.` }, 410);
+
+  // Never twice: the same posting, a repost, or the same role at the same company — checked before any AI work.
+  const { data: blocked } = await ctx.supabase.rpc("apply_check", { p_job_id: job.id, p_company: job.company, p_title: job.title });
+  if (blocked) return json({ error: `${blocked} — ${job.title} at ${job.company}. It won't be sent again.`, duplicate: true }, 409);
 
   // The daily limit covers every application the agent sends, including ones you start yourself.
   if (!body.later) {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    // Same day and same rule as the agent itself: its own applications since midnight UTC.
+    const dayStart = new Date(limitDayStart()).toISOString();
     const [{ count: sentToday }, { count: inLine }] = await Promise.all([
-      ctx.supabase.from("agent_tasks").select("id", { count: "exact", head: true }).eq("status", "submitted").gte("finished_at", today.toISOString()),
+      ctx.supabase.from("agent_tasks").select("id", { count: "exact", head: true }).gte("created_at", dayStart).neq("status", "extension").not("started_at", "is", null).not("status", "in", "(queued,running,waiting_code,needs_human)"),
       ctx.supabase.from("agent_tasks").select("id", { count: "exact", head: true }).in("status", ["queued", "running", "waiting_code", "needs_human"]),
     ]);
     const limit = dailyLimit(ctx.profile as { daily_limit?: number; high_volume_ok?: boolean }, ctx.plan);
@@ -84,7 +90,7 @@ export async function POST(req: Request) {
     resumeId,
   });
   if (r.error) return json({ error: r.error }, 400);
-  if (!r.taskCreated) return json({ error: "Your agent already has this job in its queue.", duplicate: true }, 409);
+  if (!r.taskCreated) return json({ error: "Your agent is already working on this job — see Your agent.", duplicate: true }, 409);
   void wakeWorker();
   return json({ ok: true, job: { id: job.id, title: job.title, company: job.company }, eligible: match.eligible, blockers: match.blockers });
 }

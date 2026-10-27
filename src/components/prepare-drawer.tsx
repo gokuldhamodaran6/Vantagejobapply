@@ -79,6 +79,25 @@ export function PrepareDrawer({ item, onClose, onSaved }: { item: { job: Job; ma
       if (r.data) resumeId = r.data.id;
     }
     const now = new Date().toISOString();
+    // Never move an application backwards or wipe its history: if it's already tracked, only add what's new.
+    const ORDER = ["saved", "ready", "applied", "in_review", "assessment", "interview", "offer", "rejected", "withdrawn"];
+    const { data: existing } = await supabase.from("applications").select("id,status,events,applied_at").eq("job_id", j.id).maybeSingle();
+    if (existing) {
+      const cur = String(existing.status);
+      const forward = ORDER.indexOf(status) > ORDER.indexOf(cur) && !["rejected", "withdrawn"].includes(cur);
+      const ev = { at: now, type: status, text: status === "applied" ? "You applied on the company's official site" : status === "ready" ? "Application prepared" : "Saved" };
+      const { error } = await supabase.from("applications").update({
+        ...(forward ? { status, ...(status === "applied" ? { applied_at: existing.applied_at || now } : {}) } : {}),
+        ...(resumeId ? { resume_id: resumeId } : {}),
+        ...(cover ? { cover_letter: cover } : {}),
+        events: [...((existing.events as unknown[]) || []), ...(forward ? [ev] : [])],
+      }).eq("id", existing.id);
+      setBusy("");
+      if (error) return setError(error.message);
+      onSaved(forward ? (status === "applied" ? "Marked as applied — tracking it in Applications" : "Saved to Applications") : `Already in Applications (${cur.replace("_", " ")}) — nothing was changed`);
+      if (status !== "ready") onClose();
+      return;
+    }
     const { error } = await supabase.from("applications").upsert(
       {
         user_id: userId,
@@ -146,7 +165,7 @@ export function PrepareDrawer({ item, onClose, onSaved }: { item: { job: Job; ma
             <section>
               <div className="flex flex-wrap gap-1.5">
                 <Badge tone={item.match.verdict === "great" ? "pink" : "blue"}>{item.match.score}% match</Badge>
-                {j.sponsor_registered && <Badge tone="green">✓ Licensed visa sponsor</Badge>}
+                {j.sponsor_registered && <Badge tone="green">{j.country === "US" ? "✓ Has sponsored H-1B visas" : j.country === "GB" ? "✓ Licensed UK visa sponsor" : "✓ Known visa sponsor"}</Badge>}
                 {j.sponsorship === "offers" && <Badge tone="green">✓ Mentions sponsorship</Badge>}
                 {j.sponsorship === "no" && <Badge tone="red">Says no sponsorship</Badge>}
                 {money(j.salary_min, j.salary_max, j.currency) && <Badge tone="gray">{money(j.salary_min, j.salary_max, j.currency)}</Badge>}
