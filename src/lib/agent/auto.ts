@@ -48,13 +48,19 @@ export async function autoSource(deadline: number) {
     const known = new Set(u.known_jobs || []);
     const sentRoles = new Set(u.known_roles || []);
     const since = new Date(Date.now() - (u.prefs?.max_days_old || DEFAULT_FRESH_DAYS) * 864e5).toISOString();
-    const phrases = [...new Set(u.roles.flatMap((r) => searchVariants(r.title, 10)))];
     const candidates: { job: Job; score: number; important: boolean; roleId?: string; rolePriority?: number }[] = [];
     const d = (detail[u.user_id] = { searched: 0, candidates: 0, skipped: {} as Record<string, number>, errors: [] as string[] });
     const skip = (k: string) => (d.skipped[k] = (d.skipped[k] || 0) + 1);
     for (const country of (u.prefs?.countries?.length ? u.prefs.countries : ["US"]).slice(0, 6)) {
-      // One slow country never stops the rest (a timeout used to stop auto-apply for everyone).
-      const jobs = (await rpc<Job[]>("search", { country, tsquery: titleTsQuery(phrases), since, limit: 400 }).catch((e) => { console.error("auto search failed", country, String(e).slice(0, 200)); return null; })) || [];
+      // One small search per target role: each stays well inside the database's 3 s limit for server calls, and a
+      // slow one (or a slow country) never stops the rest — a single combined search used to time out every run.
+      const byId = new Map<string, Job>();
+      for (const r of u.roles) {
+        const got = await rpc<Job[]>("search", { country, tsquery: titleTsQuery(searchVariants(r.title, 10)), since, limit: 150 })
+          .catch((e) => { d.errors.push(`search ${r.title}: ${String(e).slice(0, 80)}`); return null; });
+        for (const j of got || []) if (!byId.has(j.id)) byId.set(j.id, j);
+      }
+      const jobs = [...byId.values()];
       d.searched += jobs.length;
       await loadBoards(jobs.map((j) => boardOfJob(j.id)));
       const targets = new Set((u.prefs?.companies || []).map(normCompany));
