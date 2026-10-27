@@ -105,9 +105,19 @@ export default function JobsPage() {
     if (remote) p.set("remote", "1");
     if (days !== 60) p.set("days", String(days));
     if (showBlocked) p.set("blocked", "1");
+    // Show the last results for this search at once, then swap in the fresh ones (a few hundred ms later).
+    const key = `vantage.jobs.${p}`;
+    try {
+      const cached = JSON.parse(localStorage.getItem(key) || "null") as Resp | null;
+      if (cached?.results) setData(cached);
+    } catch { /* storage unavailable */ }
     const r = await fetch(`/api/jobs?${p}`).catch(() => null);
     const d = r ? ((await r.json().catch(() => ({ error: "Job search is temporarily unavailable." }))) as Resp) : ({ error: "Network error. Check your connection and try again." } as Resp);
-    setData(d);
+    if (d.error) setData((cur) => (cur?.results ? cur : d));
+    else {
+      setData(d);
+      try { localStorage.setItem(key, JSON.stringify({ ...d, results: d.results.map((it) => ({ ...it, job: { ...it.job, description: (it.job.description || "").slice(0, 400) } })) })); } catch { /* full or blocked */ }
+    }
     setBusy(false);
   }, [c, roleId, query, remote, days, showBlocked]);
 

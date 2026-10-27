@@ -134,7 +134,8 @@ export async function searchForUser(
     const stale = ((boards as { id: number; last_ok_at: string | null }[]) || []).filter(
       (b) => !b.last_ok_at || Date.now() - Date.parse(b.last_ok_at) > 15 * 60 * 1000,
     );
-    if (stale.length) refreshed = await crawlNow(stale.map((b) => b.id)).catch(() => 0);
+    // Refreshed in the background: the results show now, and the next search has the newest jobs.
+    if (stale.length) { refreshed = stale.length; void crawlNow(stale.map((b) => b.id)).catch(() => 0); }
   }
 
   // 2) One ranked, title-weighted search over open jobs read from official employer feeds.
@@ -189,7 +190,7 @@ export async function searchForUser(
   // Workday lists carry no descriptions. Fill them in for the best matches so visa and skill checks see the full text.
   const needText = results.filter((r) => !r.job.description && r.job.source === "workday").sort((a, b) => b.match.score - a.match.score).slice(0, 10);
   if (needText.length) {
-    const budget = new Promise<void>((r) => setTimeout(r, 4000));
+    const budget = new Promise<void>((r) => setTimeout(r, 1200)); // the rest are saved for the next search
     await Promise.race([
       Promise.all(needText.map(async (r) => {
         const b = workdayBoardOf(r.job);
