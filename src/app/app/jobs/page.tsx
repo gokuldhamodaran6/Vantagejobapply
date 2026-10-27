@@ -97,7 +97,7 @@ export default function JobsPage() {
     setLinked(true);
   }, []);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (fresh = false) => {
     setBusy(true);
     const p = new URLSearchParams({ country: c });
     if (roleId) p.set("role", roleId);
@@ -111,7 +111,7 @@ export default function JobsPage() {
       const cached = JSON.parse(localStorage.getItem(key) || "null") as Resp | null;
       if (cached?.results) setData(cached);
     } catch { /* storage unavailable */ }
-    const r = await fetch(`/api/jobs?${p}`).catch(() => null);
+    const r = await fetch(`/api/jobs?${p}${fresh ? "&fresh=1" : ""}`).catch(() => null);
     const d = r ? ((await r.json().catch(() => ({ error: "Job search is temporarily unavailable." }))) as Resp) : ({ error: "Network error. Check your connection and try again." } as Resp);
     if (d.error) setData((cur) => (cur?.results ? cur : d));
     else {
@@ -175,7 +175,7 @@ export default function JobsPage() {
       <PageHeader
         title="Live jobs"
         subtitle="Straight from employers' official careers sites, filtered to what you can legally take."
-        actions={<button className="btn-secondary" onClick={load} disabled={busy}><RefreshCw size={16} className={busy ? "animate-spin" : ""} /> Refresh</button>}
+        actions={<button className="btn-secondary" onClick={() => void load(true)} disabled={busy}><RefreshCw size={16} className={busy ? "animate-spin" : ""} /> Refresh</button>}
       />
 
       <div className="card mb-4 space-y-4 p-4">

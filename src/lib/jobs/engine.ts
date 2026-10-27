@@ -9,6 +9,7 @@ import { inPreferredPlace } from "./places";
 import { roleKey, autoSkipReason, interleaveByPriority, LIVE_MAX_DAYS, type SkipReason } from "@/lib/agent/plan";
 import { PER_EMPLOYER_30D } from "@/lib/access";
 import { ingestSecret, supabaseAnon } from "@/lib/supabase/server";
+import { keyOf, memo } from "@/lib/memo";
 import type { Job, MatchResult, TargetPrefs, TargetRole, WorkAuth } from "@/lib/types";
 
 /** Live jobs shows a job for a target when its title fits the target at least this well. */
@@ -111,6 +112,19 @@ export type LiveStats = { open_jobs?: number; companies?: number; boards_live?: 
 
 const JOB_COLS = "id,source,country,title,company,location,remote,description,url,salary_min,salary_max,currency,category,contract_time,posted_at,sponsorship,sponsor_registered,restrictions";
 
+/**
+ * The ranked search, shared for 3 minutes by every request asking the same thing (Live jobs and Your agent's match counts
+ * ask the same question). The "since" date is rounded to the hour so repeat requests match.
+ */
+function cachedSearch(supabase: SupabaseClient, country: string, tsquery: string, since: string) {
+  const hour = new Date(Math.floor(Date.parse(since) / 3_600_000) * 3_600_000).toISOString();
+  return memo(keyOf("search", country, tsquery, hour), 3 * 60_000, async () => {
+    const r = await supabase.rpc("search_jobs2", { p_country: country, p_tsquery: tsquery, p_since: hour, p_limit: 900 });
+    if (r.error) throw new Error(r.error.message);
+    return { data: r.data, error: null as null | { message: string } };
+  });
+}
+
 export async function searchForUser(
   supabase: SupabaseClient,
   ctx: { roles: TargetRole[]; prefs: TargetPrefs | null; auth: WorkAuth[]; roleLimit: number },
@@ -144,7 +158,7 @@ export async function searchForUser(
   // 2) One ranked, title-weighted search over open jobs read from official employer feeds.
   const since = new Date(Date.now() - maxDays * 864e5).toISOString();
   const [dbRes, sponsorsLoaded, statsRes, liveRes] = await Promise.all([
-    supabase.rpc("search_jobs2", { p_country: country, p_tsquery: titleTsQuery(phrases), p_since: since, p_limit: 900 }),
+    cachedSearch(supabase, country, titleTsQuery(phrases), since),
     loadedSponsorCountries(supabase),
     supabase.rpc("company_reply_stats").then((r) => r, () => ({ data: null })),
     supabase.rpc("job_stats").then((r) => r, () => ({ data: null })),
@@ -297,7 +311,7 @@ export async function pipelineForUser(
   const boardKey = (id: string) => id.split(":").slice(0, 2).join(":");
 
   for (const country of countries) {
-    const { data, error } = await supabase.rpc("search_jobs2", { p_country: country, p_tsquery: titleTsQuery(phrases), p_since: since, p_limit: 900 });
+    const { data, error } = await cachedSearch(supabase, country, titleTsQuery(phrases), since);
     if (error) throw new Error(error.message);
     const byKey = new Map<string, Job & { first_seen_at?: string | null }>();
     for (const j of (data as (Job & { first_seen_at?: string | null })[] | null) || []) {

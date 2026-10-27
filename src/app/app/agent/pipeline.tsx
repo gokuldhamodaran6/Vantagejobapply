@@ -38,19 +38,25 @@ export function MatchedWaiting({
   const now = useTicker(15_000);
   const rolesKey = roles.map((r) => `${r.id}:${r.priority}:${r.active}:${r.title}:${r.levels.join(",")}`).join("|");
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (fresh = false) => {
     setLoading(true);
-    const r = await fetch("/api/agent/pipeline").catch(() => null);
+    // The last counts show at once; the new ones replace them when they arrive.
+    try {
+      const cached = JSON.parse(localStorage.getItem("vantage.pipeline") || "null") as Resp | null;
+      if (cached) setData((cur) => cur || cached);
+    } catch { /* storage unavailable */ }
+    const r = await fetch(`/api/agent/pipeline${fresh ? "?fresh=1" : ""}`).catch(() => null);
     const d = r ? ((await r.json().catch(() => null)) as Resp | null) : null;
     setLoading(false);
     if (!r?.ok || !d || d.error) return setFailed(true);
     setFailed(false);
     setData(d);
+    try { localStorage.setItem("vantage.pipeline", JSON.stringify(d)); } catch { /* full or blocked */ }
   }, []);
 
-  // Recount when targets change, and every few minutes while the page is open.
+  // Recount when targets change, and every few minutes while the page is open. Refresh asks afresh.
   useEffect(() => {
-    void load();
+    void load(refreshKey > 0);
   }, [load, rolesKey, refreshKey]);
   const [showAll, setShowAll] = useState(false);
   useEffect(() => {

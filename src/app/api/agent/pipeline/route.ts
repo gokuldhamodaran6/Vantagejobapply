@@ -1,4 +1,5 @@
 import { json, loadUserContext } from "@/lib/server-user";
+import { keyOf, memo } from "@/lib/memo";
 import { pipelineForUser } from "@/lib/jobs/engine";
 import { dailyLimit, recentByEmployer } from "@/lib/access";
 import { limitDayStart, roleKey } from "@/lib/agent/plan";
@@ -9,7 +10,7 @@ export const maxDuration = 60;
  * "Matched & waiting": how many live jobs match each active target, how many the agent would apply to,
  * and how today's daily limit is split between targets. Read-only; never queues anything.
  */
-export async function GET() {
+export async function GET(req: Request) {
   const ctx = await loadUserContext();
   if (!ctx) return json({ error: "Log in first." }, 401);
   const started = Date.now();
@@ -32,10 +33,13 @@ export async function GET() {
   const limit = dailyLimit(ctx.profile as { daily_limit?: number; high_volume_ok?: boolean }, ctx.plan);
   const usedToday = today.count || 0;
   try {
-    const p = await pipelineForUser(ctx.supabase, {
+    const run = () => pipelineForUser(ctx.supabase, {
       roles: ctx.roles, prefs: ctx.prefs, auth: ctx.auth, roleLimit: ctx.plan.limits.roles, countryLimit: ctx.plan.limits.countries,
       known, perEmployer, room: Math.max(0, limit - usedToday),
     });
+    // Reused for 2 minutes while nothing changed (same targets, same jobs handled, same room today); Refresh asks afresh.
+    const fresh = new URL(req.url).searchParams.get("fresh") === "1";
+    const p = fresh ? await run() : await memo(keyOf("pipeline", ctx.user.id, ctx.roles, ctx.prefs, ctx.auth, known.size, usedToday, limit), 2 * 60_000, run);
     return json({ ...p, limit, usedToday, resetsAt: new Date(limitDayStart() + 864e5).toISOString(), tookMs: Date.now() - started });
   } catch (e) {
     console.error("pipeline failed", e);
