@@ -140,7 +140,11 @@ export async function runTask(bundle, browser) {
       if (challenge) {
         if (bundle.dry) throw new Stop("manual", "Dry run: the site asked for an emailed security code", { needs: await diagnose(page, bundle) });
         const forAccount = /account|sign ?up|register|verify your email|confirm your email/i.test(text) && !/application/i.test(text.slice(0, 600));
-        if (await passCode(bundle, page, challenge, forAccount ? "account" : "application")) break;
+        // A verified account is a step on the way, never the end of the application.
+        if (await passCode(bundle, page, challenge, forAccount ? "account" : "application")) {
+          if (forAccount || !bundle.submitPressed) continue;
+          break;
+        }
         continue;
       }
       const formish = fields.filter((f) => !["password"].includes(f.type));
