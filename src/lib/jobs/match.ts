@@ -41,6 +41,22 @@ export function workModeOk(job: Pick<Job, "remote" | "location" | "title"> & { d
   return want.includes(mode) || (mode === "hybrid" && want.includes("onsite"));
 }
 
+export const JOB_TYPES = [
+  { value: "full_time", label: "Full-time" },
+  { value: "part_time", label: "Part-time" },
+  { value: "contract", label: "Contract" },
+  { value: "internship", label: "Internship" },
+] as const;
+
+/** Employment type from the feed's own field, else the title. Unknown means full-time (most postings). */
+export function jobTypeOf(job: Pick<Job, "title" | "contract_time">): (typeof JOB_TYPES)[number]["value"] {
+  const s = `${job.contract_time || ""} ${job.title}`.toLowerCase();
+  if (/\bintern(ship)?s?\b|co-?op\b|working student|werkstudent/.test(s)) return "internship";
+  if (/\bpart[- ]?time\b/.test(s)) return "part_time";
+  if (/\bcontract(or)?\b|\btemp(orary)?\b|freelance|fixed[- ]term/.test(s)) return "contract";
+  return "full_time";
+}
+
 export type MatchCtx = {
   roles: TargetRole[];
   prefs: TargetPrefs | null;
@@ -130,6 +146,14 @@ export function matchJob(job: Job, ctx: MatchCtx): MatchResult {
       } else if (prefs.industry_mode === "only") {
         score -= 10;
         warnings.push("Outside your chosen industries");
+      }
+    }
+    if (prefs.job_types?.length) {
+      const type = jobTypeOf(job);
+      // Picking the "intern" level for a target counts as wanting internships for it.
+      if (!prefs.job_types.includes(type) && !(type === "internship" && best?.levels.includes("intern"))) {
+        score -= 12;
+        warnings.push(`${JOB_TYPES.find((t) => t.value === type)?.label} — not a job type you chose`);
       }
     }
     if (!workModeOk(job, prefs)) {
