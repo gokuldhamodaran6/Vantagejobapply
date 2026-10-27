@@ -14,8 +14,10 @@ export async function GET(req: Request) {
   if (!b) return extJson({ error: "Not found" }, 404);
   // The tailored resume may still be being written (filling started at once): wait for it up to ~45 s, then use the
   // person's own resume rather than hold the form up. "now=1" skips the wait.
+  // Résumé: wait up to ~30 s; cover letter: ~16 s (it's optional on most forms), then carry on without it.
   if (!b.task.cover_letter && sp.get("now") !== "1") {
-    for (let k = 0; k < 22 && !b.task.cover_letter; k++) {
+    const rounds = sp.get("kind") === "cover_letter" ? 8 : 15;
+    for (let k = 0; k < rounds && !b.task.cover_letter; k++) {
       await new Promise((r) => setTimeout(r, 2000));
       b = (await loadBundle(taskId)) || b;
     }

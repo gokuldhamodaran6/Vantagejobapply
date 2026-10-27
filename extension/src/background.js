@@ -12,11 +12,16 @@ async function api(path, { method = "GET", body } = {}) {
   const token = await store.get("token");
   if (!token) throw Object.assign(new Error("Connect the extension to your Vantage account first."), { code: 401 });
   const base = (await store.get("apiBase")) || API; // apiBase is only set by the extension's own tests
+  // Never hang on a slow request: give up after 75 s and let the loop carry on or explain.
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), 75_000);
   const r = await fetch(`${base}${path}`, {
+    signal: ctl.signal,
     method,
     headers: { Authorization: `Bearer ${token}`, "X-Vantage-Ext": chrome.runtime.getManifest().version, ...(body ? { "Content-Type": "application/json" } : {}) },
     body: body ? JSON.stringify(body) : undefined,
   });
+  clearTimeout(timer);
   const d = await r.json().catch(() => ({}));
   if (!r.ok) throw Object.assign(new Error(d.error || `Vantage error ${r.status}`), { code: r.status, data: d });
   return d;
@@ -57,9 +62,15 @@ async function run(tabId, { force = false, resume = false } = {}) {
   await inject(tabId);
   let t = await store.tab(tabId);
   let base = t?.base || {};
+  const info0 = await top(tabId, () => window.__vp?.info() || window.__vantage?.info());
+  // Pressing "Apply with Vantage" again later in the same application (next page, after signing in) continues it —
+  // it never starts a second application.
+  const host = (u) => { try { return new URL(u).hostname.replace(/^www\./, ""); } catch { return ""; } };
+  if (!resume && !force && t?.taskId && !t.sent && Date.now() - (t.at || 0) < 3 * 3600_000 && info0 && host(info0.url) === host(t.url)) resume = true;
   if (!resume || !t?.taskId) {
-    const info = await top(tabId, () => window.__vp?.info() || window.__vantage?.info());
+    const info = info0;
     if (!info) return;
+    if (info.signIn) return showPanel(tabId, { note: "Sign in on this page first (Vantage never types your passwords), then press Apply with Vantage on the application.", noteTone: "ok", buttons: [{ text: "Close", action: "close", ghost: true }] });
     await showPanel(tabId, { steps: steps(0), note: "Reading the job…", noteTone: "ok" });
     try {
       const start = await api("/api/ext/start", { method: "POST", body: { ...info, force } });
@@ -110,6 +121,7 @@ async function pilotLoop(tabId, t) {
         if (!files[kind]) {
           await showPanel(tabId, { ...t.base, steps: steps(1), note: kind === "resume" ? "Attaching the resume written for this job…" : "Attaching your cover letter…", noteTone: "ok", buttons: [{ text: "Pause", action: "pause", ghost: true }] });
           files[kind] = await api(`/api/ext/file?taskId=${t.taskId}&kind=${kind}`).catch(() => null);
+          if (!files[kind] && kind === "cover_letter") await showPanel(tabId, { ...t.base, steps: steps(1), note: "No cover letter ready yet — continuing without it.", noteTone: "ok", buttons: [{ text: "Pause", action: "pause", ghost: true }] });
         }
         r = files[kind] ? (await inFrames(tabId, (x) => window.__vp?.act(x), [{ do: "upload", i: a.i, file: files[kind] }], [page.frameId]))[0]?.result : { ok: false, note: "no file" };
       } else {
@@ -137,6 +149,23 @@ async function pilotLoop(tabId, t) {
       return showPanel(tabId, { ...t.base, steps: steps(1), note: "This site needs you to sign in or create an account. Vantage never types your password — do it on the page, then press Continue.", noteTone: "ok", buttons: [{ text: "Continue", action: "continue" }] });
     }
     if (plan.status === "stuck") return stuck(tabId, t, plan.say);
+    if (plan.status === "handoff") {
+      // LinkedIn: this step is filled; the person presses LinkedIn's button, then Vantage fills the next step itself.
+      await showPanel(tabId, { ...t.base, steps: steps(1), note: "This step is filled. Check it and press Next (or Submit) on LinkedIn — Vantage fills the next step by itself.", noteTone: "ok", buttons: [{ text: "Pause", action: "pause", ghost: true }] });
+      const before = JSON.stringify([page.snap.url, page.snap.headings, page.snap.dialog]);
+      let moved = false;
+      for (let w = 0; w < 600 && !moved; w++) {
+        await sleep(1000);
+        if ((await store.tab(tabId))?.paused) return;
+        await inject(tabId);
+        if (await top(tabId, () => window.__vantage?.isConfirmation())) return markSubmitted(tabId, "detected");
+        const now = await readTab(tabId);
+        if (now && JSON.stringify([now.snap.url, now.snap.headings, now.snap.dialog]) !== before) moved = true;
+      }
+      if (!moved) return stuck(tabId, t, "Waiting for you to press Next.");
+      lastSig = "";
+      continue;
+    }
     await sleep(plan.status === "next" ? 1500 : 500);
   }
   return stuck(tabId, t, "This application is taking longer than expected.");

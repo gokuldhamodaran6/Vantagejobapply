@@ -27,9 +27,16 @@ export async function POST(req: Request) {
   const url = String(b.url || "").slice(0, 2000);
   if (!/^https:\/\//i.test(url) || !(await isSafePublicUrl(url))) return extJson({ error: "Open the job's application page first." }, 400);
 
+  // A sign-in or redirect page isn't a job: never create an application called "Sign in - Google Accounts".
+  const host = new URL(url).hostname.toLowerCase();
+  const GENERIC = /^(sign in|log ?in|sign up|create (an )?account|recruitment|careers?( site| home)?|jobs?|job (search|application)|apply|home|federation redirector|candidate (home|experience)|welcome|my applications?|linkedin|indeed|search for jobs)\b|candidate experience site/i;
+  if (/(^|\.)(accounts\.google\.com|login\.microsoftonline\.com|appleid\.apple\.com)$/.test(host) || /\/(login|signin|sso|saml|oauth)\b/i.test(new URL(url).pathname)) {
+    return extJson({ error: "This is a sign-in page. Sign in first, then press Apply with Vantage on the job's application page." }, 400);
+  }
   let job: Job | null = (await jobFromLink(url).catch(() => null))?.job || null;
   if (!job) {
     const title = String(b.title || "").replace(/\s+/g, " ").trim().slice(0, 200);
+    if (!title || GENERIC.test(title)) return extJson({ error: "Couldn't read the job title on this page. Open the job description (or the first page of the application), then press Apply with Vantage." }, 400);
     const company = cleanCompany(String(b.company || "").trim() || new URL(url).hostname.replace(/^(www|careers|jobs|apply)\./, "").split(".")[0]);
     if (!title) return extJson({ error: "Couldn't read the job title on this page." }, 400);
     const clean = url.split("#")[0].replace(/[?&](utm_[^=]+|gh_src|source|ref)=[^&]*/gi, "");

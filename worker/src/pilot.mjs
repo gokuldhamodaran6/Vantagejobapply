@@ -8,7 +8,7 @@ const FIELD = new Set(["text", "email", "tel", "url", "number", "date", "month",
 const norm = (s) => String(s || "").toLowerCase().replace(/\s+/g, " ").trim().slice(0, 300);
 
 async function ensure(frame) {
-  const ok = await frame.evaluate(() => Boolean(window.__vp && window.__vp.v >= 7)).catch(() => false);
+  const ok = await frame.evaluate(() => Boolean(window.__vp && window.__vp.v >= 8)).catch(() => false);
   if (!ok) await frame.evaluate(PAGE_JS).catch(() => {});
 }
 

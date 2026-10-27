@@ -4,7 +4,8 @@ import { readFileSync } from "node:fs";
 import { call } from "./api.mjs";
 import { pilotPage } from "./pilot.mjs";
 
-const USER = [[/relative/i, "No"], [/onsite|on-site|in the office/i, "Yes"], [/salary|compensation/i, "$95,000"]];
+// What the made-up applicant answers when asked (as a person would in the panel).
+const USER = [[/relative/i, "No"], [/onsite|on-site|in the office/i, "Yes"], [/salary|compensation/i, "$95,000"], [/background check|drug screen/i, "Yes"], [/sponsorship/i, "Yes"], [/authori[sz]ed to work/i, "Yes"], [/notified your (current )?manager/i, "No"]];
 
 export async function selftest(browser, name = "wd-real.html") {
   const html = readFileSync(new URL(`../fixtures/${name}`, import.meta.url), "utf8");

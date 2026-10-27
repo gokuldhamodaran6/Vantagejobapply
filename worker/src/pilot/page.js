@@ -3,7 +3,7 @@
 // act(): do one thing a person would do — type, pick from a dropdown (nested ones too), tick, upload, click.
 // It never presses a final Submit/Send button; the caller decides that.
 (() => {
-  const VERSION = 7;
+  const VERSION = 8;
   if (window.__vp && window.__vp.v >= VERSION) return;
 
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -89,6 +89,22 @@
     }
     return t.slice(0, 300);
   };
+  // A radio button's own words ("Yes", "No") — never the question, which some sites (ADP) put in aria-labelledby too.
+  function radioText(r, q) {
+    const own = (() => {
+      if (r.id) { try { const l = rootOf(r).querySelector(`label[for="${CSS.escape(r.id)}"]`); if (l && text(l)) return text(l); } catch { /* ignore */ } }
+      const wrap = r.closest("label");
+      if (wrap && text(wrap)) return text(wrap);
+      const sib = r.nextElementSibling && !/^(input|select|textarea)$/i.test(r.nextElementSibling.tagName) ? text(r.nextElementSibling) : "";
+      if (sib) return sib;
+      return clean(r.getAttribute("aria-label") || r.getAttribute("title") || "");
+    })();
+    let t = own || labelOf(r) || r.value || "";
+    const qq = clean(q).replace(/\*$/, "");
+    if (qq && t.length > qq.length && t.includes(qq)) t = clean(t.replace(qq, "").replace(/^\W+/, ""));
+    if (qq && clean(t).replace(/\*$/, "") === qq) t = r.value && !/^(on|true|false|\d+)$/i.test(r.value) ? r.value : t;
+    return t.slice(0, 140);
+  }
   const isRequired = (el, label) => el.required || el.getAttribute("aria-required") === "true" || /\*\s*$|\*\s|\(required\)/i.test(label);
 
   // The section a control belongs to ("My Information", "Work Experience 2", "Education 1").
@@ -114,6 +130,19 @@
 
   let items = [];
   let lastOpened = null;
+
+  /** The topmost open popup that holds controls, if any. */
+  function openModal() {
+    const cands = qsa("[role='dialog'], [role='alertdialog'], [aria-modal='true'], .artdeco-modal, [data-test-modal], [class*='modal' i][class*='open' i], [class*='Modal' i][aria-hidden='false']")
+      .filter((d) => visible(d) && !d.closest("#vantage-panel") && d.querySelector("input:not([type='hidden']), select, textarea, button, [role='button'], [role='combobox']"));
+    if (!cands.length) return null;
+    // Innermost and last-opened wins (a dropdown inside a dialog is not a dialog).
+    const top = cands.filter((d) => !cands.some((o) => o !== d && d.contains(o)));
+    const r = top[top.length - 1];
+    const box = r.getBoundingClientRect();
+    // Tiny popovers (tooltips, menus) aren't modal.
+    return box.width > 240 && box.height > 120 ? r : null;
+  }
 
   function tagEl(el, i) {
     el.setAttribute("data-vp", String(i));
@@ -151,8 +180,12 @@
       return i;
     };
     const controls = qsa("input, textarea, select, [contenteditable='true'], [role='textbox'], [role='combobox'], [role='spinbutton'], [role='searchbox'], [role='radio'], [role='checkbox'], [role='switch'], button, [role='button'], a[href], [aria-haspopup='listbox'], [data-automation-id='promptOption']");
+    // A popup with a form (LinkedIn Easy Apply, "Add experience" dialogs, cookie banners) is the only thing a person can
+    // use right now: read just the popup, not the page behind it.
+    const modal = openModal();
     for (const el of controls) {
       if (el.closest("[data-vp-skip]")) continue;
+      if (modal && !modal.contains(el)) continue;
       const tagName = el.tagName;
       const type = tagName === "INPUT" ? (el.getAttribute("type") || "text").toLowerCase() : "";
       const isFile = type === "file";
@@ -171,9 +204,9 @@
         const box = el.closest("fieldset, [role='radiogroup']") || fieldBox(el);
         const radios = name ? [...rootOf(el).querySelectorAll(`input[type='radio'][name="${CSS.escape(name)}"]`)] : box ? [...box.querySelectorAll("input[type='radio'], [role='radio']")] : [el];
         const q = clean(text(box?.querySelector("legend, [class*='label' i], label:not(:has(input))")) || containerLabel(box || el) || el.getAttribute("aria-label") || name);
-        const opts = radios.map((r) => labelOf(r) || r.value);
+        const opts = radios.map((r) => radioText(r, q));
         const on = radios.find((r) => r.checked || r.getAttribute("aria-checked") === "true");
-        add(radios[0] || el, { kind: "radio", label: q, options: opts, value: on ? labelOf(on) || on.value : "", required: radios.some((r) => r.required) || /\*/.test(q), section: sectionOf(el), error: errorOf(el) });
+        add(radios[0] || el, { kind: "radio", label: q, options: opts, value: on ? radioText(on, q) : "", required: radios.some((r) => r.required) || /\*/.test(q), section: sectionOf(el), error: errorOf(el) });
         continue;
       }
       if (type === "checkbox" || ["checkbox", "switch"].includes(el.getAttribute("role") || "")) {
@@ -262,7 +295,7 @@
     const progress = clean(text(qsa("[data-automation-id='progressBar'], [aria-label*='progress' i], [class*='progress' i] ol, [class*='stepper' i]").find(visible))).slice(0, 200);
     const current = clean(text(qsa("[aria-current='step'], [data-automation-id='progressBarActiveStep']").find(visible))).slice(0, 80);
     const heads = [...new Set(qsa("h1, h2, h3").filter((h) => visible(h) && !chrome(h)).map(text).filter(Boolean))].slice(0, 6);
-    const dialog = qsa("[role='dialog'], [aria-modal='true']").find(visible);
+    const dialog = modal || qsa("[role='dialog'], [aria-modal='true']").find(visible);
     const main = document.querySelector("main, [role='main'], form") || document.body;
     return {
       v: VERSION,
@@ -461,13 +494,14 @@
       const box = el.closest("fieldset, [role='radiogroup']") || fieldBox(el);
       const radios = name ? [...rootOf(el).querySelectorAll(`input[type='radio'][name="${CSS.escape(name)}"]`)] : [...(box || document).querySelectorAll("input[type='radio'], [role='radio']")];
       let top = null;
-      for (const r of radios) { const s = Math.max(score(labelOf(r), v), score(r.value, v)); if (s >= 0.55 && (!top || s > top.s)) top = { r, s }; }
-      if (!top) return { ok: false, note: "no option matched", options: radios.map((r) => labelOf(r) || r.value) };
+      const q = item?.label || "";
+      for (const r of radios) { const s = Math.max(score(radioText(r, q), v), score(r.value, v)); if (s >= 0.55 && (!top || s > top.s)) top = { r, s }; }
+      if (!top) return { ok: false, note: "no option matched", options: radios.map((r) => radioText(r, q)) };
       const lab = top.r.id ? rootOf(top.r).querySelector(`label[for="${CSS.escape(top.r.id)}"]`) : top.r.closest("label");
       await press(lab || top.r);
       await sleep(150);
       if (!(top.r.checked || top.r.getAttribute("aria-checked") === "true")) await press(top.r);
-      return { ok: Boolean(top.r.checked || top.r.getAttribute("aria-checked") === "true"), chosen: labelOf(top.r) };
+      return { ok: Boolean(top.r.checked || top.r.getAttribute("aria-checked") === "true"), chosen: radioText(top.r, q) };
     }
     if (item?.kind === "checkbox") {
       const want = /^(true|yes|checked|on|1|agree|i agree)$/i.test(v);
@@ -566,17 +600,29 @@
     }
   }
 
-  /** Job details on the page, so Vantage can tailor the resume. */
+  /** Job details on the page, so Vantage can tailor the resume. Never a sign-in or "Recruitment" page title. */
   function info() {
     const meta = (p) => document.querySelector(`meta[property="${p}"], meta[name="${p}"]`)?.getAttribute("content") || "";
-    const h1 = clean(document.querySelector("h1, [data-automation-id='jobPostingHeader'], [data-automation-id='jobTitleHeading']")?.innerText);
+    const GENERIC = /^(sign in|log ?in|sign up|create (an )?account|recruitment|careers?( site| home)?|jobs?|job (search|application)|apply|home|federation redirector|candidate (home|experience)|welcome|my applications?|linkedin|indeed|.*candidate experience site.*|search for jobs)\b/i;
+    const ok = (t) => { t = clean(t); return t && t.length >= 4 && t.length < 140 && !GENERIC.test(t) ? t : ""; };
     const ld = [...document.querySelectorAll("script[type='application/ld+json']")].map((s) => { try { return JSON.parse(s.textContent || ""); } catch { return null; } }).flat().find((x) => x && x["@type"] === "JobPosting");
+    const pick = (sels) => { for (const sel of sels) { const el = document.querySelector(sel); if (el && ok(el.innerText)) return clean(el.innerText); } return ""; };
+    // "Applying for Senior CRM Specialist" / "Apply to Metrc" style headings.
+    const applying = qsa("h1, h2, h3, [role='heading']").map(text).map((t) => t.match(/^apply(?:ing)? (?:for|to)\s+(.{4,120})$/i)?.[1]).find(Boolean) || "";
+    let title = clean(ld?.title || pick([".job-details-jobs-unified-top-card__job-title", ".jobs-unified-top-card__job-title", "[data-automation-id='jobPostingHeader']", "[data-automation-id='jobTitleHeading']", "[data-testid*='job-title' i]", "[class*='job-title' i]", "[class*='jobTitle' i]", "h1"]) || applying || ok(meta("og:title")) || ok(document.title));
+    let company = clean(ld?.hiringOrganization?.name || pick([".job-details-jobs-unified-top-card__company-name", ".jobs-unified-top-card__company-name", "[data-automation-id='company']", "[class*='company-name' i]", "[class*='companyName' i]"]) || "");
+    // "Product Marketing Manager at Metrc — Lakeland, FL | LinkedIn Jobs"
+    const at = title.match(/^(.{3,100}?)\s+at\s+(.{2,80}?)(?:\s+[—–-]\s+.*)?(?:\s+\|.*)?$/i);
+    if (at) { title = at[1]; company ||= at[2]; }
+    title = title.replace(/\s*[|–—-]\s*(careers?|jobs?|linkedin|indeed|glassdoor).*$/i, "").replace(/\s*\|.*$/, "").trim();
+    if (GENERIC.test(company)) company = "";
     return {
       url: location.href,
-      title: clean(ld?.title || (h1 && h1.length < 140 ? h1 : "") || meta("og:title") || document.title).replace(/\s*[|–-]\s*(careers?|jobs?).*$/i, ""),
-      company: ld?.hiringOrganization?.name || meta("og:site_name") || "",
-      location: ld?.jobLocation?.address?.addressLocality || "",
-      description: (ld?.description ? ld.description.replace(/<[^>]+>/g, " ") : (document.querySelector("[data-automation-id='jobPostingDescription'], main, article, [class*='description' i]") || document.body).innerText).slice(0, 15000),
+      title,
+      company: company || (ok(meta("og:site_name")) || ""),
+      location: ld?.jobLocation?.address?.addressLocality || clean(document.querySelector(".job-details-jobs-unified-top-card__primary-description-container, [data-automation-id='locations'], [class*='job-location' i], [class*='jobLocation' i]")?.innerText || "").slice(0, 120),
+      signIn: /accounts\.google\.com|login\.|signin|sign-in|\/login|\/sso\//i.test(location.href) || /^(sign in|log ?in)/i.test(document.title),
+      description: (ld?.description ? ld.description.replace(/<[^>]+>/g, " ") : (document.querySelector("[data-automation-id='jobPostingDescription'], .jobs-description__content, #job-details, main, article, [class*='description' i]") || document.body).innerText).slice(0, 15000),
     };
   }
 

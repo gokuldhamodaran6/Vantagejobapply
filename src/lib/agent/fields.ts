@@ -293,6 +293,15 @@ export async function planFields(
   const bank = new Map(ctx.answers.map((a) => [a.qkey, a.answer]));
   const bankKeys = ctx.answers.map((a) => ({ k: a.qkey, set: new Set(a.qkey.split(" ")) }));
 
+  const GRAMMAR = new Set(["the", "a", "an", "in", "which", "that", "this", "you", "are", "your", "to", "of", "for", "is", "be", "do", "does", "please", "select", "one", "answer", "currently", "presently", "position", "role", "job", "applying", "apply", "applied", "u", "s"]);
+  const content = (l: string) => new Set(qkeyOf(l).split(" ").filter((w) => w && !GRAMMAR.has(w)));
+  const bankContent = ctx.answers.map((a) => ({ set: content(a.question || a.qkey), answer: a.answer }));
+  const sameQuestion = (label: string) => {
+    const want = content(label);
+    if (want.size < 2) return null;
+    const hit = bankContent.find((b) => b.set.size === want.size && [...want].every((w) => b.set.has(w)));
+    return hit ? hit.answer : null;
+  };
   const fromBank = (label: string) => {
     const k = qkeyOf(label);
     if (bank.has(k)) return bank.get(k)!;
@@ -311,8 +320,10 @@ export async function planFields(
     if (f.type === "password") continue; // credentials are handled by the worker, never by this planner or the AI
     const lk = f.type === "file" ? null : lockedKind(label);
     if (lk) {
-      // Exact wording only — never the fuzzy saved-answer match, never a rule, never AI.
-      let v = bank.get(qkeyOf(f.label)) || null;
+      // The same question only — never the fuzzy saved-answer match, never a rule, never AI. "The same" allows
+      // grammar-only differences ("…the country in which you are applying" = "…the country you are applying"), never a
+      // different country, time ("now" vs "future") or negation.
+      let v = bank.get(qkeyOf(f.label)) || sameQuestion(f.label) || null;
       if (!v && lk === "age" && ctx.facts.adult === "Yes" && ADULT_Q.test(label) && !/under|younger/.test(label)) v = "Yes";
       const opt = v && f.options?.length ? bestOption(f.options, v) : null;
       if (v && f.options?.length && opt) fills.push({ id: f.id, value: opt });
@@ -424,6 +435,7 @@ Rules:
 - Return "ASK" for anything personal you cannot verify from the facts (dates, legal history, salary, notice, location preferences, yes/no about their own circumstances, references, availability).
 - Open-ended questions (why this company, describe your experience with X, anything else): write 2–4 specific, truthful sentences in first person using the resume facts and the job. Plain, human, no clichés, no exclamation marks, never mention AI.
 - "How many years of experience with X": answer only if the resume clearly shows it; otherwise "ASK".
+- Yes/No "Do you have experience with X / have you used X / are you familiar with X" (a tool, skill, industry or task): "Yes" if the resume clearly shows it, otherwise "No". Never "Yes" without evidence.
 - For fields with options, return one option exactly as written.
 Return ONLY JSON {"<id>": "<value or ASK>"}.`,
       [{

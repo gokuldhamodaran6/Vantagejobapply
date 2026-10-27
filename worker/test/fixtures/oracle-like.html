@@ -1,0 +1,79 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Specialist, Product Marketing - Candidate Experience</title>
+<style>
+ body{font-family:Arial;margin:0;background:#f7f7f7} main{max-width:820px;margin:20px auto;background:#fff;padding:24px 36px}
+ label{display:block;margin-top:12px} input[type=text],select,textarea{width:340px;padding:7px}
+ .dlg{position:fixed;inset:0;background:rgba(0,0,0,.4);display:flex;align-items:center;justify-content:center}
+ .dlg>div{background:#fff;padding:20px 28px;width:560px}
+ .item{border:1px solid #ccc;padding:8px;margin:6px 0} .err{color:#c00}
+ .rad input{opacity:0;position:absolute;width:16px;height:16px} .rad{position:relative;display:inline-block;margin-right:14px}
+</style></head><body>
+<main id="app"><h1>Specialist, Product Marketing</h1><div id="steps"></div></main>
+<script>
+const S = window.__state = { page: "form", values: {}, work: [], edu: [], submitted: false };
+const app = document.getElementById("steps");
+const h = (x) => { const d = document.createElement("div"); d.innerHTML = x.trim(); return d.firstElementChild; };
+function bind(el, key) { el.addEventListener("input", () => S.values[key] = el.value); el.addEventListener("change", () => S.values[key] = el.value); }
+function radio(q, key) {
+  const id = key; const w = h(`<fieldset><legend id="${id}-q">${q}*</legend></fieldset>`);
+  for (const o of ["Yes", "No"]) {
+    const r = h(`<span class="rad"><input type="radio" name="${key}" id="${key}-${o}" aria-labelledby="${id}-q ${key}-${o}-l"><label id="${key}-${o}-l" for="${key}-${o}">${o}</label></span>`);
+    r.querySelector("input").addEventListener("change", () => S.values[key] = o);
+    w.appendChild(r);
+  }
+  return w;
+}
+function dialog(kind) {
+  const d = h(`<div class="dlg" role="dialog" aria-modal="true"><div><h2>${kind === "work" ? "Add Experience" : "Add Education"}</h2><div class="f"></div><button type="button" class="cancel">Cancel</button> <button type="button" class="save">Save</button><p class="err"></p></div></div>`);
+  const f = d.querySelector(".f");
+  const fields = kind === "work" ? [["Job Title*", "title"], ["Employer Name*", "company"], ["Start Date (MM/YYYY)*", "start"], ["End Date (MM/YYYY)", "end"]] : [["School*", "school"], ["Degree*", "degree"], ["Graduation Year", "year"]];
+  const v = {};
+  for (const [l, k] of fields) {
+    const id = "d-" + k; f.appendChild(h(`<label for="${id}">${l}</label>`));
+    const inp = h(`<input type="text" id="${id}">`); inp.addEventListener("input", () => v[k] = inp.value); f.appendChild(inp);
+  }
+  if (kind === "work") { const c = h(`<label><input type="checkbox" id="d-cur"> I currently work here</label>`); c.querySelector("input").addEventListener("change", (e) => v.current = e.target.checked); f.appendChild(c); }
+  d.querySelector(".cancel").onclick = () => d.remove();
+  d.querySelector(".save").onclick = () => {
+    const req = kind === "work" ? ["title", "company", "start"] : ["school", "degree"];
+    if (req.some((k) => !v[k])) { d.querySelector(".err").textContent = "Please fill the required fields."; return; }
+    (kind === "work" ? S.work : S.edu).push(v); d.remove(); render();
+  };
+  document.body.appendChild(d);
+}
+function render() {
+  app.innerHTML = "";
+  app.appendChild(h(`<h2>Contact Information</h2>`));
+  for (const [l, k] of [["First Name*", "first"], ["Last Name*", "last"], ["Email*", "email"], ["Phone Number*", "phone"]]) {
+    app.appendChild(h(`<label for="${k}">${l}</label>`)); const i = h(`<input type="text" id="${k}">`); i.value = S.values[k] || ""; bind(i, k); app.appendChild(i);
+  }
+  app.appendChild(h(`<h2>Address</h2>`));
+  for (const [l, k] of [["Address Line 1*", "addr"], ["City*", "city"], ["Zip Code*", "zip"], ["County", "county"]]) {
+    app.appendChild(h(`<label for="${k}">${l}</label>`)); const i = h(`<input type="text" id="${k}">`); i.value = S.values[k] || ""; bind(i, k); app.appendChild(i);
+  }
+  app.appendChild(h(`<h2>Application Questions</h2>`));
+  app.appendChild(radio("Are you willing to submit to a pre-employment background check and drug screen?", "bg"));
+  app.appendChild(radio("Are you legally authorized to work in the country you are applying?", "auth"));
+  app.appendChild(radio("Will you now or in the future require immigration sponsorship for employment visa status?", "spon"));
+  app.appendChild(radio("Do you have previous forklift experience?", "forklift"));
+  app.appendChild(h(`<h2>Veteran Information</h2>`));
+  app.appendChild(h(`<label for="vet">Veteran Status</label>`));
+  const vs = h(`<select id="vet"><option value=""></option><option>I am not a protected veteran</option><option>I identify as one or more of the classifications of protected veteran</option><option>I don't wish to answer</option></select>`); bind(vs, "veteran"); vs.value = S.values.veteran || ""; app.appendChild(vs);
+  app.appendChild(h(`<h2>Work and Education History</h2>`));
+  for (const w of S.work) app.appendChild(h(`<div class="item">${w.title} — ${w.company} (${w.start}–${w.current ? "Present" : w.end || ""})</div>`));
+  for (const e of S.edu) app.appendChild(h(`<div class="item">${e.degree}, ${e.school}</div>`));
+  const ae = h(`<button type="button">ADD EXPERIENCE</button>`); ae.onclick = () => dialog("work"); app.appendChild(ae);
+  const ad = h(`<button type="button">ADD EDUCATION</button>`); ad.onclick = () => dialog("edu"); app.appendChild(ad);
+  app.appendChild(h(`<h2>E-Signature</h2>`));
+  app.appendChild(h(`<label for="sig">Full Name*</label>`)); const sg = h(`<input type="text" id="sig">`); sg.value = S.values.sig || ""; bind(sg, "sig"); app.appendChild(sg);
+  const sub = h(`<div><p class="err" id="err"></p><button type="button" id="submit">Submit</button></div>`);
+  sub.querySelector("#submit").onclick = () => {
+    const miss = ["first", "last", "email", "phone", "addr", "city", "zip", "bg", "auth", "spon", "forklift", "sig"].filter((k) => !S.values[k]);
+    if (!S.work.length) miss.push("work history");
+    if (miss.length) { document.getElementById("err").setAttribute("role", "alert"); document.getElementById("err").textContent = "Missing: " + miss.join(", "); return; }
+    S.submitted = true; document.getElementById("app").innerHTML = "<h2>Thank you for applying</h2><p>Your application has been submitted.</p>";
+  };
+  app.appendChild(sub);
+}
+render();
+</script></body></html>

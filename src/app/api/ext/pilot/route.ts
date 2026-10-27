@@ -15,6 +15,9 @@ export async function POST(req: Request) {
   if (!snap) return extJson({ error: "No page" }, 400);
   const b = await loadBundle(String(body.taskId));
   if (!b) return extJson({ error: "Not found" }, 404);
-  const turn = await pilotStep(snap, Array.isArray(body.history) ? body.history.slice(-4) : [], pilotCtx(b, "extension"));
+  const ctx = pilotCtx(b, "extension");
+  // LinkedIn doesn't allow automated clicking: fill each Easy Apply step, the person presses Next/Submit.
+  try { ctx.assist = /(^|\.)linkedin\.com$/i.test(new URL(snap.url).hostname); } catch { /* keep default */ }
+  const turn = await pilotStep(snap, Array.isArray(body.history) ? body.history.slice(-4) : [], ctx);
   return extJson(turn);
 }

@@ -51,7 +51,7 @@ export async function handleLive(req, res, url) {
   }
   const page = s.getPage();
   if (action === "frame") {
-    const buf = await page.screenshot({ type: "jpeg", quality: 60 }).catch(() => null);
+    const buf = await page.screenshot({ type: "jpeg", quality: 85 }).catch(() => null);
     if (!buf) {
       res.writeHead(204);
       return res.end();

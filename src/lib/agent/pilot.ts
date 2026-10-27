@@ -27,7 +27,7 @@ export type PilotSnapshot = {
 export type PilotAction = { do: "fill" | "set" | "choose" | "click" | "upload" | "key" | "wait" | "scroll" | "clear"; i?: number; value?: string; file?: "resume" | "cover_letter"; key?: string; ms?: number };
 export type PilotResult = { ok: boolean; note?: string; chosen?: string; options?: string[]; value?: string };
 export type PilotHistory = { say?: string; actions: PilotAction[]; results: PilotResult[]; url?: string }[];
-export type PilotStatus = "continue" | "next" | "ready" | "account" | "ask" | "done" | "stuck";
+export type PilotStatus = "continue" | "next" | "ready" | "account" | "ask" | "done" | "stuck" | "handoff";
 export type PilotTurn = { say: string; status: PilotStatus; actions: PilotAction[]; submit?: number; ask: Missing[]; notes?: string[] };
 
 export type PilotCtx = {
@@ -42,6 +42,8 @@ export type PilotCtx = {
   approved?: Record<string, string> | null;
   /** The extension: the person presses Submit themselves. */
   surface: "agent" | "extension";
+  /** LinkedIn Easy Apply in the person's browser: Vantage fills each step, the person presses Next/Submit. */
+  assist?: boolean;
 };
 
 const FIELD_KINDS = new Set(["text", "email", "tel", "url", "number", "date", "month", "textarea", "select", "combobox", "radio", "checkbox", "checkboxes", "file"]);
@@ -158,7 +160,8 @@ async function suggestions(snap: PilotSnapshot, ctx: PilotCtx): Promise<Map<numb
     if (REPEATED.test(it.section || "") && !/resume|cv|cover/i.test(it.label) && it.kind !== "file") continue;
     const filled = it.kind === "file" ? Boolean(it.value) : it.kind === "checkbox" ? it.value === "checked" : Boolean(it.value);
     const lk = lockedKind(`${it.label}`) || (EEO.test(meaning(it)) ? "eeo" : null);
-    if (filled && !lk && !it.error) continue;
+    // Already answered on the page (by the person, or the site's saved profile): leave it alone and don't ask again.
+    if (filled && !it.error) continue;
     const key = `${ctx.taskId}|${bankSig}|${it.kind}|${qkeyOf(it.label)}|${(it.options || []).slice(0, 30).join("¦")}`;
     const hit = cache.get(key);
     if (hit && Date.now() - hit.at < CACHE_MS) {
@@ -238,7 +241,12 @@ VALUES:
 - Skills lists: add up to 10 relevant skills from the resume (type one, pick it, repeat).
 - "How did you hear about us": use the "→ use" answer if given; otherwise the company's careers site / website, else "Other". Never claim a referral or an employee you don't know.
 - "Have you worked here before" / previous worker: "No" unless the resume shows this company.
-- Phone device type: Mobile. Country / phone country code: the applicant's country.
+- Phone device type: Mobile. Country / phone country code: the applicant's country (e.g. "United States (+1)").
+- County, second/third address line, middle name, suffix: leave empty unless the applicant's facts give it. Never put a state or city into a County box.
+- Controls that already show an answer were filled by the applicant or the site's saved profile: leave them unless they're wrong per the facts or show an error.
+- "Add Experience" / "Add Education" / "Add another" buttons often open a small form or popup: fill it from RESUME, then press its own Save / Done / Add / Continue button, and repeat for the next entry. If a work/education history is already listed, don't add duplicates.
+- Resume pickers that list earlier uploads (LinkedIn, Indeed): upload the applicant's resume with "upload" on the upload control; if that's not possible, select the most recent one.
+- Yes/No "Do you have experience with X / have you used X": Yes if RESUME clearly shows it, otherwise No. Years of experience with X: a number only if RESUME supports it, otherwise ask.
 - Open questions (why this company, describe experience): 2–4 specific, truthful first-person sentences from RESUME and the job. No clichés, never mention AI.
 - Optional fields you have no answer for: leave them (e.g. phone extension, middle name, second address line). Respect "max N chars".
 
@@ -255,7 +263,11 @@ Reply with ONLY JSON: {"say":"<6-12 words for the applicant: what you're doing>"
 export async function pilotStep(snap: PilotSnapshot, history: PilotHistory, ctx: PilotCtx): Promise<PilotTurn> {
   const mask = masker(ctx.facts);
   const sugg = await suggestions(snap, ctx);
-  const items = snap.items.slice(0, 260);
+  // Busy pages (LinkedIn's job list, big footers) can have hundreds of links: the form's own controls and its
+  // buttons always make the cut; other links and buttons fill what's left.
+  const STEP_BTN = /^(next|continue|save|add|upload|apply|submit|review|done|start|begin|sign in with email|create account|use my|apply manually|autofill)/i;
+  const rank = (it: PilotItem) => (FIELD_KINDS.has(it.kind) || it.kind === "option" || it.kind === "password" || it.final ? 0 : it.kind === "button" && STEP_BTN.test(it.label) ? 1 : it.kind === "button" ? 2 : 3);
+  const items = [...snap.items].sort((a, b) => rank(a) - rank(b) || a.i - b.i).slice(0, 260).sort((a, b) => a.i - b.i);
   const page = [
     `URL: ${mask(snap.url).slice(0, 200)}`,
     snap.title ? `TITLE: ${mask(snap.title)}` : "",
@@ -287,7 +299,9 @@ export async function pilotStep(snap: PilotSnapshot, history: PilotHistory, ctx:
     `CONTACT PLACEHOLDERS AVAILABLE: ${known || "none"}`,
     `RESUME: ${JSON.stringify(resume).slice(0, 9000)}`,
     ctx.coverLetter ? "A tailored cover letter file is available (upload \"cover_letter\")." : "No cover letter file.",
-    ctx.surface === "extension" ? "MODE: the applicant is watching in their own browser and presses Submit themselves." : "MODE: cloud agent.",
+    ctx.assist
+      ? "MODE: LinkedIn Easy Apply in the applicant's own browser. Fill every control on the current step, then return status \"continue\" — the applicant presses Next/Review/Submit on LinkedIn themselves (LinkedIn doesn't allow automated clicking). Never click Next, Review, Continue or Submit here."
+      : ctx.surface === "extension" ? "MODE: the applicant is watching in their own browser and presses Submit themselves." : "MODE: cloud agent.",
     hist ? `PREVIOUS TURNS (newest last):\n${hist}` : "",
     `PAGE NOW:\n${page}`,
   ].filter(Boolean).join("\n\n");
@@ -331,6 +345,8 @@ export function __validate(p: { say?: string; actions?: PilotAction[]; status?: 
 
   const actions: PilotAction[] = [];
   let status = (["continue", "next", "ready", "account", "ask", "done", "stuck"].includes(String(p.status)) ? p.status : "continue") as PilotStatus;
+  // LinkedIn: once the step is filled, it's the applicant's turn to press LinkedIn's button.
+  if (ctx.assist && ["next", "ready"].includes(status)) status = "handoff";
   let submit: number | undefined;
   for (const a of (p.actions || []).slice(0, 40)) {
     if (!a || typeof a !== "object" || !a.do) continue;
@@ -338,6 +354,7 @@ export function __validate(p: { say?: string; actions?: PilotAction[]; status?: 
     const it = byI.get(Number(a.i));
     if (!it) { notes.push(`dropped ${a.do} on missing [${a.i}]`); continue; }
     if (a.do === "click" && (it.final || owner(it)?.final)) { submit = it.i; status = "ready"; notes.push("final submit is not pressed by the pilot"); continue; }
+    if (ctx.assist && a.do === "click" && /^(next|review|continue|submit|submit application|done)\b/i.test(it.label || "")) { notes.push("the applicant presses LinkedIn's buttons"); status = "handoff" as PilotStatus; continue; }
     if (it.kind === "password") { status = "account"; notes.push("password boxes are handled by the account step"); continue; }
     if (a.do === "upload") {
       const file = a.file === "cover_letter" ? (ctx.coverLetter ? "cover_letter" : null) : "resume";
@@ -354,6 +371,8 @@ export function __validate(p: { say?: string; actions?: PilotAction[]; status?: 
       if (a.do === "click" && it.kind !== "option") { actions.push({ do: "click", i: it.i }); continue; } // opening the list is fine
       const allowed = s?.value ?? (s?.check !== undefined ? (s.check ? "checked" : "unchecked") : null);
       if (!allowed) {
+        const answered = target.kind === "checkbox" ? target.value === "checked" : Boolean(target.value);
+        if (answered) continue; // already answered on the page — keep it, don't ask
         if (g === "locked" || target.required) addAsk(target);
         notes.push(`${g} answer withheld for "${coreLabel(target.label).slice(0, 60)}"`);
         continue;
@@ -431,7 +450,7 @@ export function cleanSnapshot(s: unknown): PilotSnapshot | null {
     dialog: str(x.dialog, 400),
     errors: Array.isArray(x.errors) ? x.errors.slice(0, 10).map((e) => String(e).slice(0, 300)) : [],
     excerpt: str(x.excerpt, 1200),
-    items: x.items.slice(0, 300).filter((it) => it && typeof it === "object" && Number.isInteger(it.i)).map((it) => ({
+    items: x.items.slice(0, 1500).filter((it) => it && typeof it === "object" && Number.isInteger(it.i)).map((it) => ({
       i: it.i, kind: String(it.kind || "").slice(0, 20), label: String(it.label || "").slice(0, 300),
       value: it.value === undefined ? undefined : String(it.value).slice(0, 400),
       options: Array.isArray(it.options) ? it.options.slice(0, 300).map((o) => String(o).slice(0, 140)) : undefined,
