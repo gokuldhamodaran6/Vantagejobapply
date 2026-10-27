@@ -285,7 +285,7 @@ export async function pipelineForUser(
   const since = new Date(Date.now() - LIVE_MAX_DAYS * 864e5).toISOString();
   const sponsorsLoaded = await loadedSponsorCountries(supabase);
   const targets = new Set((ctx.prefs?.companies || []).map(normCompany));
-  const candidates: { roleId?: string; score: number; company: string; job: Job & { first_seen_at?: string | null } }[] = [];
+  const candidates: { roleId?: string; score: number; match: number; company: string; job: Job & { first_seen_at?: string | null } }[] = [];
   const skip = (k: keyof Pipeline["skipped"]) => (out.skipped[k] = (out.skipped[k] || 0) + 1);
   const boardKey = (id: string) => id.split(":").slice(0, 2).join(":");
 
@@ -330,7 +330,7 @@ export async function pipelineForUser(
         skip(reason);
         continue;
       }
-      candidates.push({ roleId: m.role?.id, score: m.score + (targets.has(normCompany(job.company)) ? 15 : 0), company: normCompany(job.company), job });
+      candidates.push({ roleId: m.role?.id, score: m.score + (targets.has(normCompany(job.company)) ? 15 : 0), match: m.score, company: normCompany(job.company), job });
     }
   }
   // Today's remaining applications, in the agent's own order and within its per-employer cap.
@@ -352,7 +352,7 @@ export async function pipelineForUser(
       room -= 1;
     }
     if (out.upNext.length < 60) {
-      out.upNext.push({ id: c.job.id, title: c.job.title, company: c.job.company, location: c.job.location || null, url: c.job.url, roleId: c.roleId || null, score: Math.min(100, Math.round(c.score)), posted: c.job.posted_at || c.job.first_seen_at || null, today });
+      out.upNext.push({ id: c.job.id, title: c.job.title, company: c.job.company, location: c.job.location || null, url: c.job.url, roleId: c.roleId || null, score: Math.min(100, Math.round(c.match)), posted: c.job.posted_at || c.job.first_seen_at || null, today });
     }
   }
   return out;
