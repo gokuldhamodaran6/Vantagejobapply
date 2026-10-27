@@ -94,6 +94,7 @@ export async function answer(
       "Extract job-search setting changes from the user's message. Return ONLY JSON {\"roles\":[{\"title\":string,\"levels\":string[]}],\"companies\":string[],\"countries\":string[] (ISO-2)}. Levels from: intern, entry, mid, senior, lead. Empty arrays if none.",
       [{ role: "user", content: message }],
       300,
+      { feature: "assistant" },
     );
     const j = extractJson<{ roles?: { title: string; levels?: string[] }[]; companies?: string[]; countries?: string[] }>(out);
     j?.roles?.forEach((r) => intent.changes.push({ type: "add_role", title: r.title, levels: r.levels?.length ? r.levels : ["entry", "mid"] }));
@@ -168,7 +169,7 @@ The user can also tell you: "find marketing jobs in Texas", "also target Product
 Immigration: give general guidance only and point to the official source for ${COUNTRIES.filter((c) => (ctx.prefs?.countries || []).includes(c.code)).map((c) => c.name).join(", ") || "their country"}. Use **bold** for key facts. Keep it under 180 words unless they ask for a draft.`,
       [{ role: "user", content: message }],
       900,
-      { model: "writer", temperature: 0.4 },
+      { model: "writer", temperature: 0.4, feature: "assistant" },
     );
     if (out) return { text: out };
   }

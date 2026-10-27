@@ -4,6 +4,7 @@ import { extractKeywords, scoreResume } from "@/lib/ats";
 import { fileToText } from "@/lib/resume/extract";
 import { marketKeywords } from "@/lib/resume/market";
 import { json, loadUserContext } from "@/lib/server-user";
+import { runWithAi } from "@/lib/ai-context";
 
 export const maxDuration = 120;
 
@@ -29,7 +30,7 @@ export async function POST(req: Request) {
   }
   if (text.trim().length < 80) return json({ error: "We couldn't find enough text in that resume. If it's a scanned image, paste the text instead." }, 400);
 
-  const { content, ai } = await structureResume(text, ctx.profile.full_name || "");
+  const { content, ai } = await runWithAi({ userId: ctx.user.id }, () => structureResume(text, ctx.profile.full_name || ""));
   if (!content.email) content.email = ctx.profile.email;
   if (!content.name) content.name = ctx.profile.full_name || "";
 

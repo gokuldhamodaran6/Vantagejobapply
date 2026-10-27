@@ -10,6 +10,7 @@ import { supabaseBrowser } from "@/lib/supabase/client";
 const PLAN_OPTIONS = [["free", "Free"], ["pro", "Pro"], ["autopilot", "Autopilot"]];
 import { COUNTRY_BY_CODE } from "@/lib/countries";
 import { timeAgo } from "@/lib/format";
+import { AiSpend, usd } from "./ai-spend";
 
 type Stats = {
   users: number; users_7d: number; active_7d: number; onboarded: number; plans: Record<string, number>;
@@ -18,11 +19,14 @@ type Stats = {
   signups_by_day: { day: string; n: number }[]; top_targets: { country: string; n: number }[];
 };
 type U = { id: string; email: string; full_name: string | null; plan: string; role: string; home_country: string | null; citizenship: string | null; created_at: string; last_seen_at: string | null; onboarding_complete: boolean; countries: string[]; roles: number; applications: number; interviews: number };
+type AiCost = { user_id: string; cost_30d: number | string; calls_30d: number; cost_total: number | string; last_at: string | null };
 type B = { id: number; ats: string; token: string; name: string; site: string | null; country: string | null; active: boolean; last_count: number | null; last_ok_at: string | null; last_error: string | null };
 
 export default function AdminPage() {
   const { profile, loading } = useMe();
-  const [tab, setTab] = useState<"overview" | "users" | "sources">("overview");
+  const [tab, setTab] = useState<"overview" | "ai" | "users" | "sources">("overview");
+  const [refreshN, setRefreshN] = useState(0);
+  const [aiCosts, setAiCosts] = useState<Record<string, AiCost>>({});
   const [stats, setStats] = useState<Stats | null>(null);
   const [users, setUsers] = useState<U[]>([]);
   const [search, setSearch] = useState("");
@@ -33,11 +37,13 @@ export default function AdminPage() {
 
   const load = useCallback(async () => {
     const s = supabaseBrowser();
-    const [st, us, bo] = await Promise.all([
+    const [st, us, bo, ai] = await Promise.all([
       s.rpc("admin_stats"),
       s.rpc("admin_users", { p_search: search || null, p_limit: 200, p_offset: 0 }),
       s.from("boards").select("*").order("last_count", { ascending: false, nullsFirst: false }),
+      s.rpc("admin_ai_user_costs"),
     ]);
+    setAiCosts(Object.fromEntries(((ai.data as AiCost[]) || []).map((c) => [c.user_id, c])));
     if (st.data) setStats(st.data as Stats);
     setUsers((us.data as U[]) || []);
     setBoards((bo.data as B[]) || []);
@@ -99,11 +105,11 @@ export default function AdminPage() {
           <LogoMark />
           <span className="font-bold">Vantage admin</span>
           <span className="pill bg-pink-tint text-pink-ink">{profile.email}</span>
-          <button className="btn-secondary ml-auto" onClick={load}><RefreshCw size={16} /> Refresh</button>
+          <button className="btn-secondary ml-auto" onClick={() => { load(); setRefreshN((n) => n + 1); }}><RefreshCw size={16} /> Refresh</button>
         </div>
       </header>
       <main className="mx-auto max-w-7xl px-4 py-6 sm:px-6">
-        <Segmented label="Section" value={tab} onChange={setTab} options={[{ value: "overview", label: "Overview" }, { value: "users", label: `Users${stats ? ` (${stats.users})` : ""}` }, { value: "sources", label: `Job sources (${boards.length})` }]} />
+        <Segmented label="Section" value={tab} onChange={setTab} options={[{ value: "overview", label: "Overview" }, { value: "ai", label: "AI spend" }, { value: "users", label: `Users${stats ? ` (${stats.users})` : ""}` }, { value: "sources", label: `Job sources (${boards.length})` }]} />
 
         {tab === "overview" && stats && (
           <div className="mt-6 space-y-6">
@@ -187,15 +193,17 @@ export default function AdminPage() {
           </div>
         )}
 
+        {tab === "ai" && <AiSpend refresh={refreshN} />}
+
         {tab === "users" && (
           <section className="card mt-6 overflow-hidden">
             <div className="flex flex-wrap items-center gap-3 p-4">
               <input className="input max-w-sm" placeholder="Search by email or name" value={search} onChange={(e) => setSearch(e.target.value)} aria-label="Search users" />
             </div>
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[980px] text-sm">
+              <table className="w-full min-w-[1080px] text-sm">
                 <thead className="bg-[#f9fafc] text-left text-xs text-muted">
-                  <tr>{["User", "Plan", "From", "Targets", "Roles", "Applied", "Interviews", "Joined", "Last seen"].map((h) => <th key={h} className="px-4 py-2.5 font-semibold">{h}</th>)}</tr>
+                  <tr>{["User", "Plan", "From", "Targets", "Roles", "Applied", "Interviews", "AI cost (30 days)", "Joined", "Last seen"].map((h) => <th key={h} className="px-4 py-2.5 font-semibold">{h}</th>)}</tr>
                 </thead>
                 <tbody>
                   {users.map((u) => (
@@ -211,6 +219,7 @@ export default function AdminPage() {
                       <td className="px-4 py-3">{u.roles}</td>
                       <td className="px-4 py-3">{u.applications}</td>
                       <td className="px-4 py-3">{u.interviews}</td>
+                      <td className="px-4 py-3 tabular-nums">{aiCosts[u.id] ? <><span className="font-semibold">{usd(aiCosts[u.id].cost_30d)}</span><span className="block text-xs text-muted">{usd(aiCosts[u.id].cost_total)} all time</span></> : <span className="text-muted">$0</span>}</td>
                       <td className="px-4 py-3 text-muted">{new Date(u.created_at).toLocaleDateString()}</td>
                       <td className="px-4 py-3 text-muted">{timeAgo(u.last_seen_at)}</td>
                     </tr>

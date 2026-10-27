@@ -10,6 +10,7 @@ import { baseDomain, isSafePublicUrl } from "@/lib/net";
 import { hostOf } from "@/lib/agent/bundle";
 import { siteKey } from "@/lib/agent/sites";
 import { cleanSnapshot, pilotCtx, pilotStep, type PilotHistory } from "@/lib/agent/pilot";
+import { runWithAi, tagAi } from "@/lib/ai-context";
 
 export const maxDuration = 120;
 
@@ -20,6 +21,11 @@ const j = (d: unknown, status = 200) => new Response(JSON.stringify(d), { status
 export async function POST(req: Request, { params }: { params: Promise<{ op: string }> }) {
   if (!agentSecretOk(req)) return j({ error: "unauthorised" }, 401);
   const { op } = await params;
+  // AI usage from this op is metered under its name; the user is filled in once the task is loaded.
+  return runWithAi({ feature: op }, () => handle(req, op));
+}
+
+async function handle(req: Request, op: string) {
   // Guard the app's memory: no worker request needs more than a few MB (screenshots are ~300 KB).
   if (Number(req.headers.get("content-length") || 0) > 6_000_000) return j({ error: "request too large" }, 413);
   const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
@@ -31,6 +37,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ op: str
       if (!t) return j({ task: null });
       const b = await loadBundle(t.id);
       if (!b) return j({ task: null });
+      tagAi({ userId: b.task.user_id, taskId: b.task.id });
       if (!b.resume) {
         await rpc("update", { task_id: t.id, status: "failed", error: "No resume on file. Upload your resume in Vantage." });
         return j({ task: null });
@@ -89,6 +96,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ op: str
     if (op === "plan") {
       const b = await loadBundle(taskId);
       if (!b) return j({ error: "task not found" }, 404);
+      tagAi({ userId: b.task.user_id, taskId });
       const consent = Boolean(b.raw.applicant?.agent_consent);
       const out = await planFields(((body.fields as FormField[]) || []).slice(0, 80), {
         facts: b.facts,
@@ -105,6 +113,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ op: str
     if (op === "pilot") {
       const b = await loadBundle(taskId);
       if (!b) return j({ error: "task not found" }, 404);
+      tagAi({ userId: b.task.user_id, taskId });
       const snap = cleanSnapshot(body.snapshot);
       if (!snap) return j({ error: "no page" }, 400);
       const ui = (b.task.user_input || {}) as { review_ok?: boolean; reviewed?: Record<string, string> };

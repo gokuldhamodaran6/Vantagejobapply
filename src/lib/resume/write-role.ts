@@ -1,6 +1,7 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { roleResume } from "@/lib/tailor";
+import { runWithAi } from "@/lib/ai-context";
 import { scoreResume } from "@/lib/ats";
 import { marketKeywords } from "@/lib/resume/market";
 import { assessFit, coachFacts, FIT_VERSION, type Coach } from "@/lib/resume/coach";
@@ -22,7 +23,7 @@ export async function writeRoleResume(supabase: SupabaseClient, userId: string, 
     .filter((x) => /course|certif|bootcamp|training/i.test(`${x.key} ${x.q}`))
     .flatMap((x) => x.a.split(/\n|;|•/).map((t) => t.trim()).filter((t) => t.length > 4 && t.length < 140))
     .slice(0, 6);
-  const out = await roleResume(master.content as ResumeContent, role, kws, country, coach.answers?.length ? { facts: coachFacts(coach.answers), level: coach.fit?.level, courses } : coach.fit ? { facts: "", level: coach.fit.level } : undefined);
+  const out = await runWithAi({ userId }, () => roleResume(master.content as ResumeContent, role, kws, country, coach.answers?.length ? { facts: coachFacts(coach.answers), level: coach.fit?.level, courses } : coach.fit ? { facts: "", level: coach.fit.level } : undefined));
   const report = scoreResume(out.content, kws);
   const { data: cur } = await supabase.from("resumes").select("id").eq("user_id", userId).eq("target_role_id", role.id).eq("kind", "role").maybeSingle();
   const patch = { content: out.content, notes: out.notes, ats_score: report.score, name: `${role.title} resume`, kind: "role", updated_at: new Date().toISOString() };

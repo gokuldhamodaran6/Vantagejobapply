@@ -19,6 +19,9 @@ import { parseEventText, parseIcs } from "../src/lib/mail-event";
 import { resumeIssues, tidyResume } from "../src/lib/resume/health";
 import { lintLetter } from "../src/lib/tailor";
 import type { Job, TargetRole, WorkAuth } from "../src/lib/types";
+import { AI_PRICES, FALLBACK_PRICE, anthropicUsage, costUsd, geminiUsage, priceFor } from "../src/lib/ai-pricing";
+import { runWithAi, tagAi } from "../src/lib/ai-context";
+import { claude, __usageQueue } from "../src/lib/ai";
 
 let fail = 0;
 const ok = (cond: boolean, msg: string) => { console.log(`${cond ? "PASS" : "FAIL"}  ${msg}`); if (!cond) fail++; };
@@ -226,7 +229,59 @@ ok(isJobMail({ kind: "other", from_addr: "no-reply@us.greenhouse-mail.io", subje
   ok(v.status === "ask" && v.ask.some((q) => q.locked === "conviction"), "missing locked answers are asked before anything is ready to submit");
 }
 
-plannerChecks().then(() => {
+// AI usage meter: price table, token mapping, and that a call is recorded with its user and feature.
+ok(costUsd("claude-sonnet-5-5", { input: 1_000_000, output: 1_000_000 }) === 18, "cost: Sonnet 1M in + 1M out = $3 + $15");
+ok(costUsd("claude-haiku-5-5", { input: 2000, output: 500 }) === 0.0045, "cost: Haiku 2k in + 500 out = $0.0045");
+ok(costUsd("claude-sonnet-5-5", { cacheRead: 1_000_000, cacheWrite: 1_000_000 }) === 4.05, "cost: Sonnet cache read $0.30 + cache write $3.75 per 1M");
+ok(costUsd("gemini-3.8-flash", { input: 1_000_000, output: 100_000, thinking: 900_000 }) === 3.5, "cost: Gemini thinking tokens are billed as output");
+ok(costUsd("gemini-3.5-flash-lite", { input: 1_000_000, output: 1_000_000 }) === 0.5, "cost: Flash-Lite $0.10 + $0.40");
+ok(priceFor("claude-haiku-5-5-20261001").price === AI_PRICES["claude-haiku-5-5"], "price: dated snapshot uses its base model's price");
+ok(priceFor("claude-sonnet-9").source === "family" && priceFor("some-new-model").price === FALLBACK_PRICE, "price: unknown Sonnet → family price; unknown model → fallback");
+ok(costUsd("claude-haiku-5-5", { input: -5, output: Number.NaN }) === 0, "cost: bad token counts never produce a negative or NaN cost");
+{
+  const a = anthropicUsage({ input_tokens: 100, output_tokens: 20, cache_read_input_tokens: 900, cache_creation_input_tokens: 50 });
+  ok(a.input === 100 && a.cacheRead === 900 && a.cacheWrite === 50 && a.output === 20, "usage: Anthropic usage incl. cache tokens");
+  const g = geminiUsage({ promptTokenCount: 1000, cachedContentTokenCount: 400, candidatesTokenCount: 30, thoughtsTokenCount: 200 });
+  ok(g.input === 600 && g.cacheRead === 400 && g.output === 30 && g.thinking === 200, "usage: Gemini prompt minus cached, thinking separate");
+}
+
+async function aiMeterChecks() {
+  const env = { a: process.env.ANTHROPIC_API_KEY, g: process.env.GEMINI_API_KEY, gg: process.env.GOOGLE_API_KEY, s: process.env.INGEST_SECRET };
+  const realFetch = globalThis.fetch;
+  process.env.ANTHROPIC_API_KEY = "test";
+  delete process.env.GEMINI_API_KEY;
+  delete process.env.GOOGLE_API_KEY;
+  process.env.INGEST_SECRET = "test";
+  globalThis.fetch = (async () => new Response(JSON.stringify({ model: "claude-haiku-5-5", content: [{ type: "text", text: "hi" }], usage: { input_tokens: 2000, output_tokens: 500 } }), { status: 200 })) as typeof fetch;
+  try {
+    __usageQueue.length = 0;
+    const uid = "11111111-2222-4333-8444-555555555555";
+    const out = await runWithAi({ userId: uid, feature: "route" }, async () => {
+      tagAi({ taskId: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee" });
+      return claude("sys", [{ role: "user", content: "x" }], 50, { feature: "selftest" });
+    });
+    const row = __usageQueue[0];
+    ok(out === "hi" && __usageQueue.length === 1, "meter: one row queued per AI request, reply unchanged");
+    ok(row?.user_id === uid && row?.task_id === "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee" && row?.feature === "selftest" && row?.provider === "anthropic", "meter: user + task from runWithAi, explicit feature wins");
+    ok(row?.cost === 0.0045 && row?.input === 2000 && row?.output === 500 && row?.ok === true, "meter: tokens and cost recorded");
+    __usageQueue.length = 0;
+    await runWithAi({ feature: "pilot" }, () => claude("sys", [{ role: "user", content: "x" }], 50));
+    ok(__usageQueue[0]?.feature === "pilot" && __usageQueue[0]?.user_id === null, "meter: route feature used when the caller names none");
+    __usageQueue.length = 0;
+    globalThis.fetch = (async () => new Response("bad request", { status: 400 })) as typeof fetch;
+    await claude("sys", [{ role: "user", content: "x" }], 50, { model: "tailor" });
+    ok(__usageQueue[0]?.ok === false && __usageQueue[0]?.status === 400 && __usageQueue[0]?.feature === "tailor", "meter: failures recorded (feature from model kind outside any run)");
+  } finally {
+    __usageQueue.length = 0;
+    globalThis.fetch = realFetch;
+    for (const [k, v] of [["ANTHROPIC_API_KEY", env.a], ["GEMINI_API_KEY", env.g], ["GOOGLE_API_KEY", env.gg], ["INGEST_SECRET", env.s]] as const) {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
+  }
+}
+
+plannerChecks().then(aiMeterChecks).then(() => {
   console.log(fail ? `\n${fail} failed` : "\nAll checks passed");
   process.exit(fail ? 1 : 0);
 });

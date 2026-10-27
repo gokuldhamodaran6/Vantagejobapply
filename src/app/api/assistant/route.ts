@@ -3,6 +3,7 @@ import { json, loadUserContext } from "@/lib/server-user";
 import { resolveCompany } from "@/lib/jobs/sources";
 import { refreshBoard } from "@/lib/jobs/engine";
 import { ingestSecret, supabaseAnon } from "@/lib/supabase/server";
+import { runWithAi } from "@/lib/ai-context";
 
 export const maxDuration = 60;
 
@@ -60,7 +61,7 @@ export async function POST(req: Request) {
   if (!message) return json({ error: "Type a question or instruction." }, 400);
   await ctx.supabase.from("chat_messages").insert({ user_id: ctx.user.id, role: "user", content: message });
   try {
-    const reply = await answer(ctx.supabase, { userId: ctx.user.id, name: ctx.profile.full_name || "", roles: ctx.roles, prefs: ctx.prefs, auth: ctx.auth, roleLimit: ctx.plan.limits.roles }, message);
+    const reply = await runWithAi({ userId: ctx.user.id, feature: "assistant" }, () => answer(ctx.supabase, { userId: ctx.user.id, name: ctx.profile.full_name || "", roles: ctx.roles, prefs: ctx.prefs, auth: ctx.auth, roleLimit: ctx.plan.limits.roles }, message));
     await ctx.supabase.from("chat_messages").insert({ user_id: ctx.user.id, role: "assistant", content: reply.text, data: { apps: reply.apps, changes: reply.changes, jobs: reply.jobs } });
     return json(reply);
   } catch (e) {

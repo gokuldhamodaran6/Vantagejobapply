@@ -54,7 +54,7 @@ Write 4–5 short, friendly, specific questions that uncover REAL, provable expe
 Return ONLY JSON: [{"key":"short_id","q":"question","hint":"one short example of a good answer"}]`,
     [{ role: "user", content: `RESUME (summary and experience titles/bullets):\n${JSON.stringify({ summary: master.summary, experience: (master.experience || []).map((e) => ({ title: e.title, company: e.company, bullets: e.bullets.slice(0, 3) })), skills: master.skills })}` }],
     900,
-    { model: "fast", temperature: 0.4 },
+    { model: "fast", temperature: 0.4, feature: "resume-coach" },
   );
   const qs = extractJson<CoachQuestion[]>(out);
   if (!Array.isArray(qs) || qs.length < 3) return base;

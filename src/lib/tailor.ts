@@ -54,7 +54,7 @@ Copy facts VERBATIM: do not rewrite, improve, summarise or invent anything. Only
 Return ONLY JSON matching: ${SCHEMA}`,
     [{ role: "user", content: raw.slice(0, 24000) }],
     6000,
-    { model: "writer", temperature: 0 },
+    { model: "writer", temperature: 0, feature: "resume-parse" },
   );
   const ai = extractJson<ResumeContent>(out);
   if (!ai || !ai.experience) return { content: parsed, ai: false };
@@ -102,7 +102,7 @@ Also return "notes": up to 5 short, specific suggestions where the candidate cou
 Return ONLY JSON: {"resume": ${SCHEMA}, "notes": string[]}`,
       [{ role: "user", content: `MASTER RESUME JSON:\n${JSON.stringify(master)}` }],
       6000,
-      { model: "writer", temperature: 0.3 },
+      { model: "writer", temperature: 0.3, feature: "resume-write" },
     );
     const j = extractJson<{ resume: ResumeContent; notes?: string[] }>(out);
     if (j?.resume?.experience?.length) {
@@ -159,7 +159,7 @@ Return ONLY JSON: {"analysis":[{"requirement":string,"evidence":string|null}],"r
         },
       ],
       7000,
-      { model: "tailor", temperature: 0.4 },
+      { model: "tailor", temperature: 0.4, feature: "tailor" },
     );
     const j = extractJson<{ analysis?: TailorResult["analysis"]; resume: ResumeContent; coverLetter: string }>(out);
     if (j?.resume?.experience?.length && j.coverLetter) {
@@ -170,7 +170,7 @@ Return ONLY JSON: {"analysis":[{"requirement":string,"evidence":string|null}],"r
           `You are a meticulous editor. Fix ONLY these problems in the cover letter and return the full corrected letter as plain text, nothing else. Keep every fact. Problems: ${issues.join("; ")}.`,
           [{ role: "user", content: letter }],
           1500,
-          { model: "writer", temperature: 0.2 },
+          { model: "writer", temperature: 0.2, feature: "tailor-fix" },
         );
         if (fixed && lintLetter(tidyLetter(fixed), job.company).length < issues.length) {
           letter = tidyLetter(fixed);

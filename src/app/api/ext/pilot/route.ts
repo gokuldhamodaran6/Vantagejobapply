@@ -1,6 +1,7 @@
 import { extJson, extUser, ownTask } from "@/lib/ext";
 import { loadBundle } from "@/lib/agent/bundle";
 import { cleanSnapshot, pilotCtx, pilotStep, type PilotHistory } from "@/lib/agent/pilot";
+import { runWithAi } from "@/lib/ai-context";
 
 export const maxDuration = 90;
 
@@ -18,6 +19,6 @@ export async function POST(req: Request) {
   const ctx = pilotCtx(b, "extension");
   // LinkedIn doesn't allow automated clicking: fill each Easy Apply step, the person presses Next/Submit.
   try { ctx.assist = /(^|\.)linkedin\.com$/i.test(new URL(snap.url).hostname); } catch { /* keep default */ }
-  const turn = await pilotStep(snap, Array.isArray(body.history) ? body.history.slice(-4) : [], ctx);
+  const turn = await runWithAi({ userId: u.user_id, taskId: String(body.taskId), feature: "pilot-ext" }, () => pilotStep(snap, Array.isArray(body.history) ? body.history.slice(-4) : [], ctx));
   return extJson(turn);
 }

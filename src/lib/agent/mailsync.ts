@@ -4,6 +4,7 @@ import { fetchNew, matchApplication, type MailAccount, type ParsedMail } from "@
 import { rpc } from "./svc";
 import { ingestSecret, supabaseAnon } from "@/lib/supabase/server";
 import { ask, aiConfigured, extractJson } from "@/lib/ai";
+import { runWithAi } from "@/lib/ai-context";
 import { nextStatus, type MailKind } from "@/lib/mail-classify";
 import { isPublicHost } from "@/lib/net";
 
@@ -36,7 +37,7 @@ async function confirmStage(m: ParsedMail): Promise<{ kind: MailKind; sure: bool
 - other: anything else (newsletters, job alerts, marketing).`,
       [{ role: "user", content: `From: ${m.from_name} <${m.from_addr}>\nSubject: ${m.subject}\n\n${(m.body || m.snippet || "").slice(0, 3500)}` }],
       60,
-      { model: "fast", temperature: 0 },
+      { model: "fast", temperature: 0, feature: "mail-classify" },
     ),
     new Promise<null>((r) => setTimeout(() => r(null), 9000)),
   ]).catch(() => null);
@@ -101,7 +102,7 @@ export async function syncAccount(acct: MailAccount, opts: { days?: number } = {
     // Only job mail is kept: anything else in the mailbox is never stored and never shown to the AI.
     const sites = all.length ? await taskSites(acct.user_id) : [];
     const messages = all.filter((m) => isJobMail(m, apps || [], sites));
-    const confirmed = await Promise.all(messages.map((m) => confirmStage(m)));
+    const confirmed = await runWithAi({ userId: acct.user_id, feature: "mail-classify" }, () => Promise.all(messages.map((m) => confirmStage(m))));
     const rows = messages.map((m, i) => {
       const app = matchApplication(m.company, `${m.subject}\n${(m.body || m.snippet || "").slice(0, 2500)}`, apps || []);
       return { ...m, kind: confirmed[i].kind, sure: confirmed[i].sure, application_id: app?.id || "" };
