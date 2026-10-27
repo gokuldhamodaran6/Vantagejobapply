@@ -237,7 +237,7 @@ VALUES:
 - Contact details are placeholders you write literally: {{first_name}} {{last_name}} {{full_name}} {{preferred_name}} {{email}} {{phone}} {{phone_national}} {{phone_digits}} {{address_line1}} {{postal_code}} {{linkedin}} {{github}} {{website}}. Use {{phone_national}} when the page has a separate country-code control. Never write real contact details yourself.
 - A control marked "→ use X" has the applicant's own answer: use exactly X (pick the option that means X). "(APPROVED — exactly)" must not change at all.
 - "→ LOCKED" or "→ ASK": never answer it yourself; put it in "ask" with the question and options. Eligibility (visa, sponsorship, right to work, citizenship), criminal record, pay history, clearance, age, and gender/race/ethnicity/veteran/disability are ONLY ever answered from "→ use".
-- Work history and education sections: fill them from RESUME, entry by entry, most recent first. Click "Add"/"Add Another" to create the entries you need (all jobs up to 6, all schools up to 3). Job title, company, location, from/to dates (month + year; for spin-buttons type digits like "03" and "2024"), "I currently work here" for a current job, and a short role description from that job's bullets. Never invent employers, dates, degrees or numbers.
+- Work history and education sections: fill them from RESUME, entry by entry, most recent first. Add EVERY job on the resume (up to 6) and EVERY school (up to 3), even when the form only requires one — recruiters and the employer's screening read these fields. Count the entries already listed on the page before adding more; never duplicate one. Click "Add"/"Add Another"/"Add Experience" to create each entry. Job title, company, location, from/to dates (month + year; for spin-buttons type digits like "03" and "2024"), "I currently work here" for a current job, and a short role description from that job's bullets. Never invent employers, dates, degrees or numbers.
 - Skills lists: add up to 10 relevant skills from the resume (type one, pick it, repeat).
 - "How did you hear about us": use the "→ use" answer if given; otherwise the company's careers site / website, else "Other". Never claim a referral or an employee you don't know.
 - "Have you worked here before" / previous worker: "No" unless the resume shows this company.
@@ -393,6 +393,12 @@ export function __validate(p: { say?: string; actions?: PilotAction[]; status?: 
     const value = a.value === undefined || a.value === null ? undefined : unmask(ctx.facts, String(a.value)).slice(0, target.max || 6000);
     // Never type a placeholder we couldn't fill in.
     if (value !== undefined && /\{\{[^}]*\}\}/.test(value)) { notes.push(`no value for ${value.match(/\{\{[^}]*\}\}/)![0]}`); continue; }
+    // A county box never gets the state, the city or the country (the AI likes to "help" there).
+    if (value !== undefined && /\bcounty\b|\bparish\b/i.test(target.label)) {
+      const v0 = value.trim().toLowerCase();
+      const f = ctx.facts;
+      if (/^[a-z]{2}$/i.test(v0) || [f.state, f.city, f.country].filter(Boolean).some((x) => x.trim().toLowerCase() === v0) || /^(united states|usa|us)$/i.test(v0)) { notes.push("left County empty (not in the applicant's facts)"); continue; }
+    }
     // A phone number never goes in an "extension" box.
     if (value !== undefined && /\bext(ension)?\b|\bext\.?$/i.test(target.label) && value.replace(/\D/g, "").length >= 7) { notes.push("left the phone extension empty"); continue; }
     actions.push({ do: a.do, i: it.i, ...(value !== undefined ? { value } : {}) });
