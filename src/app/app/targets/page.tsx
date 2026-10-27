@@ -11,6 +11,7 @@ import { COUNTRIES, COUNTRY_BY_CODE, INDUSTRIES } from "@/lib/countries";
 import { dailyLimit, effectivePlan } from "@/lib/access";
 import { JOB_TYPES, WORK_MODES, wantedModes, type WorkMode } from "@/lib/jobs/match";
 import { searchVariants } from "@/lib/jobs/roles";
+import { normCompany } from "@/lib/jobs/signals";
 import { DEFAULT_FRESH_DAYS, LIVE_MAX_DAYS, PRIORITIES, priorityMeta, shareOfLimit } from "@/lib/agent/plan";
 import type { Pipeline } from "@/lib/jobs/engine";
 import type { ApplyScope, TargetPrefs, TargetRole, WorkAuth, WorkStatus } from "@/lib/types";
@@ -39,7 +40,7 @@ const SECTIONS = [
   { id: "industries", label: "Industries", icon: Factory },
 ];
 
-type Board = { id: number; name: string; ats: string; last_count: number | null; last_ok_at: string | null };
+type Board = { id: number; name: string; name_norm: string; ats: string; last_count: number | null; last_ok_at: string | null };
 type Save = { state: "idle" | "saving" | "saved" | "error"; at?: number; msg?: string };
 type Job = () => Promise<string | null>;
 
@@ -152,10 +153,18 @@ export default function TargetsPage() {
   }, [refresh, loadPipeline]);
   const { save, schedule, retry } = useAutosave(onSettled);
 
+  // Each target company's careers site, looked up by its normalised name among active boards (biggest first).
+  const companiesKey = (prefs?.companies || []).map(normCompany).sort().join("|");
+  useEffect(() => {
+    const names = companiesKey ? companiesKey.split("|") : [];
+    if (!names.length) return setBoards([]);
+    supabaseBrowser().from("boards").select("id,name,name_norm,ats,last_count,last_ok_at").in("name_norm", names).eq("active", true).order("last_count", { ascending: false, nullsFirst: false })
+      .then(({ data }) => setBoards((data as Board[]) || []));
+  }, [companiesKey]);
+
   useEffect(() => {
     if (!userId) return;
     const s = supabaseBrowser();
-    s.from("boards").select("id,name,ats,last_count,last_ok_at").then(({ data }) => setBoards((data as Board[]) || []));
     s.from("applications").select("target_role_id,status").then(({ data }) => {
       const c: Record<string, number> = {};
       (data || []).forEach((a: { target_role_id: string | null; status: string }) => {
@@ -294,7 +303,8 @@ export default function TargetsPage() {
   }
 
   // ---- derived -----------------------------------------------------------------------------------------
-  const watched = new Map(boards.map((b) => [b.name.toLowerCase(), b]));
+  const watched = new Map<string, Board>();
+  for (const b of boards) if (!watched.has(b.name_norm)) watched.set(b.name_norm, b);
   const modes = wantedModes(p);
   const share = shareOfLimit(rs, limit);
   const pipeRole = new Map((pipe?.roles || []).map((r) => [r.id, r]));
@@ -610,11 +620,17 @@ export default function TargetsPage() {
             <ul className="mt-3 divide-y divide-line rounded-xl border border-line">
               {p.companies.length === 0 && <li className="p-4 text-sm text-muted">No target companies yet — your agent searches every verified careers site.</li>}
               {p.companies.map((c) => {
-                const b = watched.get(c.toLowerCase());
+                const b = watched.get(normCompany(c));
                 return (
                   <li key={c} className="flex flex-wrap items-center gap-3 px-3.5 py-3">
                     <span className="font-semibold capitalize">{c}</span>
-                    {b ? <span className="chip bg-green-tint text-green-ink">Watching · {b.last_count ?? 0} open jobs</span> : <span className="chip bg-orange-tint text-orange-ink">Careers feed not found — paste a job link</span>}
+                    {b && (b.last_count || 0) > 0 ? (
+                      <span className="chip bg-green-tint text-green-ink">Watching · {(b.last_count || 0).toLocaleString()} open jobs</span>
+                    ) : b ? (
+                      <span className="chip bg-line-2 text-ink-2">Watching their careers site · no open jobs right now</span>
+                    ) : (
+                      <span className="chip bg-orange-tint text-orange-ink" title="Some big employers run their own careers sites Vantage can't read yet. Paste any job link from their site and Vantage applies to that job.">Can&apos;t read their careers site yet — paste a job link</span>
+                    )}
                     <button className="ml-auto rounded-md px-2 py-1 text-sm font-medium text-muted hover:bg-red-tint hover:text-red-ink" onClick={() => set({ companies: p.companies.filter((x) => x !== c) })} aria-label={`Stop targeting ${c}`}>Remove</button>
                   </li>
                 );
