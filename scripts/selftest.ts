@@ -2,7 +2,8 @@ import { ghostRisk } from "../src/lib/jobs/ghost";
 import { classifyMail, nextStatus } from "../src/lib/mail-classify";
 import { extractCode } from "../src/lib/mail-code";
 // Quick sanity checks for the eligibility engine. Run: npx tsx scripts/selftest.ts
-import { matchJob } from "../src/lib/jobs/match";
+import { matchJob, workModeOf, workModeOk } from "../src/lib/jobs/match";
+import { autoSkipReason, interleaveByPriority, shareOfLimit, taskPriority } from "../src/lib/agent/plan";
 import { analyzeText } from "../src/lib/jobs/signals";
 import { detectCountry } from "../src/lib/jobs/geo";
 import { parseResumeText, scoreResume, extractKeywords } from "../src/lib/ats";
@@ -18,7 +19,7 @@ import { isPrivateIp } from "../src/lib/net";
 import { parseEventText, parseIcs } from "../src/lib/mail-event";
 import { resumeIssues, tidyResume } from "../src/lib/resume/health";
 import { lintLetter } from "../src/lib/tailor";
-import type { Job, TargetRole, WorkAuth } from "../src/lib/types";
+import type { Job, TargetPrefs, TargetRole, WorkAuth } from "../src/lib/types";
 
 let fail = 0;
 const ok = (cond: boolean, msg: string) => { console.log(`${cond ? "PASS" : "FAIL"}  ${msg}`); if (!cond) fail++; };
@@ -78,6 +79,51 @@ ok(pdf.education?.length === 2 && (pdf.certifications || []).includes("HubSpot: 
 // Role matching across title families.
 ok(roleSimilarity("Marketing Specialist", "Growth Marketing Manager") >= 0.6, "marketing specialist ≈ growth marketing manager");
 ok(roleSimilarity("Product Manager", "Product Designer") < 0.45, "product manager ≠ product designer");
+
+// A "Business Analyst" filter shows business analyst titles and real synonyms — never marketing or sales roles.
+for (const t of ["Business Analyst", "Senior Business Analyst", "IT Business Analyst", "Business Systems Analyst", "Business Analyst – Marketing Technology", "Operations Analyst", "Strategy & Operations Manager"]) {
+  ok(roleSimilarity("business analyst", t) >= 0.55, `business analyst ≈ ${t}`);
+}
+for (const t of ["Senior Marketing Operations Analyst", "Marketing Analyst", "Marketing Specialist", "Business Development Manager", "Sales Operations Analyst", "Brand Strategy Manager", "Director, Global Integrated Campaign Strategy & Operations", "Security Operations Analyst", "Financial Operations Analyst"]) {
+  ok(roleSimilarity("business analyst", t) < 0.45, `business analyst ≠ ${t}`);
+}
+ok(roleSimilarity("Marketing Specialist", "Demand Generation Specialist") >= 0.6 && roleSimilarity("Marketing Specialist", "Marketing Operations Analyst") >= 0.6, "marketing targets keep their own family");
+ok(roleSimilarity("Product Specialist", "Product Marketing Specialist") < 0.45 && roleSimilarity("Product Manager", "Product Marketing Manager") < 0.45, "product targets don't pull in product marketing");
+{
+  // Filtering Live jobs by one target scores against that target only (the role filter bug).
+  const ba: TargetRole = { id: "ba", title: "business analyst", levels: ["entry", "mid"], keywords: [], priority: 2, active: true };
+  const mkt: TargetRole = { id: "mkt", title: "marketing specialist", levels: ["mid", "senior"], keywords: [], priority: 1, active: true };
+  const mops = { ...base, country: "US", title: "Senior Marketing Operations Analyst" };
+  ok((matchJob(mops, { roles: [ba, mkt], prefs: null, auth: [] }).roleFit ?? 0) >= 0.6, "all targets: marketing ops analyst fits the marketing target");
+  ok((matchJob(mops, { roles: [ba], prefs: null, auth: [] }).roleFit ?? 1) < 0.45, "business analyst filter: marketing ops analyst is filtered out");
+  ok(matchJob({ ...base, country: "US", title: "Business Analyst II" }, { roles: [ba], prefs: null, auth: [] }).role?.id === "ba", "business analyst filter: Business Analyst II stays");
+}
+
+// Auto-apply ordering: every target gets a turn, weighted by priority (Top 3 : High 2 : Normal 1).
+{
+  const rs = [{ id: "a", priority: 1 }, { id: "b", priority: 2 }, { id: "c", priority: 3 }];
+  const cands = [...Array.from({ length: 5 }, (_, i) => ({ roleId: "a", score: 60 + i })), ...Array.from({ length: 5 }, (_, i) => ({ roleId: "b", score: 90 + i })), { roleId: "c", score: 99 }];
+  const first6 = interleaveByPriority(cands, rs).slice(0, 6).map((c) => c.roleId).join("");
+  ok(first6 === "aaabbc", `priority interleave: top target goes first, lower ones still get turns (${first6})`);
+  ok(interleaveByPriority(cands, rs)[0].score === 64, "priority interleave: best match first within a target");
+  const share = shareOfLimit([{ id: "a", priority: 1, active: true }, { id: "b", priority: 2, active: true }, { id: "c", priority: 3, active: true }, { id: "d", priority: 1, active: false }], 10);
+  ok(share.a + share.b + share.c === 10 && share.a > share.b && share.b > share.c && !share.d, `daily share follows priority (${JSON.stringify(share)})`);
+  ok(taskPriority(false, 1) < taskPriority(false, 3) && taskPriority(true, 3) < taskPriority(false, 1), "queue order: important first, then by target priority");
+}
+
+// Work arrangements and freshness.
+{
+  const remoteOnly = { remote_ok: true, work_modes: ["remote"] };
+  ok(!workModeOk({ ...base, remote: false }, remoteOnly) && workModeOk({ ...base, remote: true }, remoteOnly), "remote-only preference skips on-site jobs");
+  ok(workModeOf({ ...base, location: "Chicago, IL (Hybrid)" }) === "hybrid" && workModeOk({ ...base, location: "Chicago (Hybrid)" }, { remote_ok: false, work_modes: ["onsite"] }), "hybrid detected; fine for an on-site person");
+  ok(workModeOk({ ...base, remote: true }, { remote_ok: true, work_modes: null }) && !workModeOk({ ...base, remote: true }, { remote_ok: false, work_modes: null }), "older prefs fall back to remote_ok");
+  const usJob = { ...base, country: "US", location: "Austin, TX", title: "Software Engineer" };
+  const m = matchJob(usJob, { roles: [role], prefs: null, auth: [] });
+  const fresh: TargetPrefs = { countries: [], locations: [], remote_ok: true, industries: [], industry_mode: "all", salary_min: null, currency: null, job_types: [], companies: [], blocked_companies: [], max_days_old: 14 };
+  ok(autoSkipReason({ ...usJob, posted_at: new Date(Date.now() - 20 * 864e5).toISOString() }, m, fresh, { vetted: true }) === "Older than your freshness setting", "agent skips posts older than the freshness setting");
+  ok(autoSkipReason(usJob, m, fresh, { vetted: true }) === null, "agent applies to a fresh, close, verified match");
+  ok(autoSkipReason(usJob, m, null, { vetted: false }) === "Careers site not verified yet", "agent only uses verified careers sites");
+}
 ok(analyzeText("Product Manager", "").level === null && analyzeText("Senior Product Manager", "").level === "senior" && analyzeText("Director of Marketing", "").level === "lead", "seniority detection");
 
 // Form answers.

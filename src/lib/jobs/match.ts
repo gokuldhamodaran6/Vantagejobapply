@@ -11,6 +11,36 @@ const LEVEL_ORDER = ["intern", "entry", "mid", "senior", "lead"];
 
 const CITIZEN_LIKE = new Set(["citizen", "permanent_resident"]);
 
+export type WorkMode = "remote" | "hybrid" | "onsite";
+export const WORK_MODES: { value: WorkMode; label: string }[] = [
+  { value: "onsite", label: "On-site" },
+  { value: "hybrid", label: "Hybrid" },
+  { value: "remote", label: "Remote" },
+];
+
+/** How a job is worked, from what the posting says (feeds rarely mark hybrid, so the text decides). */
+export function workModeOf(job: Pick<Job, "remote" | "location" | "title"> & { description?: string | null }): WorkMode {
+  const text = `${job.title} ${job.location || ""}`.toLowerCase();
+  if (/\bhybrid\b/.test(text) || /\bhybrid\b/.test((job.description || "").slice(0, 4000).toLowerCase())) return "hybrid";
+  if (job.remote) return "remote";
+  return "onsite";
+}
+
+/** The arrangements the person accepts. Older preferences only have remote_ok. */
+export function wantedModes(prefs: Pick<TargetPrefs, "remote_ok" | "work_modes"> | null | undefined): WorkMode[] {
+  const m = (prefs?.work_modes || []).filter((x): x is WorkMode => x === "remote" || x === "hybrid" || x === "onsite");
+  if (m.length) return m;
+  return prefs?.remote_ok === false ? ["onsite", "hybrid"] : ["onsite", "hybrid", "remote"];
+}
+
+export function workModeOk(job: Pick<Job, "remote" | "location" | "title"> & { description?: string | null }, prefs: Pick<TargetPrefs, "remote_ok" | "work_modes"> | null | undefined) {
+  const want = wantedModes(prefs);
+  if (want.length === 3) return true;
+  const mode = workModeOf(job);
+  // A hybrid job is fine for someone who'd go on-site every day.
+  return want.includes(mode) || (mode === "hybrid" && want.includes("onsite"));
+}
+
 export type MatchCtx = {
   roles: TargetRole[];
   prefs: TargetPrefs | null;
@@ -101,6 +131,10 @@ export function matchJob(job: Job, ctx: MatchCtx): MatchResult {
         score -= 10;
         warnings.push("Outside your chosen industries");
       }
+    }
+    if (!workModeOk(job, prefs)) {
+      score -= 10;
+      warnings.push(`${WORK_MODES.find((w) => w.value === workModeOf(job))?.label} — not an arrangement you chose`);
     }
     if (prefs.salary_min && job.salary_max && job.salary_max < prefs.salary_min) {
       score -= 8;

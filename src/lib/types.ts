@@ -63,6 +63,8 @@ export type TargetPrefs = {
   companies: string[];
   blocked_companies: string[];
   max_days_old: number;
+  /** Accepted work arrangements: "onsite" | "hybrid" | "remote". Empty/missing = decided by remote_ok. */
+  work_modes?: string[] | null;
 };
 
 export type Profile = {
