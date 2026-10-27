@@ -179,6 +179,8 @@ export default function AgentPage() {
 
   const hasMailbox = Boolean(setup?.mailbox);
   const needs = live.filter((t) => NEEDS_YOU.includes(t.status) || (t.status === "waiting_code" && codeNeedsYou(t, hasMailbox, now)));
+  // Jobs waiting only on questions: answered together, once (site terms and live runs keep their own cards).
+  const askTasks = needs.filter((t) => t.status === "needs_user" && (t.needs || []).length > 0 && !(t.needs || []).some((n) => n.live || n.kind === "consent"));
   const today = new Date(new Date(now).setHours(0, 0, 0, 0)).getTime();
   const appliedToday = ix.filter((t) => t.status === "submitted" && Date.parse(t.finished_at || t.updated_at) >= today).length;
   const week = ix.filter((t) => t.status === "submitted" && Date.parse(t.finished_at || t.updated_at) >= now - 7 * 864e5).length;
@@ -459,12 +461,14 @@ export default function AgentPage() {
         onToast={setToast}
       />
 
-      {needs.length > 0 && (
+      {askTasks.length > 0 && <AskOnce tasks={askTasks} onDone={(m) => { setToast(m); void resync(); }} />}
+
+      {needs.length > askTasks.length && (
         <section className="mt-6">
-          <h2 id="needs-you" className="mb-3 flex scroll-mt-20 items-center gap-2 font-bold"><span className="live-dot" /> Needs you ({needs.length})</h2>
+          <h2 id="needs-you" className="mb-3 flex scroll-mt-20 items-center gap-2 font-bold"><span className="live-dot" /> Needs you ({needs.length - askTasks.length})</h2>
           <div className="space-y-3">
             <AnimatePresence initial={false}>
-              {needs.map((t) => (
+              {needs.filter((t) => !askTasks.includes(t)).map((t) => (
                 <motion.div key={t.id} layout initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, height: 0 }}>
                   <NeedCard t={t} hasMailbox={hasMailbox} consent={Boolean(setup?.consent)} onOpen={(x) => void openPanel(x)} onDone={(m) => { setToast(m); void resync(); }} />
                 </motion.div>
@@ -838,3 +842,74 @@ function NeedCard({ t, hasMailbox, consent, onDone, onOpen }: { t: AgentTask; ha
   );
 }
 
+
+/** "Answer once, before applying": every question the waiting jobs asked, deduplicated, in one form. */
+function AskOnce({ tasks, onDone }: { tasks: AgentTask[]; onDone: (m: string) => void }) {
+  const groups = useMemo(() => {
+    const m = new Map<string, { n: AgentTask["needs"][number]; companies: string[] }>();
+    for (const t of tasks) for (const raw of t.needs || []) {
+      const n = tidy(raw);
+      const g = m.get(n.qkey || n.label);
+      if (g) { if (!g.companies.includes(t.job.company)) g.companies.push(t.job.company); }
+      else m.set(n.qkey || n.label, { n, companies: [t.job.company] });
+    }
+    return [...m.values()];
+  }, [tasks]);
+  const [vals, setVals] = useState<Record<string, string>>(() => Object.fromEntries(groups.filter((g) => g.n.suggest).map((g) => [g.n.qkey || g.n.label, g.n.suggest as string])));
+  const [busy, setBusy] = useState(false);
+  const key = (n: AgentTask["needs"][number]) => n.qkey || n.label;
+  const done = groups.filter((g) => vals[key(g.n)]?.trim()).length;
+  async function save() {
+    setBusy(true);
+    const answers = groups.filter((g) => vals[key(g.n)]?.trim()).map((g) => ({ question: g.n.label, answer: vals[key(g.n)], kind: g.n.type }));
+    const r = await fetch("/api/agent/answers", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ answers }) }).catch(() => null);
+    const d = r ? await r.json().catch(() => ({})) : {};
+    setBusy(false);
+    onDone(r?.ok ? `Saved ${d.saved} answer${d.saved === 1 ? "" : "s"} to your memory.${d.freed ? ` ${d.freed} job${d.freed > 1 ? "s are" : " is"} back in line — your agent is applying.` : ""}` : d.error || "Couldn't save.");
+  }
+  return (
+    <section className="mt-6" aria-labelledby="ask-once">
+      <div className="card border-orange/30 p-5 sm:p-6">
+        <p className="text-xs font-bold uppercase tracking-wider text-orange-ink">Before your agent applies</p>
+        <h2 id="ask-once" className="mt-1 text-xl font-bold">{groups.length} question{groups.length > 1 ? "s" : ""} — answer once, and {tasks.length} job{tasks.length > 1 ? "s go" : " goes"} through</h2>
+        <p className="mt-1 text-sm text-muted">These companies&apos; forms ask things only you can answer. Each answer is saved to your memory and reused whenever any company asks the same thing.</p>
+        <div className="mt-5 space-y-4">
+          {groups.map(({ n, companies }) => (
+            <fieldset key={key(n)} className="rounded-xl border border-line p-4">
+              <div className="flex flex-wrap gap-1.5 text-xs font-semibold">
+                <span className="rounded-full bg-canvas px-2.5 py-1 text-ink-2">{companies.slice(0, 3).join(", ")}{companies.length > 3 ? ` +${companies.length - 3}` : ""}</span>
+                {n.locked && <span className="rounded-full bg-red-tint px-2.5 py-1 text-red-ink">Statement in your name — only you can answer</span>}
+              </div>
+              <legend className="sr-only">{n.label}</legend>
+              <p className="mt-2 text-[15px] font-semibold">{n.label}</p>
+              {n.suggest && <p className="mt-1 text-xs text-muted">Suggested from your profile: <b className="text-ink">{n.suggest}</b> — change it if that&apos;s wrong for this question.</p>}
+              {n.options?.length ? (
+                n.options.length <= 5 ? (
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {n.options.filter((o) => !/^(select|choose|--)/i.test(o.trim())).map((o) => (
+                      <button type="button" key={o} onClick={() => setVals({ ...vals, [key(n)]: o })} aria-pressed={vals[key(n)] === o}
+                        className={`min-h-10 rounded-lg border px-3.5 text-sm font-medium ${vals[key(n)] === o ? "border-brand bg-brand text-white" : "border-line hover:bg-canvas"}`}>{o}</button>
+                    ))}
+                  </div>
+                ) : (
+                  <select className="input mt-2" value={vals[key(n)] || ""} onChange={(e) => setVals({ ...vals, [key(n)]: e.target.value })} aria-label={n.label}>
+                    <option value="">Choose…</option>
+                    {n.options.map((o) => <option key={o}>{o}</option>)}
+                  </select>
+                )
+              ) : n.type === "textarea" ? (
+                <textarea className="input mt-2 py-2.5" rows={3} value={vals[key(n)] || ""} onChange={(e) => setVals({ ...vals, [key(n)]: e.target.value })} aria-label={n.label} />
+              ) : (
+                <input className="input mt-2" value={vals[key(n)] || ""} onChange={(e) => setVals({ ...vals, [key(n)]: e.target.value })} aria-label={n.label} />
+              )}
+            </fieldset>
+          ))}
+        </div>
+        <div className="sticky bottom-3 mt-5 flex flex-wrap items-center gap-3 rounded-xl border border-line bg-surface p-3 shadow-sm">
+          <p className="min-w-0 flex-1 text-sm"><b>{done} of {groups.length} answered.</b> <span className="text-muted">Jobs with every question answered go back in line right away.</span></p>
+          <button className="btn-primary" disabled={busy || !done} onClick={() => void save()}>{busy ? <Loader2 size={16} className="animate-spin" /> : <Check size={16} />} Save answers and apply</button>
+        </div>
+      </div>
+    </section>
+  );
+}

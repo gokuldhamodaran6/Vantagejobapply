@@ -73,6 +73,47 @@ export function qkeyOf(label: string) {
 
 const DECLINE = "Decline to self-identify";
 
+/**
+ * Answer memory by meaning: words application forms use for the same thing map to one concept, so a question
+ * answered once is recognised when another company words it differently ("How did you hear about this position?" =
+ * "How did you learn of this opportunity?"). Used only for ordinary questions — never for legal, eligibility or
+ * identity statements, which must match the exact question.
+ */
+const SAME: Record<string, string> = {
+  hear: "learn", heard: "learn", learn: "learn", learned: "learn", learnt: "learn", find: "learn", found: "learn", discover: "learn", discovered: "learn", source: "learn", sourced: "learn", referred: "learn", referral: "learn",
+  position: "job", role: "job", opportunity: "job", vacancy: "job", opening: "job", job: "job", posting: "job", req: "job", requisition: "job",
+  relocate: "move", relocating: "move", relocation: "move", move: "move", moving: "move",
+  willing: "open", open: "open", comfortable: "open", able: "open", ok: "open", okay: "open", happy: "open", prepared: "open",
+  start: "start", starting: "start", join: "start", joining: "start", available: "start", availability: "start", earliest: "start", begin: "start", commence: "start",
+  notice: "notice", period: "notice",
+  salary: "pay", compensation: "pay", pay: "pay", remuneration: "pay", wage: "pay", wages: "pay", ctc: "pay",
+  expectation: "expect", expectations: "expect", expected: "expect", desired: "expect", target: "expect", requirements: "expect",
+  remote: "remote", hybrid: "hybrid", office: "office", onsite: "office",
+  linkedin: "linkedin", website: "site", portfolio: "site", github: "github",
+  experience: "experience", experienced: "experience", years: "years", yrs: "years",
+  proud: "proud", proudest: "proud", accomplishment: "proud", achievement: "proud", achievements: "proud",
+  why: "why", interested: "interest", interest: "interest", excites: "interest", motivates: "interest", attracted: "interest", appeals: "interest", want: "interest",
+  company: "company", us: "company", organization: "company", organisation: "company", team: "company",
+  led: "lead", lead: "lead", leading: "lead", managed: "lead", owned: "lead", ran: "lead", drove: "lead",
+  launch: "launch", launched: "launch", shipped: "launch", ship: "launch", release: "launch", released: "launch",
+  travel: "travel", travelling: "travel", traveling: "travel",
+  weekend: "weekend", weekends: "weekend", shift: "shift", shifts: "shift", night: "night", nights: "night",
+};
+const FILLER = new Set(["the", "a", "an", "in", "of", "for", "to", "is", "are", "be", "do", "does", "did", "you", "your", "yours", "we", "our", "about", "this", "that", "which", "what", "how", "when", "where", "please", "tell", "describe", "briefly", "share", "provide", "list", "any", "if", "so", "and", "or", "with", "at", "on", "by", "from", "as", "would", "will", "can", "could", "currently", "date", "applying", "apply", "application", "here", "there", "it", "its", "i", "me", "my", "one", "select", "answer", "question", "best", "most"]);
+const NEGATE = /\b(not|never|no longer|without|unable|cannot|can't|don't|won't)\b/;
+export function meaningOf(label: string) {
+  return new Set(qkeyOf(label).split(" ").filter((w) => w && !FILLER.has(w)).map((w) => SAME[w] || w.replace(/(ing|ed|s)$/, "")).filter(Boolean));
+}
+/** Two ordinary questions that ask the same thing (same concepts, same negation). */
+export function sameMeaning(a: string, b: string) {
+  if (NEGATE.test(a.toLowerCase()) !== NEGATE.test(b.toLowerCase())) return false;
+  if (/\bnow\b/.test(a.toLowerCase()) !== /\bnow\b/.test(b.toLowerCase()) || /future/.test(a.toLowerCase()) !== /future/.test(b.toLowerCase())) return false;
+  const x = meaningOf(a), y = meaningOf(b);
+  if (x.size < 1 || y.size < 1) return false;
+  const inter = [...x].filter((w) => y.has(w)).length;
+  return inter / Math.max(x.size, y.size) >= 0.75 && inter >= Math.min(2, Math.min(x.size, y.size));
+}
+
 /** Facts the agent may use, from the user's profile, application profile, resume and work authorisation. */
 export function buildFacts(input: {
   email: string;
@@ -285,7 +326,7 @@ const SENSITIVE = /criminal|convict|felony|arrest|background check|drug|referenc
  */
 export async function planFields(
   fields: FormField[],
-  ctx: { facts: Facts; answers: { qkey: string; question: string; answer: string }[]; job: { title: string; company: string; description?: string | null }; resume: ResumeContent | null; coverLetter: string | null; consent: boolean },
+  ctx: { facts: Facts; answers: { qkey: string; question: string; answer: string }[]; job: { title: string; company: string; description?: string | null }; resume: ResumeContent | null; coverLetter: string | null; consent: boolean; noAi?: boolean },
 ): Promise<{ fills: Fill[]; missing: Missing[] }> {
   const fills: Fill[] = [];
   const open: FormField[] = [];
@@ -312,7 +353,10 @@ export async function planFields(
       const s = inter / Math.max(toks.size, b.set.size);
       if (s >= 0.82 && (!best || s > best.s)) best = { k: b.k, s };
     }
-    return best ? bank.get(best.k)! : null;
+    if (best) return bank.get(best.k)!;
+    // Same meaning in different words (only ordinary questions reach here: legal and identity ones are matched exactly above).
+    const hit = ctx.answers.find((a) => sameMeaning(label, a.question || a.qkey));
+    return hit ? hit.answer : null;
   };
 
   for (const f of fields) {
@@ -428,7 +472,7 @@ export async function planFields(
   const isConsent = (f: FormField) => /privacy|consent|i agree|acknowledge|terms|certify|attest|accurate and complete|true and correct|data (processing|retention)|i understand/.test(f.label.toLowerCase());
   const NO_AI = /passport|nationality|citizen|age of|years of age|\b18\b|cities|city|location|relocat|on-?site|in the office|commut|travel|authori[sz]ed to work|eligible to work|right to work|sponsor|visa|citizen|immigration|green card|clearance|export control|itar|us person|veteran|disabilit|gender|\brace\b|ethnic|hispanic|pronoun|salary|compensation/;
   const askable = open.filter((f) => !SENSITIVE.test(f.label.toLowerCase()) && !NO_AI.test(f.label.toLowerCase()) && !isConsent(f));
-  if (aiConfigured() && askable.length) {
+  if (aiConfigured() && askable.length && !ctx.noAi) {
     const out = await claude(
       `You fill job-application questions for a candidate, using ONLY the facts provided. For each field return a value or the exact string "ASK".
 Rules:
@@ -448,6 +492,8 @@ Return ONLY JSON {"<id>": "<value or ASK>"}.`,
     aiAnswers = extractJson<Record<string, string>>(out) || {};
   }
   for (const f of open) {
+    // Checking a form ahead of time: questions the AI writes from the resume aren't "missing" — only personal ones are.
+    if (ctx.noAi && askable.includes(f)) continue;
     const v = aiAnswers[f.id];
     if (v && v !== "ASK") {
       if (f.options?.length) {
@@ -508,8 +554,10 @@ const CONTACT_Q = /e-?mail|phone|mobile|telephone|address|street|zip|postal|post
 function relevantAnswers(answers: { qkey: string; question: string; answer: string }[], fields: FormField[]) {
   const stop = new Set(["you", "your", "have", "are", "the", "and", "for", "with", "what", "this", "that", "will", "any", "how", "did", "please", "describe"]);
   const words = new Set(fields.flatMap((f) => qkeyOf(f.label).split(" ")).filter((w) => w.length > 3 && !stop.has(w)));
+  // Saved stories reach the AI when they share a concept, not only a word ("launch you led" ~ "product you shipped").
+  const concepts = new Set(fields.flatMap((f) => [...meaningOf(f.label)]).filter((w) => w.length > 3));
   return answers
     .filter((a) => !SENSITIVE.test(a.qkey) && !lockedKind(a.question || a.qkey) && !CONTACT_Q.test(`${a.qkey} ${a.question || ""}`.toLowerCase()))
-    .filter((a) => !/sponsor|visa|citizen|veteran|disabilit|gender|race|ethnic|hispanic|salary|nationality|resident|clearance|immigra/.test(a.qkey) && a.qkey.split(" ").some((w) => words.has(w)))
+    .filter((a) => !/sponsor|visa|citizen|veteran|disabilit|gender|race|ethnic|hispanic|salary|nationality|resident|clearance|immigra/.test(a.qkey) && (a.qkey.split(" ").some((w) => words.has(w)) || [...meaningOf(a.question || a.qkey)].some((w) => concepts.has(w))))
     .slice(0, 12);
 }

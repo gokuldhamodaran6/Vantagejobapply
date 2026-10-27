@@ -846,6 +846,9 @@ async function blindCode(bundle, page) {
 
 /** Pause for the user to complete a human check in the live view. The agent never solves these itself. */
 async function waitForHuman(task, page, clock) {
+  return live.waitFor(task.id, () => waitForHumanInner(task, page, clock));
+}
+async function waitForHumanInner(task, page, clock) {
   await update(task.id, { status: "needs_human", step: "Complete the quick “I'm human” check — open Live view", log: "The site asked for a human check" });
   const begin = Date.now();
   const deadline = Math.min(begin + 10 * 60 * 1000, (clock?.started || begin) + HARD_CAP_MS);
@@ -879,6 +882,9 @@ function canHandOff(bundle, e, round) {
  * Questions are answered in the panel (saved to their answers) or right on the page.
  */
 async function handToYou(bundle, page, e) {
+  return live.waitFor(bundle.task.id, () => handToYouInner(bundle, page, e));
+}
+async function handToYouInner(bundle, page, e) {
   const { task } = bundle;
   const questions = e.status === "needs_user" && e.extra.needs.length > 0;
   const reason = String(e.message || "").replace(/\s*Open the job( link)?[^.]*\.?/i, "").trim();
@@ -911,8 +917,11 @@ async function handToYou(bundle, page, e) {
 
 /** While the person has taken control, the agent waits (and never records the screen). */
 async function holdIfYou(bundle, page) {
+  if (live.mode(bundle.task.id) !== "you") return;
+  return live.waitFor(bundle.task.id, () => holdIfYouInner(bundle, page));
+}
+async function holdIfYouInner(bundle, page) {
   const { task } = bundle;
-  if (live.mode(task.id) !== "you") return;
   await update(task.id, { step: "You're in control — your agent is paused", log: "You took control of the page" });
   const begin = Date.now();
   let lastPoll = 0;
@@ -938,6 +947,9 @@ async function holdIfYou(bundle, page) {
  * Returns "agent" (press it now) or "you" (they pressed it; the loop reads the next page).
  */
 async function submitGate(bundle, page, button) {
+  return live.waitFor(bundle.task.id, () => submitGateInner(bundle, page, button));
+}
+async function submitGateInner(bundle, page, button) {
   const { task } = bundle;
   const startUrl = page.url();
   await button.evaluate((el) => el.addEventListener("click", () => { window.__vpSubmit = true; }, { capture: true })).catch(() => {});

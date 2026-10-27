@@ -1,4 +1,6 @@
 import { ghostRisk } from "../src/lib/jobs/ghost";
+import { questionsBefore } from "../src/lib/agent/precheck";
+import { sameMeaning } from "../src/lib/agent/fields";
 import { runNow, todaysRuns, cleanSchedule } from "../src/lib/agent/schedule";
 import { classifyMail, nextStatus } from "../src/lib/mail-classify";
 import { extractCode } from "../src/lib/mail-code";
@@ -361,7 +363,43 @@ async function aiMeterChecks() {
   ok(cleanSchedule({ tz: "UTC", times: ["25:00", "09:00", "09:00"] })?.times?.join() === "09:00", "schedule: bad and repeated times are dropped");
 }
 
-plannerChecks().then(aiMeterChecks).then(() => {
+// Answer memory by meaning: the same question in other words is recognised; different ones are not.
+{
+  ok(sameMeaning("How did you hear about this position?", "How did you learn about this opportunity?"), "meaning: hear about position = learn about opportunity");
+  ok(sameMeaning("Are you willing to relocate?", "Are you open to relocation?"), "meaning: willing to relocate = open to relocation");
+  ok(sameMeaning("When can you start?", "What is your earliest start date?"), "meaning: when can you start = earliest start date");
+  ok(!sameMeaning("Are you willing to relocate?", "Are you not willing to relocate?"), "meaning: a negation is a different question");
+  ok(!sameMeaning("Are you willing to travel?", "Are you willing to relocate?"), "meaning: travel is not relocate");
+  ok(!sameMeaning("Why do you want to work here?", "What are your salary expectations?"), "meaning: unrelated questions don't match");
+}
+
+async function precheckChecks() {
+  // A Greenhouse form, read before the agent opens it: only questions the person must answer are asked up front.
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = (async () => new Response(JSON.stringify({ questions: [
+    { label: "First Name", required: true, fields: [{ name: "first_name", type: "input_text" }] },
+    { label: "Email", required: true, fields: [{ name: "email", type: "input_text" }] },
+    { label: "Resume/CV", required: true, fields: [{ name: "resume", type: "input_file" }] },
+    { label: "Why do you want to work at Acme?", required: true, fields: [{ name: "q1", type: "textarea" }] },
+    { label: "What are your salary expectations?", required: true, fields: [{ name: "q2", type: "input_text" }] },
+    { label: "Have you ever been convicted of a felony?", required: true, fields: [{ name: "q3", type: "multi_value_single_select", values: [{ label: "Yes", value: 1 }, { label: "No", value: 0 }] }] },
+    { label: "LinkedIn Profile", required: false, fields: [{ name: "q4", type: "input_text" }] },
+  ] }), { status: 200 })) as typeof fetch;
+  try {
+    const facts = buildFacts({ email: "a@b.co", name: "Gokul Dhamodaran", applicant: null, resume: { name: "GOKUL DHAMODARAN", experience: [], skills: [] } as never, auth: undefined, country: "US" });
+    const ask = await questionsBefore({ jobId: "gh:acme:123", facts, answers: [], job: { title: "Analyst", company: "Acme" }, resume: null, consent: true });
+    const labels = (ask || []).map((m) => m.label);
+    ok(labels.some((l) => /felony/i.test(l)) && labels.some((l) => /salary/i.test(l)), "precheck: legal and pay questions are asked before applying");
+    ok(!labels.some((l) => /why do you want|first name|email|resume/i.test(l)), "precheck: name, email, resume and why-us are not asked");
+    const later = await questionsBefore({ jobId: "gh:acme:123", facts, answers: [{ qkey: "what are your salary expectations", question: "What are your salary expectations?", answer: "$120,000" }, { qkey: "have you ever been convicted of a felony", question: "Have you ever been convicted of a felony?", answer: "No" }], job: { title: "Analyst", company: "Acme" }, resume: null, consent: true });
+    ok((later || []).length === 0, "precheck: once answered, nothing is asked");
+    ok((await questionsBefore({ jobId: "lever:acme:1", facts, answers: [], job: { title: "A", company: "B" }, resume: null, consent: true })) === null, "precheck: other sites are read live, not ahead");
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+}
+
+plannerChecks().then(precheckChecks).then(aiMeterChecks).then(() => {
   console.log(fail ? `\n${fail} failed` : "\nAll checks passed");
   process.exit(fail ? 1 : 0);
 });

@@ -17,7 +17,7 @@ function session(taskId) {
 
 export const live = {
   attach(taskId, getPage, opts = {}) {
-    sessions.set(taskId, { getPage, done: false, mode: "watch", handBack: false, youSince: 0, chooser: null, interactive: Boolean(opts.interactive), q: Promise.resolve(), stream: null, watcher: null });
+    sessions.set(taskId, { getPage, done: false, waiting: 0, mode: "watch", handBack: false, youSince: 0, chooser: null, interactive: Boolean(opts.interactive), q: Promise.resolve(), stream: null, watcher: null });
   },
   detach(taskId) {
     const s = sessions.get(taskId);
@@ -52,6 +52,16 @@ export const live = {
     s.handBack = false;
     s.done = false;
     return v;
+  },
+  /** The agent is stopped and waiting for the person (so their clicks can't collide with its typing). */
+  async waitFor(taskId, fn) {
+    const s = session(taskId);
+    if (s) s.waiting += 1;
+    try {
+      return await fn();
+    } finally {
+      if (s) s.waiting = Math.max(0, s.waiting - 1);
+    }
   },
   setInteractive(taskId, v) {
     const s = session(taskId);
@@ -226,7 +236,7 @@ export async function handleLive(req, res, url) {
     const page = s.getPage();
     const vp = page?.viewportSize() || { width: 1280, height: 900 };
     const title = page ? await page.title().catch(() => "") : "";
-    return sendJson(res, 200, { active: true, mode: s.mode, url: page?.url() || "", title: title.slice(0, 120), w: vp.width, h: vp.height, upload: Boolean(s.chooser), fps: s.stream?.frames || 0 });
+    return sendJson(res, 200, { active: true, mode: s.mode, paused: s.waiting > 0, url: page?.url() || "", title: title.slice(0, 120), w: vp.width, h: vp.height, upload: Boolean(s.chooser), fps: s.stream?.frames || 0 });
   }
   if (!s) return sendJson(res, 410, { error: "The agent isn't on this application right now." });
   const page = s.getPage();
@@ -271,6 +281,7 @@ export async function handleLive(req, res, url) {
   }
   // Clicking and typing only while the person has taken control, so they never fight the agent.
   if (s.mode !== "you") return sendJson(res, 409, { error: "Take control first." });
+  if (!s.waiting) return sendJson(res, 409, { error: "Your agent is finishing its current step — one moment." });
   if (action === "file") {
     const fc = s.chooser;
     if (!fc) return sendJson(res, 409, { error: "The page isn't asking for a file right now." });
@@ -328,7 +339,7 @@ kbd{border:1px solid #d5d9e2;border-radius:4px;padding:0 4px;background:#fff;fon
   <span class="pill live" id="lv"><span class="dot"></span><span id="lvt">Live</span></span>
   <div class="seg" role="group" aria-label="Who controls the page"><button class="w" id="mw" aria-pressed="true">Watch</button><button class="y" id="my" aria-pressed="false">Take control</button></div>
 </div>
-<div class="you" id="you" role="status">You're in control — your agent is paused and nothing is recorded. Click and type right on the page.<button id="hb">Hand back</button></div>
+<div class="you" id="you" role="status"><span id="youTxt">You're in control — your agent is paused and nothing is recorded. Click and type right on the page.</span><button id="hb">Hand back</button></div>
 <div class="up" id="up">The page wants a file. <input type="file" id="file" aria-label="Choose a file to upload"></div>
 <div class="stage" id="stage" tabindex="0" aria-label="Live company page">
   <div class="off" id="off"><div class="spin"></div>Opening the company's page in your agent's browser…</div>
@@ -358,6 +369,7 @@ function render(){
   const you = st.mode === "you";
   $("mw").setAttribute("aria-pressed", String(!you)); $("my").setAttribute("aria-pressed", String(you));
   $("you").classList.toggle("on", you); stage.classList.toggle("you", you);
+  $("youTxt").textContent = you && !st.paused ? "Pausing your agent — it's finishing its current step…" : "You're in control — your agent is paused and nothing is recorded. Click and type right on the page.";
   $("up").classList.toggle("on", Boolean(you && st.upload));
   try { const u = new URL(st.url); $("host").textContent = u.host; $("path").textContent = u.pathname + u.search; } catch(e) { $("host").textContent = st.active ? "" : "Opening…"; $("path").textContent = ""; }
   tell();

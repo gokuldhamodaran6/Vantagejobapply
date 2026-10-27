@@ -180,6 +180,17 @@ export function ApplicationProfileCard({ onToast }: { onToast: (m: string) => vo
 }
 
 /* ---------------------------- Saved answers ---------------------------- */
+/** Your answer memory, grouped by what the questions are about. */
+const TOPICS: [string, RegExp][] = [
+  ["Work permit and visa", /sponsor|visa|authori[sz]|eligib|citizen|permit|immigra|green card|right to work|resident/],
+  ["Legal statements", /convict|criminal|felony|background|non-?compete|agreement|clearance|export|itar|drug|relative|conflict|outside (business|employment)/],
+  ["Availability and pay", /salary|compensation|pay|notice|start|available|relocat|travel|commut|on-?site|hybrid|remote|shift|weekend|hours/],
+  ["About you (voluntary)", /gender|race|ethnic|hispanic|veteran|disabilit|pronoun|sexual|lgbt/],
+  ["How you found the job", /hear|learn|refer|source/],
+];
+const topicOf = (q: string, a: string) => TOPICS.find(([, re]) => re.test(q.toLowerCase()))?.[0] || (a.length > 140 ? "Your stories" : "Other questions");
+const STRICT = /sponsor|visa|authori[sz]|eligib|citizen|convict|criminal|felony|veteran|disabilit|gender|race|ethnic|hispanic|salary|clearance|\bage\b|\b18\b/;
+
 export function SavedAnswersCard() {
   const { userId } = useMe();
   const [rows, setRows] = useState<{ id: string; question: string; answer: string; updated_at: string }[] | null>(null);
@@ -197,21 +208,42 @@ export function SavedAnswersCard() {
     await supabaseBrowser().from("answer_bank").delete().eq("id", id);
     load();
   }
+  const groups = new Map<string, NonNullable<typeof rows>>();
+  for (const r of rows || []) {
+    const t = topicOf(r.question, r.answer);
+    groups.set(t, [...(groups.get(t) || []), r]);
+  }
+  const order = [...TOPICS.map(([t]) => t), "Your stories", "Other questions"].filter((t) => groups.has(t));
   return (
     <section id="answers" className="card scroll-mt-24 p-5 sm:p-6">
-      <h2 className="text-lg font-bold">Saved answers</h2>
-      <p className="text-sm text-muted">Questions your agent asked you once. It reuses these answers on every form that asks the same thing.</p>
+      <h2 className="text-lg font-bold">Your answers</h2>
+      <p className="text-sm text-muted">What your agent has learned from you. Ordinary questions are reused whenever a company asks the same thing — even in other words. Statements in your name (visa, legal, voluntary questions) are used only for the exact same question.</p>
       {rows === null && <div className="skeleton mt-4 h-20" />}
       {rows?.length === 0 && <p className="mt-4 rounded-xl bg-canvas p-4 text-sm text-muted">None yet. When a form asks something only you know, it appears on the Agent page — answer once and it lands here.</p>}
-      <ul className="mt-4 divide-y divide-line">
-        {rows?.map((r) => (
-          <li key={r.id} className="grid gap-2 py-3 sm:grid-cols-[1fr_1fr_auto] sm:items-center">
-            <p className="text-sm font-medium">{r.question}</p>
-            <input className="input" defaultValue={r.answer} onBlur={(e) => e.target.value !== r.answer && save(r.id, e.target.value)} aria-label={`Answer to ${r.question}`} />
-            <button className="justify-self-end rounded-lg p-2 text-subtle hover:text-red-ink" onClick={() => del(r.id)} aria-label="Delete answer"><Trash2 size={16} /></button>
-          </li>
-        ))}
-      </ul>
+      {order.map((topic) => (
+        <div key={topic} className="mt-5">
+          <p className="text-xs font-bold uppercase tracking-wide text-muted">{topic} · {groups.get(topic)!.length}</p>
+          <ul className="mt-1 divide-y divide-line">
+            {groups.get(topic)!.map((r) => {
+              const strict = STRICT.test(r.question.toLowerCase());
+              return (
+                <li key={r.id} className="grid gap-2 py-3 sm:grid-cols-[1fr_1fr_auto] sm:items-center">
+                  <div>
+                    <p className="text-sm font-medium">{r.question}</p>
+                    <p className="mt-0.5 flex items-center gap-1 text-xs text-muted">{strict ? <><ShieldCheck size={12} aria-hidden /> Only for this exact question</> : "Also used when asked in other words"} · {timeAgo(r.updated_at)}</p>
+                  </div>
+                  {r.answer.length > 90 ? (
+                    <textarea className="input py-2 text-sm" rows={3} defaultValue={r.answer} onBlur={(e) => e.target.value !== r.answer && save(r.id, e.target.value)} aria-label={`Answer to ${r.question}`} />
+                  ) : (
+                    <input className="input" defaultValue={r.answer} onBlur={(e) => e.target.value !== r.answer && save(r.id, e.target.value)} aria-label={`Answer to ${r.question}`} />
+                  )}
+                  <button className="justify-self-end rounded-lg p-2 text-subtle hover:text-red-ink" onClick={() => del(r.id)} aria-label="Delete answer"><Trash2 size={16} /></button>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      ))}
     </section>
   );
 }
