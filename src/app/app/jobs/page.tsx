@@ -28,13 +28,24 @@ export default function JobsPage() {
   const [q, setQ] = useState("");
   const [query, setQuery] = useState("");
   const [remote, setRemote] = useState(false);
+  const [days, setDays] = useState(60);
   const [showBlocked, setShowBlocked] = useState(false);
   const [data, setData] = useState<Resp | null>(null);
   const [busy, setBusy] = useState(false);
   const [open, setOpen] = useState<Item | null>(null);
   const [toast, setToast] = useState<string | null>(null);
+  const [linked, setLinked] = useState(false);
 
   const c = country || countries[0];
+  const activeRoles = roles.filter((r) => r.active);
+  const role = activeRoles.find((r) => r.id === roleId);
+
+  // Deep links from My targets and Your agent: /app/jobs?role=<target id>
+  useEffect(() => {
+    const r = new URLSearchParams(window.location.search).get("role");
+    if (r) setRoleId(r);
+    setLinked(true);
+  }, []);
 
   const load = useCallback(async () => {
     setBusy(true);
@@ -42,16 +53,17 @@ export default function JobsPage() {
     if (roleId) p.set("role", roleId);
     if (query) p.set("q", query);
     if (remote) p.set("remote", "1");
+    if (days !== 60) p.set("days", String(days));
     if (showBlocked) p.set("blocked", "1");
-    const r = await fetch(`/api/jobs?${p}`);
-    const d = (await r.json()) as Resp;
+    const r = await fetch(`/api/jobs?${p}`).catch(() => null);
+    const d = r ? ((await r.json().catch(() => ({ error: "Job search is temporarily unavailable." }))) as Resp) : ({ error: "Network error. Check your connection and try again." } as Resp);
     setData(d);
     setBusy(false);
-  }, [c, roleId, query, remote, showBlocked]);
+  }, [c, roleId, query, remote, days, showBlocked]);
 
   useEffect(() => {
-    if (!loading) load();
-  }, [loading, load]);
+    if (!loading && linked) load();
+  }, [loading, linked, load]);
 
   const sourcesText = useMemo(() => {
     const s = data?.meta.sources || {};
@@ -86,20 +98,31 @@ export default function JobsPage() {
           <Link href="/app/targets" className="ml-1 text-sm font-medium text-brand-ink">Edit countries</Link>
         </div>
         <div className="flex flex-wrap gap-2">
-          <button onClick={() => setRoleId("")} aria-pressed={!roleId} className={`min-h-9 rounded-lg border px-3 text-sm font-semibold ${!roleId ? "border-brand bg-brand-soft text-brand-ink" : "border-line text-ink-2"}`}>All target roles</button>
-          {roles.filter((r) => r.active).map((r) => (
-            <button key={r.id} onClick={() => setRoleId(r.id)} aria-pressed={roleId === r.id}
-              className={`min-h-9 rounded-lg border px-3 text-sm font-semibold ${roleId === r.id ? "border-brand bg-brand-soft text-brand-ink" : "border-line text-ink-2"}`}>{r.title}</button>
+          <button onClick={() => { setRoleId(""); setQuery(""); setQ(""); }} aria-pressed={!roleId && !query} className={`min-h-9 rounded-lg border px-3 text-sm font-semibold ${!roleId && !query ? "border-brand bg-brand-soft text-brand-ink" : "border-line text-ink-2"}`}>All target roles</button>
+          {activeRoles.map((r) => (
+            <button key={r.id} onClick={() => { setRoleId(r.id); setQuery(""); setQ(""); }} aria-pressed={roleId === r.id && !query}
+              className={`min-h-9 rounded-lg border px-3 text-sm font-semibold capitalize ${roleId === r.id && !query ? "border-brand bg-brand-soft text-brand-ink" : "border-line text-ink-2"}`}>{r.title}</button>
           ))}
         </div>
         <div className="flex flex-wrap items-center gap-3">
-          <form className="flex min-w-[240px] flex-1 gap-2" onSubmit={(e) => { e.preventDefault(); setQuery(q.trim()); }}>
+          <form className="flex min-w-[240px] flex-1 gap-2" onSubmit={(e) => { e.preventDefault(); setQuery(q.trim()); if (q.trim()) setRoleId(""); }}>
             <div className="relative flex-1">
               <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-subtle" />
               <input className="input pl-9" placeholder="Search a different title, e.g. Product Analyst" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search jobs" />
             </div>
             <button className="btn-secondary">Search</button>
           </form>
+          <label className="flex items-center gap-2 text-sm font-medium">
+            <span className="text-muted">Posted</span>
+            <select className="input min-h-9 w-auto py-0 text-sm" value={days} onChange={(e) => setDays(Number(e.target.value))} aria-label="Posted within">
+              <option value={60}>Any time</option>
+              <option value={30}>Last 30 days</option>
+              <option value={14}>Last 14 days</option>
+              <option value={7}>Last 7 days</option>
+              <option value={3}>Last 3 days</option>
+              <option value={1}>Last 24 hours</option>
+            </select>
+          </label>
           <label className="flex items-center gap-2 text-sm font-medium"><Toggle checked={remote} onChange={setRemote} label="Remote only" /> Remote only</label>
           <label className="flex items-center gap-2 text-sm font-medium"><Toggle checked={showBlocked} onChange={setShowBlocked} label="Show jobs that can't hire you" /> Show filtered</label>
         </div>
@@ -120,7 +143,10 @@ export default function JobsPage() {
       {data && !data.error && (
         <div className="mb-4 space-y-2">
           <p className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted">
-            <span className="font-semibold text-ink">{data.results.length} {data.results.length === 1 ? "job fits" : "jobs fit"} you</span>
+            <span className="font-semibold text-ink">
+              {data.results.length} {data.results.length === 1 ? "job fits" : "jobs fit"}{" "}
+              {query ? <>“{query}”</> : role ? <>your <span className="capitalize">{role.title}</span> target</> : "your targets"}
+            </span>
             {sourcesText && <span>· from {sourcesText}</span>}
             {data.meta.sponsorCheck && <span className="inline-flex items-center gap-1 text-green-ink"><ShieldCheck size={14} /> Sponsor register checked</span>}
             <span>· {Math.max(1, Math.round(data.tookMs))} ms</span>
