@@ -2,7 +2,7 @@ import { ghostRisk } from "../src/lib/jobs/ghost";
 import { classifyMail, nextStatus } from "../src/lib/mail-classify";
 import { extractCode } from "../src/lib/mail-code";
 // Quick sanity checks for the eligibility engine. Run: npx tsx scripts/selftest.ts
-import { matchJob, workModeOf, workModeOk } from "../src/lib/jobs/match";
+import { jobTypeOf, matchJob, workModeOf, workModeOk } from "../src/lib/jobs/match";
 import { autoSkipReason, interleaveByPriority, shareOfLimit, taskPriority } from "../src/lib/agent/plan";
 import { analyzeText } from "../src/lib/jobs/signals";
 import { detectCountry } from "../src/lib/jobs/geo";
@@ -116,6 +116,10 @@ ok(roleSimilarity("Product Specialist", "Product Marketing Specialist") < 0.45 &
   const remoteOnly = { remote_ok: true, work_modes: ["remote"] };
   ok(!workModeOk({ ...base, remote: false }, remoteOnly) && workModeOk({ ...base, remote: true }, remoteOnly), "remote-only preference skips on-site jobs");
   ok(workModeOf({ ...base, location: "Chicago, IL (Hybrid)" }) === "hybrid" && workModeOk({ ...base, location: "Chicago (Hybrid)" }, { remote_ok: false, work_modes: ["onsite"] }), "hybrid detected; fine for an on-site person");
+  ok(["Full-Time", "FullTime", "full_time", "permanent_full_time", null].every((c) => jobTypeOf({ title: "Analyst", contract_time: c }) === "full_time")
+    && ["Part-Time", "PartTime", "part_time"].every((c) => jobTypeOf({ title: "Analyst", contract_time: c }) === "part_time")
+    && jobTypeOf({ title: "Business Analyst Intern", contract_time: null }) === "internship" && jobTypeOf({ title: "Internal Audit Analyst", contract_time: null }) === "full_time"
+    && jobTypeOf({ title: "Analyst", contract_time: "Contractor" }) === "contract", "job type read from feed field or title");
   ok(workModeOk({ ...base, remote: true }, { remote_ok: true, work_modes: null }) && !workModeOk({ ...base, remote: true }, { remote_ok: false, work_modes: null }), "older prefs fall back to remote_ok");
   const usJob = { ...base, country: "US", location: "Austin, TX", title: "Software Engineer" };
   const m = matchJob(usJob, { roles: [role], prefs: null, auth: [] });

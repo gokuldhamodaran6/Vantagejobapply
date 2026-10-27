@@ -52,8 +52,8 @@ export const JOB_TYPES = [
 export function jobTypeOf(job: Pick<Job, "title" | "contract_time">): (typeof JOB_TYPES)[number]["value"] {
   const s = `${job.contract_time || ""} ${job.title}`.toLowerCase();
   if (/\bintern(ship)?s?\b|co-?op\b|working student|werkstudent/.test(s)) return "internship";
-  if (/\bpart[- ]?time\b/.test(s)) return "part_time";
-  if (/\bcontract(or)?\b|\btemp(orary)?\b|freelance|fixed[- ]term/.test(s)) return "contract";
+  if (/\bpart[-_ ]?time\b/.test(s)) return "part_time";
+  if (/\bcontract(or)?\b|\btemp(orary)?\b|seasonal|freelance|fixed[-_ ]term/.test(s)) return "contract";
   return "full_time";
 }
 
