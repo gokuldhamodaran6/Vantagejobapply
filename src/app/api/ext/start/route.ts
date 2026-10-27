@@ -28,7 +28,7 @@ export async function POST(req: Request) {
   if (ver.localeCompare("1.1.2", undefined, { numeric: true }) < 0) {
     return extJson({ error: "Please update the Vantage extension: open vantagejobapply.onrender.com → Chrome extension → Download version 1.1.2, unzip it over the old folder, then press reload on Vantage in chrome://extensions. This version only records a job as applied after Submit is really pressed." }, 426);
   }
-  const b = (await req.json().catch(() => ({}))) as { url?: string; title?: string; company?: string; description?: string; location?: string; force?: boolean; queue?: boolean };
+  const b = (await req.json().catch(() => ({}))) as { url?: string; title?: string; titles?: string[]; company?: string; description?: string; location?: string; force?: boolean; queue?: boolean };
   const url = String(b.url || "").slice(0, 2000);
   if (!/^https:\/\//i.test(url) || !(await isSafePublicUrl(url))) return extJson({ error: "Open the job's application page first." }, 400);
 
@@ -43,6 +43,7 @@ export async function POST(req: Request) {
     return extJson({ error: "This is a list of jobs. Open the job you want (its own page), then press Apply with Vantage." }, 400);
   }
   let job: Job | null = (await jobFromLink(url).catch(() => null))?.job || null;
+  if (job && GENERIC.test(job.title.trim())) job = null; // a careers-site wrapper page, not the job itself
   if (!job) {
     // Page titles carry noise: "Apply to X - page 1", "X at Acme — Austin, TX | LinkedIn Jobs".
     let rawTitle = String(b.title || "").replace(/\s+/g, " ").trim();
@@ -50,8 +51,17 @@ export async function POST(req: Request) {
     const li = rawTitle.match(/^(.+?) at (.+?)(?: [—–-] .*)?\s*\|\s*LinkedIn.*$/i);
     if (li) { rawTitle = li[1]; rawCompany ||= li[2]; }
     rawTitle = rawTitle.replace(/^apply (to|for)\s+/i, "").replace(/\s*[-–|]\s*page \d+( of \d+)?$/i, "").replace(/\s*[|–]\s*(linkedin|indeed).*$/i, "").trim();
-    const title = rawTitle.slice(0, 200);
-    if (!title || GENERIC.test(title)) return extJson({ error: "Couldn't read the job title on this page. Open the job description (or the first page of the application), then press Apply with Vantage." }, 400);
+    // Form step names are never the job ("Candidate Profile", "My Information", "Create a login").
+    const STEP = /^(candidate profile|my (information|experience|profile)|personal (information|details)|contact (information|details)|create (a )?(login|profile)|enter your information|resume|cv|application( form)?|apply|review|voluntary disclosures?|self identify|questions|education|work experience)$/i;
+    const usable = (t: string) => Boolean(t) && !GENERIC.test(t) && !STEP.test(t.trim()) && t.length >= 4 && t.length <= 140;
+    let title = usable(rawTitle) ? rawTitle.slice(0, 200) : (b.titles || []).map((t) => String(t).replace(/\s+/g, " ").trim()).find(usable)?.slice(0, 200) || "";
+    // Still unsure (unusual page layouts): ask the AI to read the page like a person would.
+    if (!title || !rawCompany) {
+      const read = await readJobWithAi(url, [rawTitle, ...(b.titles || [])], String(b.description || ""), u.user_id).catch(() => null);
+      if (!title && read?.title && usable(read.title)) title = read.title.slice(0, 200);
+      if (!rawCompany && read?.company) rawCompany = read.company;
+    }
+    if (!title) return extJson({ error: "Couldn't read the job title on this page. Open the job description (or the first page of the application), then press Apply with Vantage." }, 400);
     // Shared careers platforms host many employers: their host name is never the company (silkroad, adp, linkedin…).
     const SHARED = /(^|\.)(silkroad\.com|adp\.com|linkedin\.com|myworkdayjobs\.com|icims\.com|taleo\.net|oraclecloud\.com|successfactors\.(com|eu)|ultipro\.com|paylocity\.com|paycomonline\.net|jobvite\.com|smartrecruiters\.com|applytojob\.com|brassring\.com)$/i;
     const pathCo = host.endsWith("silkroad.com") ? new URL(url).pathname.split("/").filter(Boolean)[0] || "" : "";
@@ -108,4 +118,19 @@ export async function POST(req: Request) {
     after(() => tailor(t.id).catch((e) => console.error("extension tailoring failed", e)));
   }
   return extJson({ taskId: t.id, job: { title: job.title, company: job.company }, ghost, match: match.score, role: match.role?.title || null, tailoring: Boolean(r.tailor) });
+}
+
+/** Read a job's title and company from an unusual careers page (frames, form steps, odd headings). */
+async function readJobWithAi(url: string, titles: string[], description: string, userId: string): Promise<{ title?: string; company?: string } | null> {
+  const { claude, extractJson } = await import("@/lib/ai");
+  const { runWithAi } = await import("@/lib/ai-context");
+  return runWithAi({ feature: "ext_read_job", userId }, async () => {
+    const out = await claude(
+      "You read job application pages. From the page address, its headings and text, return the job's title and the hiring company as JSON {\"title\": string, \"company\": string}. The title is the role being hired for (e.g. \"Digital Marketing Strategist\"), never a form step (\"Candidate Profile\"), a site name or a list of jobs. The company is the employer, not the careers platform (iCIMS, Workday, Greenhouse). Use \"\" for anything you can't tell. Return only JSON.",
+      [{ role: "user", content: `ADDRESS: ${url}\nHEADINGS: ${JSON.stringify(titles.filter(Boolean).slice(0, 16))}\nTEXT: ${description.slice(0, 2500)}` }],
+      200,
+      { model: "fast", temperature: 0 },
+    );
+    return extractJson<{ title?: string; company?: string }>(out);
+  });
 }

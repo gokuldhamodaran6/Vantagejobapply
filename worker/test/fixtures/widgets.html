@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Widget zoo — every dropdown style careers sites use</title>
+<style>
+  body { font: 14px Arial, sans-serif; max-width: 760px; margin: 20px auto; }
+  .field { margin: 18px 0; position: relative; }
+  .lbl { display: block; font-weight: bold; margin-bottom: 6px; }
+  .menu { position: absolute; left: 0; right: 0; background: #fff; border: 1px solid #aaa; z-index: 10; max-height: 220px; overflow: auto; margin: 2px 0 0; padding: 0; list-style: none; }
+  .menu li, .menu div { padding: 6px 8px; cursor: pointer; }
+  .menu li:hover, .menu div:hover { background: #eef; }
+  .hidden { display: none; }
+  .ctl { border: 1px solid #888; padding: 7px; min-height: 18px; cursor: pointer; background: #fff; }
+  .seg button[aria-pressed=true] { background: #2f5beb; color: #fff; }
+  .card { display: inline-block; border: 1px solid #aaa; padding: 8px 14px; cursor: pointer; }
+  .card input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+  .card.on { border-color: #2f5beb; background: #eef; }
+</style>
+</head>
+<body>
+<h1>Application questions</h1>
+<form id="f" onsubmit="return false">
+
+<!-- 1. native select -->
+<div class="field"><label class="lbl" for="country">Country *</label>
+<select id="country" required><option value="">Select...</option><option>Canada</option><option value="US">United States of America</option><option>United Kingdom</option><option>India</option></select></div>
+
+<!-- 2. react-select style: control div, hidden menu on mousedown, typing filters, options load after 250 ms -->
+<div class="field" id="rs"><label class="lbl" id="rs-l">Highest level of education completed *</label>
+<div class="select__control ctl" id="rs-ctl"><div class="select__placeholder" id="rs-val">Select...</div><input class="select__input" id="rs-in" role="combobox" aria-labelledby="rs-l" aria-expanded="false" aria-autocomplete="list" autocomplete="off" style="border:0;outline:0;width:2px"></div>
+<div class="select__menu menu hidden" id="rs-menu"></div></div>
+
+<!-- 3. MUI Autocomplete: input combobox + listbox of li[role=option] appearing on typing -->
+<div class="field"><label class="lbl" for="mui">Which city do you live in? *</label>
+<input id="mui" role="combobox" aria-autocomplete="list" aria-controls="mui-list" aria-expanded="false" autocomplete="off">
+<ul id="mui-list" role="listbox" class="menu hidden"></ul></div>
+
+<!-- 4. Workday prompt: button opens popup with nested categories -->
+<div class="field" data-automation-id="formField-source"><label class="lbl" id="wd-l">How Did You Hear About Us? *</label>
+<button type="button" id="wd" aria-haspopup="listbox" aria-labelledby="wd-l" data-automation-id="promptIcon">Select One</button>
+<div id="wd-pop" class="menu hidden" data-automation-id="activeListContainer"></div></div>
+
+<!-- 5. plain custom dropdown, no ARIA at all -->
+<div class="field"><span class="lbl">Years of professional experience *</span>
+<div class="dropdown"><div class="dropdown-toggle ctl" id="dd">Please select</div>
+<ul class="dropdown-menu menu hidden" id="dd-menu"><li>0-1 years</li><li>2-4 years</li><li>5-7 years</li><li>8+ years</li></ul></div></div>
+
+<!-- 6. Select2: span opens dropdown with a search box -->
+<div class="field"><label class="lbl" for="s2">Gender</label>
+<select id="s2" class="hidden"><option></option><option>Male</option><option>Female</option><option>Non-binary</option><option>I don't wish to answer</option></select>
+<span class="select2 select2-container"><span class="select2-selection ctl" role="combobox" aria-labelledby="s2l" aria-haspopup="true" id="s2-sel"><span id="s2-val" class="select2-selection__rendered">Choose an option</span></span></span><span id="s2l" class="hidden">Gender</span>
+<span class="select2-dropdown menu hidden" id="s2-drop"><input class="select2-search__field" type="search" id="s2-search"><ul class="select2-results__options" role="listbox" id="s2-res"></ul></span></div>
+
+<!-- 7. Yes/No segmented buttons -->
+<div class="field"><span class="lbl" id="seg-l">Are you willing to relocate? *</span>
+<div class="seg" role="group" aria-labelledby="seg-l"><button type="button" aria-pressed="false">Yes</button><button type="button" aria-pressed="false">No</button></div></div>
+
+<!-- 8. Radio cards with hidden inputs -->
+<fieldset class="field"><legend class="lbl">Do you require visa sponsorship now or in the future? *</legend>
+<label class="card"><input type="radio" name="spon" value="yes">Yes, I will require sponsorship</label>
+<label class="card"><input type="radio" name="spon" value="no">No, I will not require sponsorship</label></fieldset>
+
+<!-- 9. Location autocomplete, suggestions after 500 ms -->
+<div class="field"><label class="lbl" for="loc">Location (city) *</label>
+<input id="loc" autocomplete="off" placeholder="Start typing">
+<div class="pac-container menu hidden" id="loc-sug"></div></div>
+
+<!-- 10. Date -->
+<div class="field"><label class="lbl" for="start">Earliest start date *</label><input id="start" type="date"></div>
+
+<!-- 11. Multi-select listbox of checkboxes -->
+<div class="field"><span class="lbl" id="ms-l">Which languages do you speak? *</span>
+<div role="listbox" aria-multiselectable="true" aria-labelledby="ms-l" id="ms">
+<div role="option" aria-selected="false"><input type="checkbox"> English</div>
+<div role="option" aria-selected="false"><input type="checkbox"> Spanish</div>
+<div role="option" aria-selected="false"><input type="checkbox"> Tamil</div>
+<div role="option" aria-selected="false"><input type="checkbox"> Hindi</div></div></div>
+
+<!-- 12. Phone country code combobox -->
+<div class="field"><label class="lbl" id="pc-l">Phone country code *</label>
+<button type="button" id="pc" role="combobox" aria-haspopup="listbox" aria-expanded="false" aria-labelledby="pc-l" aria-controls="pc-list">Select</button>
+<ul id="pc-list" role="listbox" class="menu hidden"><li role="option">India (+91)</li><li role="option">United Kingdom (+44)</li><li role="option">United States (+1)</li><li role="option">Canada (+1)</li></ul></div>
+
+<!-- 13. Async search: options only after typing 2 letters -->
+<div class="field"><label class="lbl" for="sch">School or university *</label>
+<input id="sch" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="sch-list" autocomplete="off">
+<ul id="sch-list" role="listbox" class="menu hidden"></ul></div>
+
+</form>
+<script>
+const $ = (id) => document.getElementById(id);
+const show = (el, on) => el.classList.toggle("hidden", !on);
+// 2. react-select
+const EDU = ["High school", "Associate's degree", "Bachelor's Degree", "Master's Degree", "Doctorate (PhD)"];
+let rsOpen = false;
+function rsRender(q = "") {
+  const m = $("rs-menu"); m.innerHTML = "";
+  setTimeout(() => {
+    for (const o of EDU.filter((x) => x.toLowerCase().includes(q.toLowerCase()))) {
+      const d = document.createElement("div"); d.className = "select__option"; d.textContent = o;
+      d.addEventListener("mousedown", (e) => { e.preventDefault(); $("rs-val").textContent = o; window.vals.edu = o; rsClose(); });
+      m.appendChild(d);
+    }
+  }, 250);
+}
+function rsOpenMenu() { rsOpen = true; show($("rs-menu"), true); $("rs-in").setAttribute("aria-expanded", "true"); rsRender($("rs-in").value); }
+function rsClose() { rsOpen = false; show($("rs-menu"), false); $("rs-in").setAttribute("aria-expanded", "false"); $("rs-in").value = ""; }
+$("rs-ctl").addEventListener("mousedown", (e) => { if (e.target.closest(".select__option")) return; e.preventDefault(); $("rs-in").focus(); rsOpen ? rsClose() : rsOpenMenu(); });
+$("rs-in").addEventListener("input", () => { if (!rsOpen) rsOpenMenu(); else rsRender($("rs-in").value); });
+// 3. MUI
+const CITIES = ["Chicago, Illinois", "Chicago Heights, Illinois", "Champaign, Illinois", "Bloomington, Illinois", "Boston, Massachusetts"];
+$("mui").addEventListener("input", () => {
+  const q = $("mui").value.toLowerCase(), l = $("mui-list"); l.innerHTML = "";
+  for (const c of CITIES.filter((x) => q && x.toLowerCase().startsWith(q))) { const li = document.createElement("li"); li.setAttribute("role", "option"); li.textContent = c; li.addEventListener("click", () => { $("mui").value = c; window.vals.city = c; show(l, false); }); l.appendChild(li); }
+  show(l, l.children.length > 0); $("mui").setAttribute("aria-expanded", String(l.children.length > 0));
+});
+$("mui").addEventListener("blur", () => setTimeout(() => { if (window.vals.city !== $("mui").value) { $("mui").value = window.vals.city || ""; } show($("mui-list"), false); }, 200));
+// 4. Workday nested
+const WD = { "Job Board": ["Indeed", "LinkedIn Jobs", "Glassdoor"], "Social Media": ["Twitter", "Facebook"], "Company Website": null, "Referral": null };
+function wdShow(items, back) {
+  const p = $("wd-pop"); p.innerHTML = "";
+  for (const k of items) {
+    const d = document.createElement("div"); d.setAttribute("data-automation-id", "promptOption"); d.setAttribute("role", "option"); d.textContent = k;
+    d.addEventListener("click", () => { if (back === null && WD[k]) { wdShow(WD[k], k); } else { $("wd").textContent = (back ? back + " > " : "") + k; window.vals.source = k; show(p, false); } });
+    p.appendChild(d);
+  }
+  show(p, true);
+}
+$("wd").addEventListener("click", () => wdShow(Object.keys(WD), null));
+// 5. plain dropdown
+$("dd").addEventListener("click", () => show($("dd-menu"), $("dd-menu").classList.contains("hidden")));
+for (const li of $("dd-menu").children) li.addEventListener("click", () => { $("dd").textContent = li.textContent; window.vals.years = li.textContent; show($("dd-menu"), false); });
+// 6. select2
+function s2Render(q = "") {
+  const r = $("s2-res"); r.innerHTML = "";
+  for (const o of [...$("s2").options].map((x) => x.text).filter(Boolean).filter((x) => x.toLowerCase().includes(q.toLowerCase()))) {
+    const li = document.createElement("li"); li.className = "select2-results__option"; li.setAttribute("role", "option"); li.textContent = o;
+    li.addEventListener("mouseup", () => { $("s2").value = o; $("s2-val").textContent = o; window.vals.gender = o; show($("s2-drop"), false); });
+    r.appendChild(li);
+  }
+}
+$("s2-sel").addEventListener("mousedown", (e) => { e.preventDefault(); show($("s2-drop"), true); s2Render(); setTimeout(() => $("s2-search").focus(), 0); });
+$("s2-search").addEventListener("input", () => s2Render($("s2-search").value));
+// 7. segmented
+for (const b of document.querySelectorAll(".seg button")) b.addEventListener("click", () => { for (const x of document.querySelectorAll(".seg button")) x.setAttribute("aria-pressed", String(x === b)); window.vals.relocate = b.textContent; });
+// 8. radio cards
+for (const r of document.querySelectorAll("input[name=spon]")) r.addEventListener("change", () => { for (const c of document.querySelectorAll(".card")) c.classList.toggle("on", c.contains(document.querySelector("input[name=spon]:checked"))); window.vals.sponsor = r.value; });
+// 9. location
+let locT;
+$("loc").addEventListener("input", () => {
+  clearTimeout(locT); const q = $("loc").value.toLowerCase();
+  locT = setTimeout(() => {
+    const s = $("loc-sug"); s.innerHTML = "";
+    for (const c of ["Chicago, IL, USA", "Chicago Ridge, IL, USA", "Chico, CA, USA"].filter((x) => q.length >= 3 && x.toLowerCase().startsWith(q.slice(0, 4)))) { const d = document.createElement("div"); d.className = "pac-item"; d.textContent = c; d.addEventListener("mousedown", () => { $("loc").value = c; window.vals.location = c; show(s, false); }); s.appendChild(d); }
+    show(s, s.children.length > 0);
+  }, 500);
+});
+// 11. multi
+for (const o of $("ms").children) o.addEventListener("click", (e) => { const cb = o.querySelector("input"); if (e.target !== cb) cb.checked = !cb.checked; o.setAttribute("aria-selected", String(cb.checked)); window.vals.languages = [...$("ms").children].filter((x) => x.querySelector("input").checked).map((x) => x.textContent.trim()).join(", "); });
+// 12. phone code
+$("pc").addEventListener("click", () => { const open = $("pc-list").classList.contains("hidden"); show($("pc-list"), open); $("pc").setAttribute("aria-expanded", String(open)); });
+for (const li of $("pc-list").children) li.addEventListener("click", () => { $("pc").textContent = li.textContent; window.vals.phoneCode = li.textContent; show($("pc-list"), false); $("pc").setAttribute("aria-expanded", "false"); });
+// 13. async school search
+let schT;
+$("sch").addEventListener("input", () => {
+  clearTimeout(schT); const q = $("sch").value.toLowerCase(), l = $("sch-list");
+  schT = setTimeout(() => {
+    l.innerHTML = "";
+    if (q.length >= 2) for (const s of ["Illinois State University", "University of Illinois Urbana-Champaign", "Anna University", "Indiana University"].filter((x) => x.toLowerCase().includes(q))) { const li = document.createElement("li"); li.setAttribute("role", "option"); li.textContent = s; li.addEventListener("click", () => { $("sch").value = s; window.vals.school = s; show(l, false); }); l.appendChild(li); }
+    show(l, l.children.length > 0); $("sch").setAttribute("aria-expanded", String(l.children.length > 0));
+  }, 400);
+});
+window.vals = {};
+$("country").addEventListener("change", () => (window.vals.country = $("country").selectedOptions[0].text));
+$("start").addEventListener("change", () => (window.vals.start = $("start").value));
+</script>
+</body>
+</html>

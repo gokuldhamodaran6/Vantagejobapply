@@ -3,7 +3,7 @@
 // act(): do one thing a person would do — type, pick from a dropdown (nested ones too), tick, upload, click.
 // It never presses a final Submit/Send button; the caller decides that.
 (() => {
-  const VERSION = 9;
+  const VERSION = 10;
   if (window.__vp && window.__vp.v >= VERSION) return;
 
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -59,8 +59,20 @@
   const chrome = (el) => Boolean(el.closest("header, nav, footer, [role='banner'], [role='navigation'], [role='contentinfo'], [data-automation-id='header'], [data-automation-id='footerContainer'], [data-automation-id='navigationContainer'], #vantage-panel")) && !el.closest("[role='dialog'], [aria-modal='true']");
 
   const containerLabel = (el) => {
+    // The question written just before the control (or before the box it sits in): "Years of experience *" then the dropdown.
+    let n = el;
+    for (let i = 0; i < 4 && n && n !== document.body; i++, n = n.parentElement) {
+      const prev = n.previousElementSibling;
+      if (prev && !prev.matches("input, select, textarea, button") && !prev.querySelector("input, select, textarea, button, [role='combobox']")) {
+        const t = text(prev);
+        if (t.length > 1 && t.length < 200) return t;
+      }
+      if (prev) break;
+    }
     let p = el.parentElement;
     for (let i = 0; i < 6 && p; i++, p = p.parentElement) {
+      // Stop at a container that holds other questions: its first label belongs to someone else.
+      if (p.querySelectorAll("input:not([type='hidden']), select, textarea, [role='combobox']").length > 3) break;
       const l = p.querySelector(":scope > label, :scope > legend, :scope > [class*='label' i]:not(input), :scope > [class*='question' i], :scope > div > label, :scope > h3, :scope > h4, :scope > p > strong, :scope > span > label");
       if (l && !l.contains(el) && text(l).length > 1) return text(l);
     }
@@ -157,14 +169,14 @@
   function optionText(o) {
     return clean(o.getAttribute("data-automation-label") || o.getAttribute("aria-label") || text(o)).slice(0, 140);
   }
-  const OPTION_SEL = "[role='option'], [data-automation-id='promptOption'], [data-automation-id='promptLeafNode'], [role='menuitem'], [role='menuitemradio'], [role='treeitem'], .select2-results__option, .pac-item, [class*='select__option' i], [class*='dropdown-item' i], [class*='autocomplete' i] li, [class*='suggestion' i] li, [role='listbox'] li";
+  const OPTION_SEL = "[role='option'], [data-automation-id='promptOption'], [data-automation-id='promptLeafNode'], [role='menuitem'], [role='menuitemradio'], [role='treeitem'], .select2-results__option, .pac-item, [class*='select__option' i], [class*='dropdown-item' i], [class*='autocomplete' i] li, [class*='suggestion' i] li, [role='listbox'] li, [class*='dropdown-menu' i] > li, [class*='dropdown-menu' i] > a, [class*='select-options' i] > li, [class*='options-list' i] > li";
   const LIST_SEL = "[role='listbox'], [role='menu'], [role='tree'], [data-automation-id='activeListContainer'], [data-automation-id*='promptOption' i], .select2-results, .pac-container, [class*='select__menu' i], [class*='dropdown-menu' i], [class*='autocomplete' i], [class*='suggestions' i]";
   const hasSubmenu = (o) => o.getAttribute("aria-haspopup") === "true" || o.getAttribute("aria-expanded") === "false" || Boolean(o.querySelector("[data-automation-id='promptIcon'], [data-automation-id*='chevron' i], [class*='chevron' i], [class*='arrow-right' i]")) && !o.querySelector("input[type='radio'], input[type='checkbox']");
   const visibleOptions = () => {
     const seen = new Set();
     const out = [];
     for (const o of qsa(OPTION_SEL)) {
-      if (!visible(o) || seen.has(o)) continue;
+      if (!visible(o) || seen.has(o) || o.closest("[data-vp-multi]")) continue;
       if ([...seen].some((s) => s.contains(o))) continue; // nested element of an option already taken
       const t = optionText(o);
       if (!t || t.length > 140 || /^(no (options|results|matches)|loading|searching|type to search)/i.test(t)) continue;
@@ -185,7 +197,7 @@
       items.push({ i, ...item });
       return i;
     };
-    const controls = qsa("input, textarea, select, [contenteditable='true'], [role='textbox'], [role='combobox'], [role='spinbutton'], [role='searchbox'], [role='radio'], [role='checkbox'], [role='switch'], button, [role='button'], a[href], [aria-haspopup='listbox'], [data-automation-id='promptOption']");
+    const controls = qsa("input, textarea, select, [contenteditable='true'], [role='textbox'], [role='combobox'], [role='spinbutton'], [role='searchbox'], [role='radio'], [role='checkbox'], [role='switch'], button, [role='button'], a[href], [aria-haspopup='listbox'], [data-automation-id='promptOption'], [role='listbox'][aria-multiselectable='true'], [class*='dropdown-toggle' i], [class*='select-trigger' i], [class*='selectTrigger' i], [class*='select-selected' i]");
     // A popup with a form (LinkedIn Easy Apply, "Add experience" dialogs, cookie banners) is the only thing a person can
     // use right now: read just the popup, not the page behind it.
     const modal = openModal();
@@ -198,6 +210,15 @@
       if (["hidden", "image", "reset"].includes(type)) continue;
       if (!isFile && !visible(el) && !(["radio", "checkbox"].includes(type) && el.closest("label") && visible(el.closest("label")))) continue;
       if (chrome(el) || (!isFile && trap(el))) continue;
+      // A list where several answers can be picked, always on the page (not a popup): one field with its options.
+      if (el.getAttribute("role") === "listbox" && el.getAttribute("aria-multiselectable") === "true") {
+        el.setAttribute("data-vp-multi", "1");
+        const opts = [...el.querySelectorAll("[role='option']")];
+        const q = labelOf(el) || containerLabel(el);
+        add(el, { kind: "checkboxes", label: q, options: opts.map(optionText), value: opts.filter((o) => o.getAttribute("aria-selected") === "true" || o.querySelector("input:checked")).map(optionText).join("; "), required: /\*/.test(q), section: sectionOf(el), error: errorOf(el) });
+        continue;
+      }
+      if (el.closest("[data-vp-multi]")) continue;
       if (el.matches(OPTION_SEL) || el.closest(OPTION_SEL)) continue; // options are listed separately
       if (el.disabled && !isFile) continue;
       const label = labelOf(el);
@@ -250,7 +271,9 @@
       }
       const role = el.getAttribute("role") || "";
       const popup = el.getAttribute("aria-haspopup");
-      const isCombo = role === "combobox" || popup === "listbox" || (tagName === "BUTTON" && popup && popup !== "false" && popup !== "menu" && popup !== "dialog") || el.getAttribute("data-automation-id") === "searchBox" && el.closest("[data-automation-id='multiselectInputContainer']");
+      // A home-made dropdown with no accessibility markup ("Please select" in a box that opens a list).
+      const plainToggle = el.matches("[class*='dropdown-toggle' i], [class*='select-trigger' i], [class*='selectTrigger' i], [class*='select-selected' i]") && !["INPUT", "SELECT", "TEXTAREA"].includes(tagName);
+      const isCombo = plainToggle || role === "combobox" || popup === "listbox" || (tagName === "BUTTON" && popup && popup !== "false" && popup !== "menu" && popup !== "dialog") || el.getAttribute("data-automation-id") === "searchBox" && el.closest("[data-automation-id='multiselectInputContainer']");
       if (isCombo) {
         // The chosen value: button text, a react-select single value, or Workday's selected pills.
         const box = el.closest("[data-automation-id^='formField'], [class*='select__control' i], [class*='-control'], [data-automation-id='multiselectInputContainer']") || el.parentElement?.parentElement;
@@ -274,6 +297,21 @@
         const l = label || el.getAttribute("data-automation-id") || el.name || "";
         add(el, { kind: k, label: l, value: clean(el.isContentEditable ? el.innerText : el.value).slice(0, 400), required: isRequired(el, l), section: sectionOf(el), error: errorOf(el), placeholder: el.placeholder || undefined, max: el.maxLength > 0 ? el.maxLength : undefined, otp: el.autocomplete === "one-time-code" || undefined });
         continue;
+      }
+      // Answer buttons ("Yes" / "No") grouped under one question: one field with options.
+      if ((tagName === "BUTTON" || role === "button") && !el.closest("form") === false) {
+        const grp = el.closest("[role='group'], [role='radiogroup'], [class*='button-group' i], [class*='btn-group' i], [class*='segment' i], [class*='toggle-group' i]") || el.parentElement;
+        const sibs = grp ? [...grp.querySelectorAll("button, [role='button']")].filter((b) => visible(b) && b.parentElement && grp.contains(b)) : [];
+        const short = sibs.length >= 2 && sibs.length <= 6 && sibs.every((b) => { const x = clean(text(b)); return x && x.length <= 40 && !FINAL.test(x) && !/^(next|back|previous|continue|save|cancel|add|remove|delete|upload|edit|close)/i.test(x); });
+        const q = short ? clean(labelOf(grp) || (grp.getAttribute("aria-labelledby") ? "" : containerLabel(grp))) : "";
+        if (short && q && q.length > 3 && !sibs.some((b) => clean(text(b)) === q)) {
+          const gk = `b:${q}`;
+          if (groups.has(gk)) continue;
+          groups.add(gk);
+          const on = sibs.find((b) => b.getAttribute("aria-pressed") === "true" || b.getAttribute("aria-checked") === "true" || b.getAttribute("aria-selected") === "true" || /\b(active|selected|is-selected)\b/.test(b.className));
+          add(el, { kind: "buttons", label: q, options: sibs.map((b) => clean(text(b))), value: on ? clean(text(on)) : "", required: /\*/.test(q), section: sectionOf(el), error: errorOf(el) });
+          continue;
+        }
       }
       // Buttons and links.
       const t = clean(text(el) || el.getAttribute("aria-label") || el.title).slice(0, 80);
@@ -502,8 +540,47 @@
     return { ok: false, note: left.length ? `no option matched "${want}"` : `the list didn't open or had no options`, options: left };
   }
 
+  /** "2026-11-15", "11/15/2026", "15 Nov 2026" → the yyyy-mm-dd a date box needs. */
+  function isoDate(v) {
+    const t = clean(v);
+    let m = t.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+    if (m) return `${m[1]}-${m[2].padStart(2, "0")}-${m[3].padStart(2, "0")}`;
+    m = t.match(/^(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})$/);
+    if (m) return `${m[3]}-${m[1].padStart(2, "0")}-${m[2].padStart(2, "0")}`;
+    const d = new Date(t);
+    return isNaN(d) ? null : `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  }
   async function set(el, item, value) {
     const v = String(value ?? "");
+    if (el.tagName === "INPUT" && (el.type === "date" || el.type === "month")) {
+      const iso = isoDate(v);
+      if (!iso) return { ok: false, note: `"${v}" isn't a date` };
+      el.focus();
+      setValue(el, el.type === "month" ? iso.slice(0, 7) : iso);
+      fire(el, "input"); fire(el, "change"); fire(el, "blur");
+      return { ok: Boolean(el.value), value: el.value };
+    }
+    if (item?.kind === "buttons") {
+      const grp = el.closest("[role='group'], [role='radiogroup'], [class*='button-group' i], [class*='btn-group' i], [class*='segment' i], [class*='toggle-group' i]") || el.parentElement;
+      const sibs = [...grp.querySelectorAll("button, [role='button']")].filter(visible);
+      let top = null;
+      for (const b of sibs) { const sc = score(text(b), v); if (sc >= 0.55 && (!top || sc > top.sc)) top = { b, sc }; }
+      if (!top) return { ok: false, note: "no option matched", options: sibs.map((b) => clean(text(b))) };
+      await press(top.b);
+      await sleep(200);
+      return { ok: true, chosen: clean(text(top.b)) };
+    }
+    if (item?.kind === "checkboxes" && el.getAttribute("role") === "listbox") {
+      const wants = v.split(/;\s*/).map(norm).filter(Boolean);
+      let hit = 0;
+      for (const o of el.querySelectorAll("[role='option']")) {
+        const want = wants.some((w) => score(optionText(o), w) >= 0.85);
+        const on = o.getAttribute("aria-selected") === "true" || Boolean(o.querySelector("input:checked"));
+        if (want !== on) { await press(o); await sleep(120); }
+        if (want) hit++;
+      }
+      return { ok: hit > 0 };
+    }
     if (el.tagName === "SELECT") {
       const opts = [...el.options];
       let top = null;
@@ -553,9 +630,11 @@
     await typeText(el, v, { perChar: v.length <= 80 });
     await sleep(120);
     // Type-ahead text boxes (locations, schools) show suggestions: take the matching one.
-    const sugg = visibleOptions();
-    if (sugg.length && (el.getAttribute("aria-autocomplete") || el.getAttribute("role") === "combobox" || /location|city|school|university|address/i.test(item?.label || ""))) {
-      await sleep(600);
+    const typeahead = el.getAttribute("aria-autocomplete") || el.getAttribute("role") === "combobox" || /location|city|school|university|college|address|employer|company/i.test(item?.label || "");
+    // Suggestions often arrive a moment after typing (they're fetched): wait for them on type-ahead fields.
+    const sugg = typeahead ? await waitOptions(1600) : visibleOptions();
+    if (sugg.length && typeahead) {
+      await sleep(250);
       const o = best(visibleOptions(), v, 0.6);
       if (o) { await press(o); await sleep(300); return { ok: true, chosen: optionText(o) }; }
     }
@@ -613,7 +692,7 @@
       }
       if (a.do === "fill") return await set(el, item?.kind === "combobox" || item?.kind === "radio" || item?.kind === "select" ? item : { ...item, kind: "text" }, a.value);
       if (a.do === "set") return await set(el, item, a.value);
-      if (a.do === "choose") return await choose(el, a.value);
+      if (a.do === "choose") return item?.kind === "buttons" || item?.kind === "radio" || item?.kind === "select" || item?.kind === "checkboxes" ? await set(el, item, a.value) : await choose(el, a.value);
       if (a.do === "clear") { await typeText(el, "", { perChar: false }); return { ok: true }; }
       if (a.do === "upload") {
         if (!a.file) { const input = fileInputFor(el); if (!input) return { ok: false, note: "no file input here" }; input.setAttribute("data-vp-file", "1"); return { ok: true, needFile: true }; }
@@ -641,7 +720,11 @@
     if (at) { title = at[1]; company ||= at[2]; }
     title = title.replace(/\s*[|–—-]\s*(careers?|jobs?|linkedin|indeed|glassdoor).*$/i, "").replace(/\s*\|.*$/, "").trim();
     if (GENERIC.test(company)) company = "";
+    // Other places the job's name shows (sites like iCIMS put it in an h2 above the form, or only in the address).
+    const slug = (location.pathname.match(/\/jobs?\/(?:\d+|[a-z0-9-]*\d[a-z0-9-]*)\/([a-z0-9-]{6,120})/i) || [])[1];
+    const titles = [...new Set([title, ...qsa("h1, h2, [class*='title' i]").filter((h) => visible(h) && !chrome(h)).map(text).filter((t) => ok(t) && t.length < 100).slice(0, 8), slug ? slug.replace(/-/g, " ") : "", ok(meta("og:title")), ok(document.title)].map(clean).filter(Boolean))].slice(0, 10);
     return {
+      titles,
       url: location.href,
       title,
       company: company || (ok(meta("og:site_name")) || ""),

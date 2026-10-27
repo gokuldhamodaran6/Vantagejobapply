@@ -62,7 +62,16 @@ async function run(tabId, { force = false, resume = false } = {}) {
   await inject(tabId);
   let t = await store.tab(tabId);
   let base = t?.base || {};
-  const info0 = await top(tabId, () => window.__vp?.info() || window.__vantage?.info());
+  let info0 = await top(tabId, () => window.__vp?.info() || window.__vantage?.info());
+  // Some careers sites (iCIMS, Taleo) show the job inside a frame: take the frame that names it.
+  try {
+    const frames = (await inFrames(tabId, () => window.__vp?.info() || null)).map((f) => f.result).filter(Boolean);
+    if (frames.length > 1 && info0) {
+      const titles = [...new Set([...(info0.titles || [info0.title]), ...frames.flatMap((f) => f.titles || [f.title])].filter(Boolean))].slice(0, 16);
+      const richest = frames.slice().sort((a, b) => (b.description || "").length - (a.description || "").length)[0];
+      info0 = { ...info0, titles, description: (info0.description || "").length > 400 ? info0.description : richest.description, company: info0.company || richest.company, location: info0.location || richest.location };
+    }
+  } catch { /* frames not readable */ }
   // Pressing "Apply with Vantage" again later in the same application (next page, after signing in) continues it —
   // it never starts a second application.
   const host = (u) => { try { return new URL(u).hostname.replace(/^www\./, ""); } catch { return ""; } };
