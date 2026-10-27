@@ -45,3 +45,4 @@ worker/node_modules
 research_notes/
 reports/
 extension/dist/
+.claude/worktrees/
