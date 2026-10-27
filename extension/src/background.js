@@ -132,7 +132,7 @@ async function pilotLoop(tabId, t) {
       if (r.note === "page changed") break;
       await sleep(a.do === "click" ? 450 : 120);
     }
-    history.push({ say: plan.say, actions: plan.actions, results, url: page.snap.url });
+    history.push({ say: plan.say, actions: plan.actions, results, url: page.snap.url, notes: plan.notes });
     while (history.length > 10) history.shift();
     await store.setTab(tabId, { ...t, history });
 

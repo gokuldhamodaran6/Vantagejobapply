@@ -23,10 +23,12 @@ export type PilotItem = {
 };
 export type PilotSnapshot = {
   url: string; title?: string; headings?: string[]; step?: string; progress?: string; dialog?: string; errors?: string[]; excerpt?: string; items: PilotItem[];
+  /** Each section heading with what it already shows (entries already added, etc.). */
+  outline?: string[];
 };
 export type PilotAction = { do: "fill" | "set" | "choose" | "click" | "upload" | "key" | "wait" | "scroll" | "clear"; i?: number; value?: string; file?: "resume" | "cover_letter"; key?: string; ms?: number };
 export type PilotResult = { ok: boolean; note?: string; chosen?: string; options?: string[]; value?: string };
-export type PilotHistory = { say?: string; actions: PilotAction[]; results: PilotResult[]; url?: string }[];
+export type PilotHistory = { say?: string; actions: PilotAction[]; results: PilotResult[]; url?: string; notes?: string[] }[];
 export type PilotStatus = "continue" | "next" | "ready" | "account" | "ask" | "done" | "stuck" | "handoff";
 export type PilotTurn = { say: string; status: PilotStatus; actions: PilotAction[]; submit?: number; ask: Missing[]; notes?: string[] };
 
@@ -276,6 +278,7 @@ export async function pilotStep(snap: PilotSnapshot, history: PilotHistory, ctx:
     snap.dialog ? `DIALOG OPEN: ${mask(snap.dialog)}` : "",
     snap.errors?.length ? `PAGE ERRORS: ${snap.errors.map(mask).join(" || ")}` : "",
     `TEXT: ${mask(snap.excerpt || "").slice(0, 700)}`,
+    snap.outline?.length ? `SECTIONS (what each already shows — count existing entries here before adding any):\n${snap.outline.map((o) => `- ${mask(o)}`).join("\n")}` : "",
     "CONTROLS:",
     ...items.map((it) => line(it, sugg.get(it.i), mask)),
   ].filter(Boolean).join("\n");
@@ -286,7 +289,7 @@ export async function pilotStep(snap: PilotSnapshot, history: PilotHistory, ctx:
       const what = `${a.do}${a.i !== undefined ? ` [${a.i}]` : ""}${a.value !== undefined ? ` ${JSON.stringify(mask(a.value).slice(0, 60))}` : ""}${a.file ? ` ${a.file}` : ""}${a.key ? ` ${a.key}` : ""}`;
       const res = !r ? "not run" : r.ok ? `ok${r.chosen ? ` → ${JSON.stringify(mask(r.chosen).slice(0, 60))}` : ""}` : `FAILED${r.note ? `: ${mask(r.note).slice(0, 100)}` : ""}${r.options?.length ? ` options: ${r.options.slice(0, 20).map(mask).join(" | ")}` : ""}`;
       return `${what} → ${res}`;
-    }).join("; ")).join("\n");
+    }).join("; ") + (h.notes?.length ? ` [rules: ${h.notes.slice(0, 4).map(mask).join("; ")} — don't try these again]` : "")).join("\n");
 
   const resume = aiResume(ctx.resume);
   const facts = aiFacts(ctx.facts);
@@ -456,6 +459,7 @@ export function cleanSnapshot(s: unknown): PilotSnapshot | null {
     dialog: str(x.dialog, 400),
     errors: Array.isArray(x.errors) ? x.errors.slice(0, 10).map((e) => String(e).slice(0, 300)) : [],
     excerpt: str(x.excerpt, 1200),
+    outline: Array.isArray(x.outline) ? x.outline.slice(0, 20).map((o) => String(o).slice(0, 400)) : undefined,
     items: x.items.slice(0, 1500).filter((it) => it && typeof it === "object" && Number.isInteger(it.i)).map((it) => ({
       i: it.i, kind: String(it.kind || "").slice(0, 20), label: String(it.label || "").slice(0, 300),
       value: it.value === undefined ? undefined : String(it.value).slice(0, 400),

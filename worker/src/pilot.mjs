@@ -49,7 +49,7 @@ const sig = (snap) => JSON.stringify([snap.url, snap.items.map((i) => [i.kind, i
  *  { status: "ask", ask }                        questions only the person can answer
  *  { status: "stuck", say }
  */
-export async function pilotPage({ page, task, files, call, log, record, maxTurns = 14 }) {
+export async function pilotPage({ page, task, files, call, log, record, maxTurns = 24 }) {
   task.pilotHistory ||= [];
   let lastSig = "";
   let same = 0;
@@ -98,7 +98,7 @@ export async function pilotPage({ page, task, files, call, log, record, maxTurns
       if (r.note === "page changed" || page.url() !== startUrl) break;
       await sleep(a.do === "click" ? 450 : 120);
     }
-    task.pilotHistory.push({ say: plan.say, actions: plan.actions, results, url: snap.url });
+    task.pilotHistory.push({ say: plan.say, actions: plan.actions, results, url: snap.url, notes: plan.notes });
     if (task.pilotHistory.length > 12) task.pilotHistory.shift();
 
     if (plan.status === "ready") return { status: "ready", frame, submit: plan.submit, say: plan.say };

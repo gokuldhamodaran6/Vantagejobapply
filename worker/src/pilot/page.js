@@ -296,6 +296,24 @@
     const current = clean(text(qsa("[aria-current='step'], [data-automation-id='progressBarActiveStep']").find(visible))).slice(0, 80);
     const heads = [...new Set(qsa("h1, h2, h3").filter((h) => visible(h) && !chrome(h)).map(text).filter(Boolean))].slice(0, 6);
     const dialog = modal || qsa("[role='dialog'], [aria-modal='true']").find(visible);
+    // What each section already shows (e.g. the jobs and schools already added), so nothing gets added twice.
+    const outline = (() => {
+      const scope = modal || document.querySelector("main, [role='main'], form") || document.body;
+      const hs = [...scope.querySelectorAll("h1, h2, h3, h4, legend, [role='heading']")].filter((x) => visible(x) && !chrome(x)).slice(0, 30);
+      const out = [];
+      for (let k = 0; k < hs.length; k++) {
+        const hd = hs[k], nxt = hs[k + 1];
+        let txt = "";
+        for (let n = hd.nextElementSibling; n && n !== nxt && !(nxt && n.contains(nxt)) && txt.length < 400; n = n.nextElementSibling) {
+          if (n.matches("label, button, input, select, textarea, script, style, [role='button']")) continue;
+          if (n.querySelector("input, select, textarea")) { const c = n.cloneNode(true); c.querySelectorAll("input, select, textarea, button, label, option, script, style").forEach((x) => x.remove()); txt += " " + clean(c.textContent); }
+          else txt += " " + clean(n.innerText || n.textContent);
+        }
+        txt = clean(txt);
+        if (txt) out.push(`${clean(text(hd)).slice(0, 60)}: ${txt.slice(0, 300)}`);
+      }
+      return out.slice(0, 20);
+    })();
     const main = document.querySelector("main, [role='main'], form") || document.body;
     return {
       v: VERSION,
@@ -305,6 +323,7 @@
       step: current || undefined,
       progress: progress || undefined,
       dialog: dialog ? text(dialog).slice(0, 300) : undefined,
+      outline: outline.length ? outline : undefined,
       errors,
       excerpt: clean(main.innerText).slice(0, 900),
       items,

@@ -18,6 +18,7 @@ function radio(q, key) {
   const id = key; const w = h(`<fieldset><legend id="${id}-q">${q}*</legend></fieldset>`);
   for (const o of ["Yes", "No"]) {
     const r = h(`<span class="rad"><input type="radio" name="${key}" id="${key}-${o}" aria-labelledby="${id}-q ${key}-${o}-l"><label id="${key}-${o}-l" for="${key}-${o}">${o}</label></span>`);
+    r.querySelector("input").checked = S.values[key] === o;
     r.querySelector("input").addEventListener("change", () => S.values[key] = o);
     w.appendChild(r);
   }
