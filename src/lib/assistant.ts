@@ -25,14 +25,18 @@ function splitNames(s: string) {
   return s.split(/,|\band\b|&/i).map((x) => x.replace(/^(the)\s+/i, "").replace(/[.?!]$/, "").trim()).filter((x) => x.length > 1 && x.length < 60);
 }
 
-function ruleIntent(msg: string, roles: TargetRole[]) {
+export function ruleIntent(msg: string, roles: TargetRole[]) {
   const m = msg.toLowerCase();
   const changes: Change[] = [];
   const role = msg.match(/(?:also target|start targeting|target|add(?: a)?(?: target)? role(?: for)?|look for|apply (?:to|for)|search for)\s+(?:some\s+)?(.+?)\s+(?:roles?|jobs|positions)\b/i);
   if (role && !/compan/i.test(role[1])) {
     const levels = /\b(entry|junior|graduate)\b/i.test(msg) ? ["entry"] : /\bsenior\b/i.test(msg) ? ["senior"] : /\bmid\b/i.test(msg) ? ["mid"] : ["entry", "mid"];
-    const title = role[1].replace(/\b(entry[- ]level|junior|senior|mid[- ]level|remote|in [a-z ]+)$/gi, "").replace(/\b(entry[- ]level|junior|senior|mid[- ]level)\b/gi, "").trim();
-    if (title) changes.push({ type: "add_role", title: title.replace(/\b\w/g, (ch) => ch.toUpperCase()), levels });
+    // "apply for jobs for business analyst role" → "Business Analyst", never "Jobs For Business Analyst".
+    const title = role[1]
+      .replace(/^(?:(?:more|new|some|any|the|a|an)\s+)*(?:(?:jobs?|roles?|positions?|openings?)\s+(?:for|as|in|of)\s+(?:a\s+|an\s+|the\s+)?)?/i, "")
+      .replace(/\b(entry[- ]level|junior|senior|mid[- ]level|remote|in [a-z ]+)$/gi, "").replace(/\b(entry[- ]level|junior|senior|mid[- ]level)\b/gi, "").trim();
+    const known = roles.find((r) => r.title.toLowerCase() === title.toLowerCase());
+    if (title && !known) changes.push({ type: "add_role", title: title.replace(/\b\w/g, (ch) => ch.toUpperCase()), levels });
   }
   const comp = msg.match(/(?:add|watch|target)\s+(.+?)\s+(?:to (?:my )?(?:target )?(?:companies|company list)|as (?:a |my )?target compan(?:y|ies))/i) || msg.match(/compan(?:y|ies)\s*[:\-]\s*(.+)$/i);
   if (comp) changes.push({ type: "add_companies", names: splitNames(comp[1]) });
@@ -44,11 +48,11 @@ function ruleIntent(msg: string, roles: TargetRole[]) {
     const r = roles.find((x) => pause[1].toLowerCase().includes(x.title.toLowerCase()));
     if (r) changes.push({ type: "pause_role", roleId: r.id, title: r.title });
   }
-  const find = msg.match(/(?:find|show|search|look for|any|get)(?: me)?(?: some| new| open)?\s+(.+?)\s+(?:jobs|roles|positions|openings)(?:\s+(?:in|near|around)\s+([a-z .,]+))?\??$/i);
+  const find = msg.match(/\b(?:find|show|search|look for|any|get)(?: me)?(?: some| new| open)?\s+(.+?)\s+(?:jobs|roles|positions|openings)(?:\s+(?:in|near|around)\s+([a-z .,]+))?\??$/i);
   return {
     changes: find ? [] : changes,
     findJobs: find ? { title: find[1].replace(/^(any|some|new|open)\s+/i, "").trim(), place: find[2]?.trim() } : null,
-    asksAgent: /\b(agent|queue|in progress|working on|applying now|needs me|needs you)\b/.test(m),
+    asksAgent: /\b(agent|queue|in progress|working on|applying now|needs me|needs you)\b/.test(m) || /^\s*(apply|apply now|start applying|go|apply for me)\s*[.!]?\s*$/.test(m),
     asksToday: /\btoday\b/.test(m),
     asksWeek: /\b(this week|7 days|past week)\b/.test(m),
     asksStatus: /\b(apply|applied|application|status|update|news|progress)\b/.test(m),
@@ -77,14 +81,17 @@ export async function answer(
   if (intent.asksAgent && !intent.changes.length) {
     const by = (s: string[]) => tasks.filter((t) => s.includes(t.status));
     const running = by(["running", "waiting_code"]);
-    const needs = by(["needs_user", "needs_human", "awaiting_approval"]);
+    const needs = by(["needs_user", "needs_human", "awaiting_approval", "manual"]);
     const queued = by(["queued"]);
     const today = tasks.filter((t) => t.status === "submitted" && Date.parse(t.updated_at) >= new Date(new Date().setHours(0, 0, 0, 0)).getTime());
     const parts = [
       running.length ? `Applying now: **${running.map((t) => `${t.job.title} at ${t.job.company}`).join(", ")}**.` : "Not applying to anything this second.",
       `${queued.length} in the queue, ${today.length} submitted today.`,
-      needs.length ? `**${needs.length} need you** (answers, a human check or approval) — open Your agent.` : "Nothing needs you right now.",
-    ];
+      needs.length ? `**${needs.length} need you** (answers, a human check, an approval or a site to finish) — open Your agent.` : "Nothing needs you right now.",
+      /^\s*(apply|apply now|start applying|go|apply for me)\s*[.!]?\s*$/i.test(message)
+        ? "With Auto-apply on, your agent works through your best new matches by itself — Your agent → “Up next for auto-apply” lists them. To apply to one job right now, paste its link on Your agent or press “Apply with agent” in Live jobs."
+        : "",
+    ].filter(Boolean);
     return { text: parts.join(" ") };
   }
 

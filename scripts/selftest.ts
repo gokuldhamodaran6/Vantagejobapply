@@ -10,6 +10,7 @@ import { parseResumeText, scoreResume, extractKeywords } from "../src/lib/ats";
 import { readFileSync } from "fs";
 import { workAuthAnswers } from "../src/lib/answers";
 import { roleSimilarity } from "../src/lib/jobs/roles";
+import { ruleIntent } from "../src/lib/assistant";
 import { bestOption, bestName, qkeyOf, buildFacts, coreLabel, placeFromResume, planFields, lockedKind } from "../src/lib/agent/fields";
 import { siteKey } from "../src/lib/agent/sites";
 import { isJobMail } from "../src/lib/agent/mailsync";
@@ -228,6 +229,15 @@ async function plannerChecks() {
   ok(k("Further Action May Be Required For Your Job Application", "Your application has been received. THANK YOU FOR SUBMITTING YOUR RESUME/CV. IMPORTANT: If you did not proceed to the final step of the application process earlier, please complete this form now to be considered for employment.") === "action", "an 'application not finished' email asks for action");
   ok(k("Your application", "Unfortunately, we will not be moving forward with your application at this time.") === "rejection", "a real rejection is still a rejection");
   ok(nextStatus("applied", "received") === undefined && nextStatus("applied", "in_review") === "in_review" && nextStatus("interview", "received") === undefined && nextStatus("rejected", "received") === undefined && nextStatus("in_review", "assessment") === "assessment" && nextStatus("interview", "rejection") === "rejected" && nextStatus("offer", "rejection") === undefined, "applications only move forward through the pipeline");
+}
+
+// Ask your agent: plain requests become the right change.
+{
+  const roles = [{ id: "1", title: "business analyst" }] as unknown as TargetRole[];
+  ok(ruleIntent("apply for jobs for business analyst role", roles).changes.length === 0, "an existing target isn't added again as 'Jobs For Business Analyst'");
+  const c = ruleIntent("Also target Product Analyst roles in London", roles).changes;
+  ok(c.length >= 1 && c[0].type === "add_role" && (c[0] as { title: string }).title === "Product Analyst", "'also target X roles' adds X (not a job search)");
+  ok(ruleIntent("apply now", roles).asksAgent, "'apply now' explains what the agent is doing");
 }
 
 // Ghost jobs.
