@@ -35,7 +35,7 @@ export const FAMILIES: Family[] = [
     id: "marketing",
     match: /\b(marketing|growth market|seo|sem|demand gen|brand|content market|social media|campaign|performance market|lifecycle market|crm market)/i,
     core: ["marketing", "growth", "brand", "demand", "content", "seo", "lifecycle", "campaign", "acquisition", "social"],
-    variants: ["marketing", "growth marketing", "digital marketing", "performance marketing", "product marketing", "content marketing", "demand generation", "lifecycle marketing", "brand marketing", "marketing operations", "social media", "seo"],
+    variants: ["marketing specialist", "marketing manager", "marketing coordinator", "growth marketing", "digital marketing", "product marketing", "content marketing", "demand generation", "performance marketing", "lifecycle marketing", "brand marketing", "marketing operations", "social media", "seo"],
   },
   {
     id: "product",
@@ -142,7 +142,10 @@ export function familiesOf(title: string): Family[] {
 export function searchVariants(title: string, max = 8): string[] {
   const out = [title.trim()];
   const fam = familyOf(title);
-  if (fam) out.push(...fam.variants);
+  // A one-word variant ("marketing", "sales") matches almost every job in that field: too broad to rank well and
+  // slow to search. Only a one-word target searches one-word titles.
+  const oneWord = title.trim().split(/\s+/).length === 1;
+  if (fam) out.push(...fam.variants.filter((v) => oneWord || v.includes(" ") || /[&]/.test(v)));
   const swaps: [RegExp, string][] = [[/\bengineer\b/i, "developer"], [/\bdeveloper\b/i, "engineer"], [/\banalyst\b/i, "analytics"]];
   for (const [re, rep] of swaps) if (re.test(title)) out.push(title.replace(re, rep));
   return [...new Set(out.map((t) => t.toLowerCase().trim()))].slice(0, max);
