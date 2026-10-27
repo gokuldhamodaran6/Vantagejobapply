@@ -25,11 +25,11 @@ export type LightTask = Pick<AgentTask, "id" | "status" | "job_id" | "job" | "pr
 const LIGHT = "id,status,job_id,job,priority,attempts,created_at,updated_at,started_at,finished_at,submit_clicked_at,cancel_reason,step";
 
 /**
- * Applications the agent counts against today's limit: ones it ran itself since midnight UTC (when the database's
- * day starts) — not ones you filled in your own browser, and not ones skipped before they started.
+ * Applications the agent counts against today's limit: ones it actually started since midnight UTC (when the
+ * database's day starts). Jobs you filled in your own browser and jobs skipped before starting don't count.
  */
 export function countsToday(t: Pick<LightTask, "created_at" | "status" | "started_at">, dayStart: number) {
-  return Date.parse(t.created_at) >= dayStart && t.status !== "extension" && !(t.status === "cancelled" && !t.started_at);
+  return Date.parse(t.created_at) >= dayStart && Boolean(t.started_at) && t.status !== "extension";
 }
 
 /** A job that didn't finish: what retrying it would do (from the server's duplicate and safety checks). */

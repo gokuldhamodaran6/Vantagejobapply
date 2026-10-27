@@ -169,7 +169,7 @@ begin
         'auth', coalesce((select jsonb_agg(to_jsonb(w)) from public.work_auth w where w.user_id = p.id), '[]'::jsonb),
         -- The agent's own applications today: not ones you filled in your browser, not ones skipped before starting.
         'today', (select count(*) from public.agent_tasks a where a.user_id = p.id and a.created_at >= date_trunc('day', now())
-                    and a.status <> 'extension' and not (a.status = 'cancelled' and a.started_at is null)),
+                    and a.status <> 'extension' and (a.started_at is not null or a.status in ('queued','awaiting_approval'))),
         'known_jobs', coalesce((select jsonb_agg(a.job_id) from public.agent_tasks a where a.user_id = p.id), '[]'::jsonb)
           || coalesce((select jsonb_agg(ap.job_id) from public.applications ap where ap.user_id = p.id and ap.job_id is not null), '[]'::jsonb),
         -- Company + role of everything already sent, so a repost of the same job isn't applied to again.

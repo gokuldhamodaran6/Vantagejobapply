@@ -17,8 +17,8 @@ export async function GET() {
   const [tasks, apps, today, perEmployer] = await Promise.all([
     ctx.supabase.from("agent_tasks").select("job_id,job,status,submit_clicked_at").limit(10000),
     ctx.supabase.from("applications").select("job_id,job,applied_at").limit(10000),
-    // Same rule as the agent: its own applications since midnight UTC — not browser ones, not ones skipped before starting.
-    ctx.supabase.from("agent_tasks").select("id", { count: "exact", head: true }).gte("created_at", dayStart).neq("status", "extension").or("status.neq.cancelled,started_at.not.is.null"),
+    // Same rule as the agent: applications it actually started since midnight UTC (never ones you filled in your browser).
+    ctx.supabase.from("agent_tasks").select("id", { count: "exact", head: true }).gte("created_at", dayStart).neq("status", "extension").not("started_at", "is", null),
     recentByEmployer(ctx.supabase),
   ]);
   type K = { job_id: string | null; job: { company: string; title: string } | null; status?: string; submit_clicked_at?: string | null; applied_at?: string | null };

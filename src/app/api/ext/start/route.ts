@@ -30,9 +30,13 @@ export async function POST(req: Request) {
 
   // A sign-in or redirect page isn't a job: never create an application called "Sign in - Google Accounts".
   const host = new URL(url).hostname.toLowerCase();
-  const GENERIC = /^(sign in|log ?in|sign up|create (an )?account|recruitment|careers?( site| home)?|jobs?|job (search|application)|apply|home|federation redirector|candidate (home|experience)|welcome|my applications?|linkedin|indeed|search for jobs)\b|candidate experience site|\b(careers?|jobs)( site| page| portal)?$|^[^a-z]*$/i;
+  const GENERIC = /^(sign in|log ?in|sign up|create (an )?account|recruitment|careers?( site| home)?|jobs?|job (search|application)|apply|home|federation redirector|candidate (home|experience)|welcome|my applications?|linkedin|indeed|search for jobs)\b|candidate experience site|\b(careers?|jobs)( site| page| portal)?$|^[^a-z]*$|\bjobs in\b|\(\d[\d,]*\+? (open )?(roles|jobs|positions)\)|find your next|career move|^job search|^search results/i;
   if (/(^|\.)(accounts\.google\.com|login\.microsoftonline\.com|appleid\.apple\.com)$/.test(host) || /\/(login|signin|sso|saml|oauth)\b/i.test(new URL(url).pathname)) {
     return extJson({ error: "This is a sign-in page. Sign in first, then press Apply with Vantage on the job's application page." }, 400);
+  }
+  // LinkedIn search and list pages aren't one job: the person opens the job first (Vantage never scrapes LinkedIn).
+  if (/(^|\.)linkedin\.com$/.test(host) && !/\/jobs\/view\//.test(new URL(url).pathname)) {
+    return extJson({ error: "This is a list of jobs. Open the job you want (its own page), then press Apply with Vantage." }, 400);
   }
   let job: Job | null = (await jobFromLink(url).catch(() => null))?.job || null;
   if (!job) {
@@ -61,6 +65,8 @@ export async function POST(req: Request) {
     } as unknown as Job;
   }
 
+  // Whatever read the page, a list, search or sign-in title is never saved as a job.
+  if (GENERIC.test(job.title.trim())) return extJson({ error: "This page doesn't look like a single job. Open the job's own page (or the first page of its application), then press Apply with Vantage." }, 400);
   const ghost = ghostRisk(job);
   const already = await extRpc<boolean>("already_applied", { user_id: u.user_id, job_id: job.id, company: job.company, title: job.title });
   if (already && !b.force) return extJson({ alreadyApplied: true, job: { title: job.title, company: job.company }, ghost });
