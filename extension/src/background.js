@@ -147,15 +147,18 @@ async function pilotLoop(tabId, t) {
 
     if (plan.status === "ready") {
       await store.setTab(tabId, { ...t, history, submit: { i: plan.submit, frameId: page.frameId } });
+      await markWaiting(tabId);
       return showPanel(tabId, { ...t.base, steps: steps(2), note: "Every page is filled and this is the last step. Look it over — then Vantage can submit it for you, or press Submit on the page yourself.", noteTone: "ok", buttons: [{ text: "Submit it for me", action: "submit_now" }, { text: "Check again", action: "continue", ghost: true }] });
     }
     if (plan.status === "done") return confirmed(tabId, "The page says the application went through.");
     if (plan.status === "ask") {
       await store.setTab(tabId, { ...t, history, missing: plan.ask });
+      await markWaiting(tabId);
       return showPanel(tabId, { ...t.base, steps: steps(1), missing: plan.ask, buttons: [{ text: "Save answers & continue", action: "answers" }, { text: "Pause", action: "pause", ghost: true }] });
     }
     if (plan.status === "account") {
-      return showPanel(tabId, { ...t.base, steps: steps(1), note: "This site needs you to sign in or create an account. Vantage never types your password — do it on the page, then press Continue.", noteTone: "ok", buttons: [{ text: "Continue", action: "continue" }] });
+      await markWaiting(tabId);
+      return showPanel(tabId, { ...t.base, steps: steps(1), note: "This site needs you to sign in or create an account. Vantage never types your password — do it on the page; Vantage carries on by itself when the next page opens.", noteTone: "ok", buttons: [{ text: "Continue", action: "continue" }] });
     }
     if (plan.status === "stuck") return stuck(tabId, t, plan.say);
     if (plan.status === "handoff") {
@@ -180,8 +183,9 @@ async function pilotLoop(tabId, t) {
   return stuck(tabId, t, "This application is taking longer than expected.");
 }
 
-function stuck(tabId, t, why) {
-  return showPanel(tabId, { ...t.base, steps: steps(1), note: `${why || "Vantage needs a hand here."} Do this step on the page, then press Continue.`, noteTone: "warn", buttons: [{ text: "Continue", action: "continue" }, { text: "I submitted it", action: "submitted", ghost: true }] });
+async function stuck(tabId, t, why) {
+  await markWaiting(tabId);
+  return showPanel(tabId, { ...t.base, steps: steps(1), note: `${why || "Vantage needs a hand here."} Do this step on the page — Vantage carries on by itself when you move to the next page (or press Continue).`, noteTone: "warn", buttons: [{ text: "Continue", action: "continue" }, { text: "I submitted it", action: "submitted", ghost: true }] });
 }
 
 /** Older servers without the pilot: one pass with the field planner. */
@@ -241,6 +245,37 @@ async function fillPass(tabId, taskId, done = new Set()) {
   return (plan.missing || []).filter((m) => m.required !== false).map((m) => ({ ...m, frameKey: m.id }));
 }
 
+/**
+ * Waiting for the person (a sign-in, a question, a step Vantage couldn't do, the final check). If they move on to the
+ * next page themselves — a full page load or a single-page app changing its step — Vantage notices and carries on.
+ */
+const pageSig = (tabId) => top(tabId, () => {
+  const heads = [...document.querySelectorAll("h1, h2, h3, legend, [role='heading'], [aria-current='step']")].filter((h) => h.offsetParent).map((h) => (h.innerText || "").trim()).filter(Boolean).slice(0, 6).join("|");
+  const fields = [...document.querySelectorAll("input:not([type=hidden]), select, textarea, [role='combobox']")].filter((e) => e.offsetParent).map((e) => e.name || e.id || e.type).slice(0, 40).join(",");
+  const dialog = Boolean(document.querySelector("[role='dialog']:not([aria-hidden='true']), [aria-modal='true']"));
+  return `${location.href.split("#")[0]}::${heads}::${fields}::${dialog}`;
+}).catch(() => null);
+
+async function markWaiting(tabId) {
+  const t = await store.tab(tabId);
+  if (!t) return;
+  await store.setTab(tabId, { ...t, waiting: true, waitSig: await pageSig(tabId), waitAt: Date.now() });
+}
+
+async function maybeResume(tabId) {
+  const t = await store.tab(tabId);
+  if (!t?.waiting || t.sent || t.paused || !t.taskId) return;
+  if (Date.now() - (t.resumeAt || 0) < 2500) return;
+  await sleep(700); // let the new page settle
+  await inject(tabId);
+  if (await top(tabId, () => window.__vantage?.isConfirmation()).catch(() => false)) return confirmed(tabId, "The confirmation page appeared.");
+  const sig = await pageSig(tabId);
+  if (!sig || sig === t.waitSig) return;
+  await store.setTab(tabId, { ...t, waiting: false, resumeAt: Date.now(), missing: null });
+  await showPanel(tabId, { ...t.base, steps: steps(1), note: "You moved on — Vantage is reading this page and filling it.", noteTone: "ok", buttons: [{ text: "Pause", action: "pause", ghost: true }] });
+  return pilotLoop(tabId, { ...t, waiting: false });
+}
+
 async function onPanel(tabId, msg) {
   const t = await store.tab(tabId);
   if (msg.action === "close") return showPanel(tabId, null);
@@ -251,7 +286,7 @@ async function onPanel(tabId, msg) {
     await store.setTab(tabId, { ...t, paused: true });
     return showPanel(tabId, { ...t.base, steps: steps(1), note: "Paused. Press Continue when you want Vantage to carry on from this page.", noteTone: "ok", buttons: [{ text: "Continue", action: "continue" }, { text: "Close", action: "close", ghost: true }] });
   }
-  if (msg.action === "continue") return run(tabId, { resume: true });
+  if (msg.action === "continue") { await store.setTab(tabId, { ...t, waiting: false }); return run(tabId, { resume: true }); }
   if (msg.action === "submit_now" && t.submit) {
     // The person checked the form and asked Vantage to press the final Submit.
     await showPanel(tabId, { ...t.base, steps: steps(2), note: "Submitting…", noteTone: "ok" });
@@ -326,6 +361,9 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
       const t = await store.tab(sender.tab.id);
       if (t && !t.sent) await store.setTab(sender.tab.id, { ...t, submitAt: Date.now() });
       reply({ ok: true });
+    } else if (msg.type === "page_changed" && sender.tab?.id) {
+      await maybeResume(sender.tab.id);
+      reply({ ok: true });
     } else if (msg.type === "confirmation" && sender.tab?.id) {
       await confirmed(sender.tab.id, "The confirmation page appeared.");
       reply({ ok: true });
@@ -357,6 +395,8 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, reply) => {
 // After a full page load that follows a Submit press in a tab we filled, look for the "thank you for applying" page.
 chrome.tabs.onUpdated.addListener(async (tabId, info) => {
   if (info.status !== "complete") return;
+  // A new page in a tab where Vantage is waiting for the person: carry on filling it.
+  maybeResume(tabId).catch(() => {});
   const t = await store.tab(tabId);
   if (!t || t.sent || !t.submitAt || Date.now() - t.submitAt > 15 * 60_000) return;
   await inject(tabId);

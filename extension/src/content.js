@@ -299,5 +299,15 @@
     });
   }
 
+  // Single-page sites (Workday, LinkedIn) change step without loading a new page: tell Vantage when the step changes,
+  // so it carries on if it was waiting for the person.
+  let lastStep = "";
+  const stepSig = () => `${location.href.split("#")[0]}|${[...document.querySelectorAll("h1, h2, h3, legend, [aria-current='step']")].filter((h) => h.offsetParent && !h.closest("#vantage-panel")).map((h) => (h.innerText || "").trim()).slice(0, 5).join("|")}`;
+  setInterval(() => {
+    const now = stepSig();
+    if (lastStep && now !== lastStep) chrome.runtime.sendMessage({ type: "page_changed" }).catch(() => {});
+    lastStep = now;
+  }, 1200);
+
   window.__vantage = { extract: () => extractInPage(), readOptions, fill, info, isConfirmation, panel };
 })();
