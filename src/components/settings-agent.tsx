@@ -331,7 +331,7 @@ export function ScheduleCard({ onToast }: { onToast: (m: string) => void }) {
   const tz = typeof Intl !== "undefined" ? Intl.DateTimeFormat().resolvedOptions().timeZone : "UTC";
   const [mode, setMode] = useState<"day" | "times">("day");
   const [times, setTimes] = useState<string[]>(PRESET);
-  const [quiet, setQuiet] = useState(true);
+  const [quiet, setQuiet] = useState(false); // shows what is saved: nothing saved = no quiet hours
   const [from, setFrom] = useState(22);
   const [to, setTo] = useState(7);
   const [add, setAdd] = useState("15:00");
