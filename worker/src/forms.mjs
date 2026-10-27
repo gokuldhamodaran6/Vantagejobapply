@@ -488,7 +488,7 @@ export async function pageText(page) {
 }
 
 export function isConfirmation(url, text) {
-  return /thank(s| you) for (applying|your application|your interest)|application (has been |was )?(submitted|received)|we('ve| have) received your application|successfully submitted|your application is (complete|on its way)|application complete/i.test(text) || /\/(thanks|thank-you|confirmation|submitted|success)(\/|\?|$)/i.test(url);
+  return /thank(s| you) for (applying|your application|submitting)|application (has been |was )?(submitted|received)|we('ve| have) received your application|successfully submitted|your application is (complete|on its way)|application complete/i.test(text) || /\/(thanks|thank-you|confirmation|submitted|success)(\/|\?|$)/i.test(url);
 }
 
 /** A visible "prove you're human" challenge. The agent never tries to solve these. */

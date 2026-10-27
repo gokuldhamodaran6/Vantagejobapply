@@ -105,7 +105,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         {profile && (
           <div className="rounded-xl border border-line bg-canvas p-3.5">
             <div className="flex items-center gap-2 text-[13px] font-semibold">
-              <span className="live-dot h-2 w-2 rounded-full bg-green" /> Agent is active
+              {profile.agent_enabled && (profile as { adult_confirmed_at?: string | null }).adult_confirmed_at ? (
+                <><span className="live-dot h-2 w-2 rounded-full bg-green" /> Auto-apply is on</>
+              ) : profile.agent_enabled ? (
+                <><span className="h-2 w-2 rounded-full bg-orange" /> Auto-apply paused — <Link href="/app/agent" className="text-brand-ink">finish setup</Link></>
+              ) : (
+                <><span className="h-2 w-2 rounded-full bg-line-2" /> Auto-apply is off</>
+              )}
             </div>
             <p className="mt-1 text-xs text-muted">
               Early access ·{" "}

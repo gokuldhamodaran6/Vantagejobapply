@@ -79,7 +79,7 @@ begin
       step = coalesce(args->>'step', step),
       needs = coalesce(args->'needs', needs),
       error = case when args ? 'error' then args->>'error' else error end,
-      user_input = case when (args->>'clear_input')::boolean then '{}'::jsonb else user_input end,
+      user_input = case when (args->>'clear_input')::boolean then user_input - 'code' - 'human_done' else user_input end,
       log = case when args ? 'log' then (log || jsonb_build_array(jsonb_build_object('at', now(), 'text', args->>'log')))
                  else log end,
       locked_at = case when coalesce(args->>'status', status) in ('running','waiting_code') then now() else null end,

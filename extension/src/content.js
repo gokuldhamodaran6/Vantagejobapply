@@ -221,6 +221,7 @@
   const FINAL = /^\s*(submit|send|finish|complete|apply)\b[^\n]{0,30}$/i;
   if (window === window.top) {
     document.addEventListener("click", (e) => {
+      if (!e.isTrusted) return; // a page can't fake a Submit press
       const b = e.target instanceof Element ? e.target.closest("button, input[type='submit'], [role='button']") : null;
       if (!b || !FINAL.test(b.innerText || b.value || b.getAttribute("aria-label") || "")) return;
       if (openFields() < 2) return; // an "Apply" link on a job page, not a form's submit

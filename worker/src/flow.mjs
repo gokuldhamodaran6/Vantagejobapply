@@ -118,7 +118,12 @@ export async function runTask(bundle, browser) {
         bundle.lastUrl = page.url();
       }
       const text = await pageText(page);
-      if (isConfirmation(page.url(), text)) break;
+      if (isConfirmation(page.url(), text)) {
+        // A "thanks for applying" page counts only after this run pressed Submit; before that it means the site
+        // thinks you already applied (or it's boilerplate) — never record it as an application by the agent.
+        if (bundle.submitPressed) break;
+        throw new Stop("manual", "The site already shows an application-received page before anything was submitted — you may have applied before. Check Applications and your job email; nothing was sent this time.");
+      }
 
       if (await humanCheckVisible(page)) {
         if (bundle.dry) throw new Stop("manual", "Dry run: the site showed a human check");
@@ -181,7 +186,10 @@ export async function runTask(bundle, browser) {
           },
         }).catch((e) => ({ status: "stuck", say: e.message }));
         if (r.status === "advanced") continue;
-        if (r.status === "done") break;
+        if (r.status === "done") {
+          if (bundle.submitPressed) break;
+          throw new Stop("manual", "The site looks finished, but your agent never pressed Submit — nothing was sent. Open the job to check.");
+        }
         if (r.status === "ask") {
           if (bundle.dry) throw new Stop("manual", `Dry run: the form needs ${r.ask.length} answer${r.ask.length > 1 ? "s" : ""} only the person can give`, { needs: r.ask });
           throw new Stop("needs_user", `${r.ask.length} question${r.ask.length > 1 ? "s" : ""} only you can answer — answer once and your agent will remember`, { needs: r.ask });
@@ -293,6 +301,7 @@ export async function runTask(bundle, browser) {
         const last = await call("poll", { taskId: task.id, since: new Date().toISOString(), checkMail: false }).catch(() => ({}));
         if (last.cancelled) throw new Stop("cancelled", "Cancelled");
         await update(task.id, { submitClicked: true, step: "Submitting" });
+        bundle.submitPressed = true;
       }
       if (submit) {
         await log(task.id, "Submitting the application", "Submitting");
@@ -328,6 +337,7 @@ export async function runTask(bundle, browser) {
     }
 
     const finalText = await pageText(page);
+    if (!bundle.submitPressed) throw new Stop("manual", "Your agent stopped before pressing Submit — nothing was sent. Open the job to finish it.");
     if (!isConfirmation(page.url(), finalText)) throw new Stop("manual", "Submit was pressed, but the site didn't show a confirmation. Check your job email for a receipt before doing anything — it may already be sent.");
     const shot = await page.screenshot({ type: "jpeg", quality: 55 }).catch(() => null);
     const answers = Object.fromEntries(Object.values(filled).filter((x) => !x.info).map((x) => [x.label.slice(0, 120), x.value.slice(0, 500)]));
@@ -704,6 +714,10 @@ async function passCode(bundle, page, ch, purpose = "application") {
       await human(300, 700);
       const submit = (await findSubmit(page)) || (await findVerify(page));
       if (submit) {
+        if (purpose !== "account") {
+          bundle.submitPressed = true;
+          await update(task.id, { submitClicked: true });
+        }
         await log(task.id, purpose === "account" ? "Verifying your account with the emailed code" : "Submitting the application with the security code", purpose === "account" ? "Verifying your account" : "Submitting");
         await submit.click({ timeout: 10_000 }).catch(() => submit.click({ force: true }).catch(() => {}));
       }

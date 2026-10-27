@@ -21,8 +21,8 @@ export async function POST(req: Request) {
   // Version 1.0 filled only the page it was on. Ask for the update (it fills every page and can submit).
   const ver = req.headers.get("x-vantage-ext") || "1.0.0";
   // 1.1.0 could mark a job "Applied" from a sign-in or next-step page; 1.1.1 only does after a real Submit.
-  if (ver.localeCompare("1.1.1", undefined, { numeric: true }) < 0) {
-    return extJson({ error: "Please update the Vantage extension: open vantagejobapply.onrender.com → Chrome extension → Download version 1.1.1, unzip it over the old folder, then press reload on Vantage in chrome://extensions. This version only records a job as applied after Submit is really pressed." }, 426);
+  if (ver.localeCompare("1.1.2", undefined, { numeric: true }) < 0) {
+    return extJson({ error: "Please update the Vantage extension: open vantagejobapply.onrender.com → Chrome extension → Download version 1.1.2, unzip it over the old folder, then press reload on Vantage in chrome://extensions. This version only records a job as applied after Submit is really pressed." }, 426);
   }
   const b = (await req.json().catch(() => ({}))) as { url?: string; title?: string; company?: string; description?: string; location?: string; force?: boolean };
   const url = String(b.url || "").slice(0, 2000);
@@ -72,6 +72,11 @@ export async function POST(req: Request) {
   if (already && !b.force) return extJson({ alreadyApplied: true, job: { title: job.title, company: job.company }, ghost });
 
   const existing = await extRpc<{ id: string; status: string } | null>("find_task", { user_id: u.user_id, job_id: job.id });
+  // Never two fillers on one job: if the cloud agent has it queued or is applying now, the extension stays out.
+  if (existing && ["queued", "running", "waiting_code", "needs_human", "awaiting_approval"].includes(existing.status)) {
+    return extJson({ error: "Your agent is already applying to this job — see Your agent. Cancel it there first if you'd rather finish it here." }, 409);
+  }
+  if (existing && existing.status === "submitted") return extJson({ alreadyApplied: true, job: { title: job.title, company: job.company }, ghost });
   if (existing && existing.status !== "cancelled") return extJson({ taskId: existing.id, job: { title: job.title, company: job.company }, ghost, reused: true });
 
   const match = matchJob(job, { roles: u.roles, prefs: u.prefs, auth: u.auth });

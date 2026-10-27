@@ -3,13 +3,19 @@
 // act(): do one thing a person would do — type, pick from a dropdown (nested ones too), tick, upload, click.
 // It never presses a final Submit/Send button; the caller decides that.
 (() => {
-  const VERSION = 8;
+  const VERSION = 9;
   if (window.__vp && window.__vp.v >= VERSION) return;
 
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const clean = (s) => String(s || "").replace(/\s+/g, " ").trim();
   const norm = (s) => clean(s).toLowerCase().replace(/[^a-z0-9 ]/g, " ").replace(/\s+/g, " ").trim();
-  const FINAL = /^(submit|submit (my |your )?application|send( my)? application|complete (my )?application|finish( application)?|confirm and submit|submit and finish)\b/i;
+  const FINAL_WORDS = /^(submit|submit (my |your )?application|send( my)? application|complete (my )?application|finish( application)?|confirm and submit|submit and finish)\b/i;
+  // Short labels ("Apply", "Send", "Done", "Confirm") are the final button only on a filled-in form with no
+  // further step offered — on a job page "Apply" just opens the form.
+  const MAYBE_FINAL = /^(apply( now)?|send|done|confirm|complete)$/i;
+  const filledCount = () => [...document.querySelectorAll("input:not([type=hidden]):not([type=button]):not([type=submit]), select, textarea")].filter((e) => (e.type === "checkbox" || e.type === "radio" ? e.checked : String(e.value || "").trim()) && e.getBoundingClientRect().width > 0).length;
+  const hasNextStep = () => [...document.querySelectorAll("button, [role=button], input[type=submit]")].some((b) => /^(next|continue|save and continue|save & continue|review)\b/i.test(clean(b.innerText || b.value || "")) && b.getBoundingClientRect().width > 0);
+  const FINAL = { test: (t) => FINAL_WORDS.test(t) || (MAYBE_FINAL.test(clean(t)) && filledCount() >= 3 && !hasNextStep()) };
 
   /* ---------- reading ---------- */
   const roots = () => {
