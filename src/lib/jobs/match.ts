@@ -11,6 +11,52 @@ const LEVEL_ORDER = ["intern", "entry", "mid", "senior", "lead"];
 
 const CITIZEN_LIKE = new Set(["citizen", "permanent_resident"]);
 
+export type WorkMode = "remote" | "hybrid" | "onsite";
+export const WORK_MODES: { value: WorkMode; label: string }[] = [
+  { value: "onsite", label: "On-site" },
+  { value: "hybrid", label: "Hybrid" },
+  { value: "remote", label: "Remote" },
+];
+
+/** How a job is worked, from what the posting says (feeds rarely mark hybrid, so the text decides). */
+export function workModeOf(job: Pick<Job, "remote" | "location" | "title"> & { description?: string | null }): WorkMode {
+  const text = `${job.title} ${job.location || ""}`.toLowerCase();
+  if (/\bhybrid\b/.test(text) || /\bhybrid\b/.test((job.description || "").slice(0, 4000).toLowerCase())) return "hybrid";
+  if (job.remote) return "remote";
+  return "onsite";
+}
+
+/** The arrangements the person accepts. Older preferences only have remote_ok. */
+export function wantedModes(prefs: Pick<TargetPrefs, "remote_ok" | "work_modes"> | null | undefined): WorkMode[] {
+  const m = (prefs?.work_modes || []).filter((x): x is WorkMode => x === "remote" || x === "hybrid" || x === "onsite");
+  if (m.length) return m;
+  return prefs?.remote_ok === false ? ["onsite", "hybrid"] : ["onsite", "hybrid", "remote"];
+}
+
+export function workModeOk(job: Pick<Job, "remote" | "location" | "title"> & { description?: string | null }, prefs: Pick<TargetPrefs, "remote_ok" | "work_modes"> | null | undefined) {
+  const want = wantedModes(prefs);
+  if (want.length === 3) return true;
+  const mode = workModeOf(job);
+  // A hybrid job is fine for someone who'd go on-site every day.
+  return want.includes(mode) || (mode === "hybrid" && want.includes("onsite"));
+}
+
+export const JOB_TYPES = [
+  { value: "full_time", label: "Full-time" },
+  { value: "part_time", label: "Part-time" },
+  { value: "contract", label: "Contract" },
+  { value: "internship", label: "Internship" },
+] as const;
+
+/** Employment type from the feed's own field, else the title. Unknown means full-time (most postings). */
+export function jobTypeOf(job: Pick<Job, "title" | "contract_time">): (typeof JOB_TYPES)[number]["value"] {
+  const s = `${job.contract_time || ""} ${job.title}`.toLowerCase();
+  if (/\bintern(ship)?s?\b|co-?op\b|working student|werkstudent/.test(s)) return "internship";
+  if (/\bpart[-_ ]?time\b/.test(s)) return "part_time";
+  if (/\bcontract(or)?\b|\btemp(orary)?\b|seasonal|freelance|fixed[-_ ]term/.test(s)) return "contract";
+  return "full_time";
+}
+
 export type MatchCtx = {
   roles: TargetRole[];
   prefs: TargetPrefs | null;
@@ -101,6 +147,18 @@ export function matchJob(job: Job, ctx: MatchCtx): MatchResult {
         score -= 10;
         warnings.push("Outside your chosen industries");
       }
+    }
+    if (prefs.job_types?.length) {
+      const type = jobTypeOf(job);
+      // Picking the "intern" level for a target counts as wanting internships for it.
+      if (!prefs.job_types.includes(type) && !(type === "internship" && best?.levels.includes("intern"))) {
+        score -= 12;
+        warnings.push(`${JOB_TYPES.find((t) => t.value === type)?.label} — not a job type you chose`);
+      }
+    }
+    if (!workModeOk(job, prefs)) {
+      score -= 10;
+      warnings.push(`${WORK_MODES.find((w) => w.value === workModeOf(job))?.label} — not an arrangement you chose`);
     }
     if (prefs.salary_min && job.salary_max && job.salary_max < prefs.salary_min) {
       score -= 8;

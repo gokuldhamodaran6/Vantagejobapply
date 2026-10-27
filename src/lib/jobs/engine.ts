@@ -2,12 +2,17 @@ import "server-only";
 import { companyKey, ghostRisk, type CompanyReplies, type GhostRisk } from "./ghost";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { APP_READABLE, fetchBoard, fetchDescription, type Board } from "./sources";
-import { matchJob } from "./match";
+import { matchJob, workModeOk } from "./match";
 import { analyzeText, normCompany } from "./signals";
-import { searchVariants } from "./roles";
+import { roleSimilarity, searchVariants } from "./roles";
 import { inPreferredPlace } from "./places";
+import { autoSkipReason, interleaveByPriority, LIVE_MAX_DAYS, type SkipReason } from "@/lib/agent/plan";
+import { PER_EMPLOYER_30D } from "@/lib/access";
 import { ingestSecret, supabaseAnon } from "@/lib/supabase/server";
 import type { Job, MatchResult, TargetPrefs, TargetRole, WorkAuth } from "@/lib/types";
+
+/** Live jobs shows a job for a target when its title fits the target at least this well. */
+export const LIVE_MIN_FIT = 0.45;
 
 let sponsorCountries: { at: number; value: Set<string> } | null = null;
 const inflight = new Map<number, Promise<number>>();
@@ -112,9 +117,12 @@ export async function searchForUser(
   input: SearchInput,
 ) {
   const country = input.country.toUpperCase();
-  const maxDays = input.maxDaysOld ?? 60;
+  const maxDays = input.maxDaysOld ?? LIVE_MAX_DAYS;
   const activeRoles = ctx.roles.filter((r) => r.active).slice(0, ctx.roleLimit);
   const roles = input.roleId ? activeRoles.filter((r) => r.id === input.roleId) : activeRoles;
+  // Filtering by one target scores every job against that target only — otherwise a job found by one of its
+  // search phrases ("operations analyst") would pass on the strength of a different target ("marketing specialist").
+  const matchRoles = input.roleId ? roles : ctx.roles;
   const phrases = input.q ? searchVariants(input.q, 6) : [...new Set(roles.flatMap((r) => searchVariants(r.title, 10)))];
   if (!phrases.length) return { results: [] as ScoredJob[], meta: { sources: {}, hidden: 0, hiddenBy: {}, total: 0, refreshed: 0, sponsorCheck: false } };
 
@@ -158,15 +166,20 @@ export async function searchForUser(
   for (const job of byKey.values()) {
     if (input.remoteOnly && !job.remote) continue;
     if (input.city && !(job.location || "").toLowerCase().includes(input.city.toLowerCase())) continue;
+    // A typed title search shows genuinely similar titles only (its search phrases include broader synonyms).
+    if (input.q && roleSimilarity(input.q, job.title) < LIVE_MIN_FIT) continue;
     sources[job.source] = (sources[job.source] || 0) + 1;
-    const match = matchJob(job, { roles: ctx.roles, prefs: ctx.prefs, auth: ctx.auth, sponsorsLoaded });
-    const hideReason = !match.eligible ? hiddenCategory(match.blockers[0]) : match.tooSenior && !input.showBlocked && !input.q ? "Too senior for your levels" : null;
+    const match = matchJob(job, { roles: matchRoles, prefs: ctx.prefs, auth: ctx.auth, sponsorsLoaded });
+    const hideReason = !match.eligible
+      ? hiddenCategory(match.blockers[0])
+      : match.tooSenior && !input.showBlocked && !input.q ? "Too senior for your levels"
+        : !workModeOk(job, ctx.prefs) && !input.remoteOnly ? "Not your work arrangement" : null;
     if (hideReason) {
       hidden += 1;
       hiddenBy[hideReason] = (hiddenBy[hideReason] || 0) + 1;
       if (!input.showBlocked) continue;
     }
-    if (!input.q && (match.roleFit ?? 1) < 0.45) continue;
+    if (!input.q && (match.roleFit ?? 1) < LIVE_MIN_FIT) continue;
     if (!input.q && match.score < 30) continue;
     // If the user picked cities, keep jobs in those cities, remote, or anywhere when the location is unknown.
     if (hasPlaces && !input.city && !inPreferredPlace(job, ctx.prefs) && match.score < 70) continue;
@@ -184,7 +197,7 @@ export async function searchForUser(
         if (!d) return;
         const sig = analyzeText(r.job.title, d);
         r.job = { ...r.job, description: d, sponsorship: sig.sponsorship, restrictions: sig.restrictions, remote: r.job.remote || sig.remote };
-        r.match = matchJob(r.job, { roles: ctx.roles, prefs: ctx.prefs, auth: ctx.auth, sponsorsLoaded });
+        r.match = matchJob(r.job, { roles: matchRoles, prefs: ctx.prefs, auth: ctx.auth, sponsorsLoaded });
         void supabaseAnon().rpc("set_job_description", { secret: ingestSecret(), p_id: r.job.id, p_description: d }).then(() => {}, () => {});
       })),
       budget,
@@ -226,4 +239,115 @@ function hiddenCategory(blocker: string | undefined): string {
   if (b.includes("register")) return "Not a licensed sponsor";
   if (b.includes("never-apply")) return "On your never-apply list";
   return "Other visa rules";
+}
+
+export type PipelineRole = {
+  id: string; title: string; priority: number;
+  /** Open jobs Live jobs shows for this target right now. */
+  live: number;
+  /** Of those, ones the agent would apply to by itself and hasn't touched yet. */
+  ready: number;
+  /** How many of today's remaining applications go to this target, in the order the agent takes them. */
+  planned: number;
+};
+export type Pipeline = {
+  countries: string[];
+  freshDays: number;
+  /** Distinct open jobs that match at least one active target (what Live jobs shows, summed over countries). */
+  live: number;
+  /** Already applied, queued or skipped by you. */
+  handled: number;
+  /** Waiting for the agent: it would apply to these within the daily limit. */
+  ready: number;
+  /** Why the rest are left for you to decide on in Live jobs. */
+  skipped: Partial<Record<SkipReason | "Employer limit reached", number>>;
+  roles: PipelineRole[];
+  computedAt: string;
+};
+
+/**
+ * The funnel behind "Matched & waiting": live matches per target → what the agent would apply to → what fits today.
+ * Uses the same search as Live jobs and the same rules as autoSource, so the numbers line up with both.
+ */
+export async function pipelineForUser(
+  supabase: SupabaseClient,
+  ctx: { roles: TargetRole[]; prefs: TargetPrefs | null; auth: WorkAuth[]; roleLimit: number; countryLimit: number; known: Set<string>; perEmployer: Map<string, number>; room: number },
+): Promise<Pipeline> {
+  const active = ctx.roles.filter((r) => r.active).slice(0, ctx.roleLimit);
+  const countries = (ctx.prefs?.countries?.length ? ctx.prefs.countries : ["US"]).slice(0, Math.max(1, ctx.countryLimit));
+  const freshDays = ctx.prefs?.max_days_old || 14;
+  const out: Pipeline = { countries, freshDays, live: 0, handled: 0, ready: 0, skipped: {}, roles: active.map((r) => ({ id: r.id, title: r.title, priority: r.priority, live: 0, ready: 0, planned: 0 })), computedAt: new Date().toISOString() };
+  if (!active.length) return out;
+  const byRole = new Map(out.roles.map((r) => [r.id, r]));
+  const phrases = [...new Set(active.flatMap((r) => searchVariants(r.title, 10)))];
+  const since = new Date(Date.now() - LIVE_MAX_DAYS * 864e5).toISOString();
+  const sponsorsLoaded = await loadedSponsorCountries(supabase);
+  const targets = new Set((ctx.prefs?.companies || []).map(normCompany));
+  const candidates: { roleId?: string; score: number; company: string }[] = [];
+  const skip = (k: keyof Pipeline["skipped"]) => (out.skipped[k] = (out.skipped[k] || 0) + 1);
+  const boardKey = (id: string) => id.split(":").slice(0, 2).join(":");
+
+  for (const country of countries) {
+    const { data, error } = await supabase.rpc("search_jobs2", { p_country: country, p_tsquery: titleTsQuery(phrases), p_since: since, p_limit: 900 });
+    if (error) throw new Error(error.message);
+    const byKey = new Map<string, Job & { first_seen_at?: string | null }>();
+    for (const j of (data as (Job & { first_seen_at?: string | null })[] | null) || []) {
+      if (j.source === "adzuna") continue;
+      const k = `${normCompany(j.company)}|${j.title.toLowerCase().trim()}|${(j.location || "").toLowerCase().split(",")[0]}`;
+      if (!byKey.has(k)) byKey.set(k, j);
+    }
+    // Auto-apply only uses careers sites Vantage verified itself, plus the person's own target companies.
+    const keys = [...new Set([...byKey.values()].map((j) => boardKey(j.id)))];
+    const boards = new Map<string, { added_by: string | null; name: string }>();
+    for (let i = 0; i < keys.length; i += 400) {
+      const { data: b } = await supabaseAnon().rpc("board_info", { secret: ingestSecret(), keys: keys.slice(i, i + 400) });
+      for (const r of (b as { key: string; added_by: string | null; name: string }[]) || []) boards.set(r.key, r);
+    }
+    const hasPlaces = (ctx.prefs?.locations || []).some((l) => l.country === country);
+    for (const job of byKey.values()) {
+      // Live jobs, one target at a time (as when you pick that target's chip).
+      let visible = false;
+      for (const r of active) {
+        const m = matchJob(job, { roles: [r], prefs: ctx.prefs, auth: ctx.auth, sponsorsLoaded });
+        if (!m.eligible || m.tooSenior || (m.roleFit ?? 0) < LIVE_MIN_FIT || m.score < 30 || !workModeOk(job, ctx.prefs)) continue;
+        if (hasPlaces && !inPreferredPlace(job, ctx.prefs) && m.score < 70) continue;
+        byRole.get(r.id)!.live += 1;
+        visible = true;
+      }
+      if (!visible) continue;
+      out.live += 1;
+      if (ctx.known.has(job.id)) {
+        out.handled += 1;
+        continue;
+      }
+      const m = matchJob(job, { roles: active, prefs: ctx.prefs, auth: ctx.auth, sponsorsLoaded });
+      const info = boards.get(boardKey(job.id));
+      const vetted = Boolean(info) && (!info!.added_by || targets.has(normCompany(info!.name)));
+      const reason = autoSkipReason(job, m, ctx.prefs, { vetted });
+      if (reason) {
+        skip(reason);
+        continue;
+      }
+      candidates.push({ roleId: m.role?.id, score: m.score + (targets.has(normCompany(job.company)) ? 15 : 0), company: normCompany(job.company) });
+    }
+  }
+  // Today's remaining applications, in the agent's own order and within its per-employer cap.
+  const perEmployer = new Map(ctx.perEmployer);
+  let room = ctx.room;
+  for (const c of interleaveByPriority(candidates, active)) {
+    const n = perEmployer.get(c.company) || 0;
+    if (n >= PER_EMPLOYER_30D) {
+      skip("Employer limit reached");
+      continue;
+    }
+    perEmployer.set(c.company, n + 1);
+    out.ready += 1;
+    const r = c.roleId ? byRole.get(c.roleId) : undefined;
+    if (r) r.ready += 1;
+    if (room > 0) {
+      if (r) r.planned += 1;
+      room -= 1;
+    }
+  }
+  return out;
 }

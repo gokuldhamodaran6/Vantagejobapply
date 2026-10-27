@@ -1,12 +1,11 @@
 import "server-only";
-import { ghostRisk } from "@/lib/jobs/ghost";
 import { matchJob } from "@/lib/jobs/match";
 import { searchVariants } from "@/lib/jobs/roles";
 import { titleTsQuery } from "@/lib/jobs/engine";
 import { normCompany } from "@/lib/jobs/signals";
 import { dailyLimit, effectivePlan, PER_EMPLOYER_30D } from "@/lib/access";
 import { prepareAndQueue } from "./prepare";
-import { inPreferredPlace } from "@/lib/jobs/places";
+import { autoSkipReason, DEFAULT_FRESH_DAYS, interleaveByPriority, taskPriority } from "./plan";
 import { rpc, wakeWorker } from "./svc";
 import { ingestSecret, supabaseAnon } from "@/lib/supabase/server";
 import type { Job, TargetPrefs, TargetRole, WorkAuth } from "@/lib/types";
@@ -43,9 +42,9 @@ export async function autoSource(deadline: number) {
     if (remaining <= 0 || !u.roles.length) continue;
     const perRun = Math.min(remaining, 8);
     const known = new Set(u.known_jobs || []);
-    const since = new Date(Date.now() - (u.prefs?.max_days_old || 14) * 864e5).toISOString();
+    const since = new Date(Date.now() - (u.prefs?.max_days_old || DEFAULT_FRESH_DAYS) * 864e5).toISOString();
     const phrases = [...new Set(u.roles.flatMap((r) => searchVariants(r.title, 10)))];
-    const candidates: { job: Job; score: number; important: boolean; roleId?: string }[] = [];
+    const candidates: { job: Job; score: number; important: boolean; roleId?: string; rolePriority?: number }[] = [];
     for (const country of (u.prefs?.countries?.length ? u.prefs.countries : ["US"]).slice(0, 6)) {
       const jobs = (await rpc<Job[]>("search", { country, tsquery: titleTsQuery(phrases), since, limit: 300 })) || [];
       await loadBoards(jobs.map((j) => boardOfJob(j.id)));
@@ -57,19 +56,19 @@ export async function autoSource(deadline: number) {
         const mine = Boolean(info) && targets.has(normCompany(info!.name));
         if (!vetted && !mine) continue;
         const m = matchJob(job, { roles: u.roles, prefs: u.prefs, auth: u.auth });
-        if (!m.eligible || m.tooSenior || (m.roleFit ?? 0) < 0.55 || m.score < 58) continue;
-        if (!inPreferredPlace(job, u.prefs)) continue;
-        // Don't spend applications on likely ghost jobs (talent pools, months-old or never-answered postings).
-        if (ghostRisk(job)?.level === "high") continue;
+        // Same rules the "Matched & waiting" panel explains: eligible, close fit, in your places and arrangement,
+        // fresh enough, and never likely ghost jobs (talent pools, months-old or never-answered postings).
+        if (autoSkipReason(job, m, u.prefs, { vetted: true })) continue;
         const target = (u.prefs?.companies || []).some((c) => normCompany(c) === normCompany(job.company));
-        candidates.push({ job, score: m.score + (target ? 15 : 0), important: target || m.score >= 85, roleId: m.role?.id });
+        candidates.push({ job, score: m.score + (target ? 15 : 0), important: target || m.score >= 85, roleId: m.role?.id, rolePriority: m.role?.priority });
       }
     }
+    // Every target gets its turn, weighted by its priority (Top 3 : High 2 : Normal 1), best matches first within each.
     // One application per company per run keeps it human-paced and avoids flooding one employer.
-    candidates.sort((a, b) => b.score - a.score);
+    const ordered = interleaveByPriority(candidates, u.roles);
     const seen = new Set<string>();
     let made = 0;
-    for (const c of candidates) {
+    for (const c of ordered) {
       if (made >= perRun || Date.now() > deadline) break;
       const co = normCompany(c.job.company);
       if (seen.has(co)) continue;
@@ -78,7 +77,7 @@ export async function autoSource(deadline: number) {
       seen.add(co);
       // "Approve every application" means exactly that, whatever the queue looks like.
       const status = u.autonomy === "approve_all" || (u.autonomy === "approve_important" && c.important) ? "awaiting_approval" : "queued";
-      const r = await prepareAndQueue({ userId: u.user_id, name: u.name || "", job: c.job, roleId: c.roleId, match: c.score, status, priority: c.important ? 3 : 5 }).catch((e) => ({ taskCreated: false, error: String(e) }));
+      const r = await prepareAndQueue({ userId: u.user_id, name: u.name || "", job: c.job, roleId: c.roleId, match: c.score, status, priority: taskPriority(c.important, c.rolePriority) }).catch((e) => ({ taskCreated: false, error: String(e) }));
       if (r.taskCreated) made += 1;
     }
     summary[u.user_id] = made;
