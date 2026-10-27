@@ -5,6 +5,8 @@ import { PPP_COUNTRIES, priceKey, type Interval, type PlanId } from "@/lib/plans
 export async function POST(req: Request) {
   const ctx = await loadUserContext();
   if (!ctx) return json({ error: "Log in first." }, 401);
+  // Vantage is free during early access: no checkout, whatever keys are configured.
+  if (process.env.PAYMENTS_LIVE !== "1") return json({ error: "Vantage is free during early access — nothing to pay." }, 503);
   if (!stripeConfigured()) return json({ error: "Payments aren't switched on yet. Please check back soon." }, 503);
   const { plan, interval } = (await req.json().catch(() => ({}))) as { plan?: PlanId; interval?: Interval };
   if (!plan || plan === "free" || !interval) return json({ error: "Choose a plan." }, 400);

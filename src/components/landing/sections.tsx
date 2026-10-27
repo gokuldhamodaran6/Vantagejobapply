@@ -10,7 +10,7 @@ const STEPS = [
   },
   {
     title: "Pick the roles you want",
-    body: "Add as many target roles as you like — developer, nurse, HGV driver, analyst — with level, cities, salary floor and companies.",
+    body: "Add the roles you want — developer, nurse, HGV driver, analyst — with level, cities, salary floor and companies.",
   },
   {
     title: "Get only jobs that fit",
@@ -110,7 +110,7 @@ const SMALL = [
   { icon: Target, title: "Targets in one place", body: "Roles, levels, industries, cities with a custom radius, salary floor and must-apply companies." },
   { icon: Briefcase, title: "Every application tracked", body: "One board for every job — filter by target role, company or industry." },
   { icon: Inbox, title: "Emails linked to jobs", body: "Connect a job-only inbox and replies, codes and invites attach to the right application." },
-  { icon: CalendarCheck, title: "Interviews without clashes", body: "Holds the best slot from your availability and drafts the reply." },
+  { icon: CalendarCheck, title: "Interviews in one calendar", body: "Interview invites from your job email show up in Interviews, ready to add to your calendar." },
 ];
 
 export function Features() {

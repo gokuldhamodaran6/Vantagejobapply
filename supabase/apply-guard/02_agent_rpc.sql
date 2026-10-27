@@ -179,7 +179,7 @@ begin
            from public.applications ap where ap.user_id = p.id and ap.applied_at is not null), '[]'::jsonb)
       ))
       from public.profiles p
-      where p.onboarding_complete and p.agent_enabled and p.autonomy in ('fully_automatic','approve_important')
+      where p.onboarding_complete and p.agent_enabled and p.autonomy in ('fully_automatic','approve_important','approve_all')
         and p.adult_confirmed_at is not null
         and exists (select 1 from public.applicant_profiles ap where ap.user_id = p.id and ap.agent_consent and coalesce(ap.phone,'') <> '' and coalesce(ap.city,'') <> '')
         and exists (select 1 from public.resumes r where r.user_id = p.id and r.is_master and jsonb_array_length(coalesce(r.content->'experience','[]'::jsonb)) > 0)), '[]'::jsonb);

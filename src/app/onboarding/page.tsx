@@ -107,7 +107,7 @@ export default function OnboardingPage() {
     if (step === S.where) return countries.length > 0;
     if (step === S.roles) return roles.length > 0;
     return true;
-  }, [step, fullName, countries, roles, resumeState]);
+  }, [step, fullName, countries, roles, resumeState, adult, living, province]);
 
   function updateAuth(c: string, patch: Partial<AuthDraft>) {
     setAuth((a) => ({ ...a, [c]: { ...a[c], ...patch } }));

@@ -235,7 +235,7 @@ export function MatchedWaiting({
           {!enabled ? (
             <li><b>Auto-apply is off.</b> Your agent only applies when you press “Apply with agent” or paste a link — turn it on above to have it work through these matches by itself.</li>
           ) : autonomy === "approve_all" ? (
-            <li><b>You approve every application.</b> In this mode your agent doesn&apos;t look for jobs by itself — <Link href="/app/settings#agent-mode" className="font-semibold text-brand-ink">switch to “Fully automatic” or “Approve important ones”</Link> to let it line these up.</li>
+            <li><b>You approve every application.</b> Your agent lines up its best matches with a tailored resume, and each waits under “Needs you” until you approve it — nothing is sent before that.</li>
           ) : null}
           <li>
             <b>A daily limit of {limit}.</b> Fewer, tailored applications get more interviews and keep careers sites from flagging you, so your agent sends up to {limit} a day{usedToday ? ` (${usedToday} used today${inLine ? `, ${inLine} in line` : ""})` : ""} and carries the rest over.{" "}

@@ -2,11 +2,12 @@
 import Link from "next/link";
 import { motion } from "motion/react";
 import { Check } from "lucide-react";
+import { EARLY_ACCESS_PLAN } from "@/lib/access";
 
 const INCLUDED = [
   "Live jobs from employers' official careers sites",
   "Visa-aware filtering for the US, UK, Canada, Australia and more",
-  "Up to 100 target roles across 20 countries",
+  `Up to ${EARLY_ACCESS_PLAN.limits.roles} target roles across ${EARLY_ACCESS_PLAN.limits.countries} countries`,
   "A tailored resume and cover letter for every job",
   "Ask your agent: status, targets and interview prep",
   "Every application, email and interview in one place",

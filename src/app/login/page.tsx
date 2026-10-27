@@ -25,7 +25,9 @@ function LoginForm() {
       setError(error.message === "Invalid login credentials" ? "That email and password don't match. Try again or reset your password." : error.message);
       return;
     }
-    hardNavigate(next.startsWith("/") ? next : "/app");
+    // Only ever back into Vantage: "//other.site" or "/\\other.site" would leave it.
+    const safe = (() => { try { const u = new URL(next, window.location.origin); return u.origin === window.location.origin ? `${u.pathname}${u.search}${u.hash}` : "/app"; } catch { return "/app"; } })();
+    hardNavigate(safe);
   }
 
   return (
