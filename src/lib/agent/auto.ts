@@ -34,6 +34,8 @@ export async function autoSource(deadline: number) {
     for (const r of (data as { key: string; added_by: string | null; name: string }[]) || []) boardInfo.set(r.key, r);
   }
   const summary: Record<string, number> = {};
+  // What each run saw and why it skipped, so "queued nothing" can be explained (returned to the cron log).
+  const detail: Record<string, { searched: number; candidates: number; skipped: Record<string, number>; errors: string[] }> = {};
   for (const u of users) {
     if (Date.now() > deadline) break;
     // auto_users doesn't carry every setting; read the person's volume settings and recent employers.
@@ -48,21 +50,25 @@ export async function autoSource(deadline: number) {
     const since = new Date(Date.now() - (u.prefs?.max_days_old || DEFAULT_FRESH_DAYS) * 864e5).toISOString();
     const phrases = [...new Set(u.roles.flatMap((r) => searchVariants(r.title, 10)))];
     const candidates: { job: Job; score: number; important: boolean; roleId?: string; rolePriority?: number }[] = [];
+    const d = (detail[u.user_id] = { searched: 0, candidates: 0, skipped: {} as Record<string, number>, errors: [] as string[] });
+    const skip = (k: string) => (d.skipped[k] = (d.skipped[k] || 0) + 1);
     for (const country of (u.prefs?.countries?.length ? u.prefs.countries : ["US"]).slice(0, 6)) {
       // One slow country never stops the rest (a timeout used to stop auto-apply for everyone).
       const jobs = (await rpc<Job[]>("search", { country, tsquery: titleTsQuery(phrases), since, limit: 400 }).catch((e) => { console.error("auto search failed", country, String(e).slice(0, 200)); return null; })) || [];
+      d.searched += jobs.length;
       await loadBoards(jobs.map((j) => boardOfJob(j.id)));
       const targets = new Set((u.prefs?.companies || []).map(normCompany));
       for (const job of jobs) {
-        if (known.has(job.id) || sentRoles.has(roleKey(job.company, job.title))) continue;
+        if (known.has(job.id) || sentRoles.has(roleKey(job.company, job.title))) { skip("Already handled"); continue; }
         const info = boardInfo.get(boardOfJob(job.id));
         const vetted = Boolean(info) && !info!.added_by;
         const mine = Boolean(info) && targets.has(normCompany(info!.name));
-        if (!vetted && !mine) continue;
+        if (!vetted && !mine) { skip("Careers site not verified yet"); continue; }
         const m = matchJob(job, { roles: u.roles, prefs: u.prefs, auth: u.auth });
         // Same rules the "Matched & waiting" panel explains: eligible, close fit, in your places and arrangement,
         // fresh enough, and never likely ghost jobs (talent pools, months-old or never-answered postings).
-        if (autoSkipReason(job, m, u.prefs, { vetted: true })) continue;
+        const why = autoSkipReason(job, m, u.prefs, { vetted: true });
+        if (why) { skip(why); continue; }
         const target = (u.prefs?.companies || []).some((c) => normCompany(c) === normCompany(job.company));
         candidates.push({ job, score: m.score + (target ? 15 : 0), important: target || m.score >= 85, roleId: m.role?.id, rolePriority: m.role?.priority });
       }
@@ -83,12 +89,14 @@ export async function autoSource(deadline: number) {
       const status = u.autonomy === "approve_all" || (u.autonomy === "approve_important" && c.important) ? "awaiting_approval" : "queued";
       const r = await prepareAndQueue({ userId: u.user_id, name: u.name || "", job: c.job, roleId: c.roleId, match: c.score, status, priority: taskPriority(c.important, c.rolePriority) }).catch((e) => ({ taskCreated: false, error: String(e) }));
       if (r.taskCreated) made += 1;
+      else d.errors.push(`${c.job.company}: ${String(r.error || "not created").slice(0, 120)}`);
     }
     summary[u.user_id] = made;
+    d.candidates = candidates.length;
   }
   const q = await rpc<{ queued: number }>("queue_size", {});
   if (q?.queued) void wakeWorker();
-  return { users: users.length, queued: summary, waiting: q?.queued || 0 };
+  return { users: users.length, queued: summary, waiting: q?.queued || 0, detail };
 }
 
 export { inPreferredPlace } from "@/lib/jobs/places";
