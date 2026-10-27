@@ -126,6 +126,8 @@ export async function searchForUser(
   const phrases = input.q ? searchVariants(input.q, 6) : [...new Set(roles.flatMap((r) => searchVariants(r.title, 10)))];
   if (!phrases.length) return { results: [] as ScoredJob[], meta: { sources: {}, hidden: 0, hiddenBy: {}, total: 0, refreshed: 0, sponsorCheck: false } };
 
+  const t0 = Date.now();
+  const timing: Record<string, number> = {};
   // 1) Target companies stay near real-time: the crawler reads them every 15 minutes; nudge any that are older.
   let refreshed = 0;
   const targets = (ctx.prefs?.companies || []).map(normCompany).filter(Boolean);
@@ -138,6 +140,7 @@ export async function searchForUser(
     if (stale.length) { refreshed = stale.length; void crawlNow(stale.map((b) => b.id)).catch(() => 0); }
   }
 
+  timing.targets = Date.now() - t0;
   // 2) One ranked, title-weighted search over open jobs read from official employer feeds.
   const since = new Date(Date.now() - maxDays * 864e5).toISOString();
   const [dbRes, sponsorsLoaded, statsRes, liveRes] = await Promise.all([
@@ -146,6 +149,7 @@ export async function searchForUser(
     supabase.rpc("company_reply_stats").then((r) => r, () => ({ data: null })),
     supabase.rpc("job_stats").then((r) => r, () => ({ data: null })),
   ]);
+  timing.search = Date.now() - t0;
   const replies = new Map(((statsRes.data as ({ company: string } & CompanyReplies)[] | null) || []).map((s) => [s.company, s]));
   const copies = new Map<string, number>();
   if (dbRes.error) throw new Error(dbRes.error.message);
@@ -187,6 +191,7 @@ export async function searchForUser(
     const ghost = ghostRisk(job, { replies: replies.get(companyKey(job.company)) || null, copies: copies.get(`${normCompany(job.company)}|${job.title.toLowerCase().trim()}`), reposts: (job as { reposts?: number }).reposts || 0 });
     results.push({ job, match, ghost });
   }
+  timing.match = Date.now() - t0;
   // Workday lists carry no descriptions. Fill them in for the best matches so visa and skill checks see the full text.
   const needText = results.filter((r) => !r.job.description && r.job.source === "workday").sort((a, b) => b.match.score - a.match.score).slice(0, 10);
   if (needText.length) {
@@ -208,13 +213,14 @@ export async function searchForUser(
     if (!results[i].match.eligible && !input.showBlocked) { results.splice(i, 1); hidden += 1; }
   }
 
+  timing.descriptions = Date.now() - t0;
   // Likely ghost jobs sink to the bottom; they stay visible (in red) so the user knows why.
   const sink = (x: ScoredJob) => (x.ghost?.level === "high" ? 2 : x.ghost ? 1 : 0);
   results.sort((a, b) => sink(a) - sink(b) || b.match.score - a.match.score || (Date.parse(b.job.posted_at || "") || 0) - (Date.parse(a.job.posted_at || "") || 0));
 
   return {
     results: results.slice(0, 200),
-    meta: { sources, hidden, hiddenBy, total: byKey.size, refreshed, sponsorCheck: sponsorsLoaded.has(country), live: (liveRes.data as LiveStats | null) || null },
+    meta: { sources, hidden, hiddenBy, total: byKey.size, refreshed, sponsorCheck: sponsorsLoaded.has(country), live: (liveRes.data as LiveStats | null) || null, timing },
   };
 }
 
