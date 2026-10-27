@@ -2,7 +2,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { AnimatePresence, motion } from "motion/react";
-import { Check, ExternalLink, FileText, Link2, Loader2, Mail, MonitorPlay, RefreshCw, RotateCcw, ShieldCheck, Sparkles, UserRound, WifiOff, X } from "lucide-react";
+import { Check, ExternalLink, FileText, Link2, Loader2, Mail, RefreshCw, RotateCcw, ShieldCheck, Sparkles, UserRound, WifiOff, X } from "lucide-react";
 import { PageHeader } from "@/components/app-shell";
 import { Badge, Toast } from "@/components/ui";
 import { useMe } from "@/lib/me";
@@ -13,7 +13,6 @@ import { limitDayStart } from "@/lib/agent/plan";
 import { cleanSchedule, inQuietHours, todaysRuns, type AutoSchedule } from "@/lib/agent/schedule";
 import { ACTIVE, NEEDS_YOU, STATUS_META, statusLine, type AgentTask } from "@/lib/agent/status";
 import { Activity } from "./activity";
-import { FinishPanel } from "./finish";
 import { MatchedWaiting } from "./pipeline";
 import { agoShort, countsToday, patch, useAgentData, useTicker, type RetryRow } from "./shared";
 
@@ -53,27 +52,10 @@ export default function AgentPage() {
   const [toast, setToast] = useState<string | null>(null);
   const [agentUp, setAgentUp] = useState<boolean | null>(null);
   const now = useTicker(5000);
-  // "Finish in Vantage": one job open in the in-app browser.
-  const [panelId, setPanelId] = useState<string | null>(null);
-  const [panelTask, setPanelTask] = useState<AgentTask | null>(null);
-  useEffect(() => {
-    if (!panelId) return setPanelTask(null);
-    let stop = false;
-    supabaseBrowser().from("agent_tasks").select("*").eq("id", panelId).maybeSingle().then(({ data }) => { if (!stop && data) setPanelTask(data as AgentTask); });
-    return () => { stop = true; };
-  }, [panelId, version]);
-  useEffect(() => {
-    if (!panelId) return;
-    const i = setInterval(() => void resync(), 2000);
-    return () => clearInterval(i);
-  }, [panelId, resync]);
-  const openPanel = useCallback(async (t: AgentTask, start = true) => {
-    if (start) {
-      const r = await patch(t.id, { action: "open_here" });
-      if (!r.ok) return setToast(r.error || "Couldn't open it here.");
-    }
-    setPanelId(t.id);
-    void resync();
+  // Jobs the agent can't finish open on the company's own site, where the Vantage extension fills them in your Chrome.
+  const openOnSite = useCallback((t: AgentTask) => {
+    window.open(`${(t.apply_url || t.job.url).split("#")[0]}#vantage-apply`, "_blank", "noopener");
+    if (!t.submit_clicked_at && !["submitted", "extension"].includes(t.status)) void patch(t.id, { action: "to_browser" }).then(() => resync());
   }, [resync]);
 
   const loadSetup = useCallback(async () => {
@@ -156,11 +138,6 @@ export default function AgentPage() {
     if (!r?.ok) { setBusy(false); return setToast(d.error || "Couldn't start that application."); }
     setLink("");
     setPreview(null);
-    if (how === "now") {
-      const { data: t } = await supabaseBrowser().from("agent_tasks").select("*").eq("job_id", d.job.id).order("created_at", { ascending: false }).limit(1).maybeSingle();
-      setBusy(false);
-      if (t) return void openPanel(t as AgentTask);
-    }
     setBusy(false);
     setToast(how === "later" ? `${d.job.company} saved — it waits in Your agent for your OK.` : `${d.job.title} at ${d.job.company} is in Up next — tailored resume and cover letter, then your agent applies.`);
     void resync();
@@ -292,7 +269,7 @@ export default function AgentPage() {
                 <p className="mt-3 text-sm font-semibold text-red-ink">{preview.closed ? `${preview.job.company} has closed this job.` : `${preview.duplicate} — it won't be sent again.`}</p>
               ) : (
                 <div className="mt-4 flex flex-wrap gap-2">
-                  <button className="btn-primary" disabled={busy} onClick={() => void applyLink("now")}><MonitorPlay size={16} /> Apply now in Vantage</button>
+                  <button className="btn-primary" disabled={busy} onClick={() => void applyLink("now")}><Sparkles size={16} /> Apply now</button>
                   <button className="btn-secondary" disabled={busy} onClick={() => void applyLink("next")}>Add to Up next</button>
                   <button className="btn-ghost" disabled={busy} onClick={() => void applyLink("later")}>Save for later</button>
                   <a className="btn-ghost" href={preview.job.url} target="_blank" rel="noopener noreferrer">View posting <ExternalLink size={14} /></a>
@@ -388,7 +365,6 @@ export default function AgentPage() {
                 {t.status === "waiting_code" && siteCode(t) && !codeNeedsYou(t, hasMailbox, now) && (
                   <p className="mt-2 flex items-start gap-2 rounded-lg border border-brand/20 bg-brand-tint px-3 py-2 text-[13px] text-ink-2"><Mail size={15} className="mt-0.5 shrink-0 text-brand" /> {siteCode(t)!.system} emailed a security code to {siteCode(t)!.sentTo}. Your agent is reading it from your inbox and will submit in a few seconds — nothing to do.</p>
                 )}
-                <button className="btn-secondary mt-3 min-h-9 text-[13px]" onClick={() => void openPanel(t)}><MonitorPlay size={15} /> Watch live in Vantage</button>
                 {liveNow.length > 1 && <p className="mt-2 text-xs text-muted">+{liveNow.length - 1} more in progress</p>}
               </div>
             );
@@ -470,7 +446,7 @@ export default function AgentPage() {
             <AnimatePresence initial={false}>
               {needs.filter((t) => !askTasks.includes(t)).map((t) => (
                 <motion.div key={t.id} layout initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, height: 0 }}>
-                  <NeedCard t={t} hasMailbox={hasMailbox} consent={Boolean(setup?.consent)} onOpen={(x) => void openPanel(x)} onDone={(m) => { setToast(m); void resync(); }} />
+                  <NeedCard t={t} hasMailbox={hasMailbox} consent={Boolean(setup?.consent)} onOpen={openOnSite} onDone={(m) => { setToast(m); void resync(); }} />
                 </motion.div>
               ))}
             </AnimatePresence>
@@ -489,19 +465,8 @@ export default function AgentPage() {
         onRetry={retrySafe}
         onChange={() => void resync()}
         onToast={setToast}
-        onOpen={(t) => void openPanel(t)}
+        onOpen={openOnSite}
       />
-      {panelId && (
-        <FinishPanel
-          task={panelTask}
-          others={[...needs, ...liveNow, ...upNext]}
-          onClose={() => setPanelId(null)}
-          onOpen={(t) => void openPanel(t)}
-          onToast={setToast}
-          onChange={() => void resync()}
-          renderAsk={(t) => <NeedCard t={t} hasMailbox={hasMailbox} consent={Boolean(setup?.consent)} onDone={(m) => { setToast(m); void resync(); }} />}
-        />
-      )}
       <Toast message={toast} onClose={() => setToast(null)} />
     </>
   );
@@ -659,7 +624,6 @@ function NeedCard({ t, hasMailbox, consent, onDone, onOpen }: { t: AgentTask; ha
   const [vals, setVals] = useState<Record<string, string>>(() => Object.fromEntries((t.needs || []).filter((n) => n.suggest).map((n) => [n.id, n.suggest as string])));
   const [busy, setBusy] = useState(false);
   const [always, setAlways] = useState(true);
-  const [liveUrl, setLiveUrl] = useState<string | null>(null);
   const head = (
     <div className="flex flex-wrap items-start gap-2">
       <div className="min-w-0 flex-1">
@@ -677,12 +641,6 @@ function NeedCard({ t, hasMailbox, consent, onDone, onOpen }: { t: AgentTask; ha
     onDone(r.ok ? msg : r.error || "Something went wrong.");
   }
 
-  async function openLive() {
-    const r = await fetch("/api/agent/live", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ taskId: t.id }) });
-    const d = await r.json();
-    if (!r.ok) return onDone(d.error || "Live view isn't available.");
-    setLiveUrl(`${d.url}?t=${encodeURIComponent(d.token)}&embed=1`);
-  }
 
   if (t.status === "needs_user" && t.needs?.length) {
     const needs = t.needs.map(tidy);
@@ -770,27 +728,11 @@ function NeedCard({ t, hasMailbox, consent, onDone, onOpen }: { t: AgentTask; ha
     return (
       <div className="card border-orange/30 p-5">
         {head}
-        <p className="mt-2 text-sm">{(t.needs as { kind?: string }[] | null)?.[0]?.kind === "submit_gate" ? `Everything is filled on ${t.job.company}'s form. Open it in Vantage, check the page and press Submit — or let your agent press it.` : (t.needs as { kind?: string }[] | null)?.[0]?.kind === "handoff" ? (t.step || "").replace(/^Your turn:\s*/, "") : `${t.job.company}'s site wants a quick “I'm human” check. Everything else is filled in. Open it in Vantage, do the check, and your agent carries on by itself.`}</p>
+        <p className="mt-2 text-sm">{t.job.company}&apos;s site wants a step only a person can do (a quick “I&apos;m human” check or a sign-in). Everything else is filled. Open it on {t.job.company}&apos;s site — the Vantage extension fills the form in your Chrome and you press Submit.</p>
         <div className="mt-4 flex flex-wrap gap-2">
-          <button className="btn-pink" onClick={() => (onOpen ? onOpen(t) : void openLive())}><MonitorPlay size={16} /> Open in Vantage</button>
-          <a className="btn-ghost" href={`${t.apply_url.split("#")[0]}#vantage-apply`} target="_blank" rel="noopener noreferrer" title="Needs the Vantage Chrome extension"><ExternalLink size={16} /> Finish in my browser instead</a>
+          {onOpen && <button className="btn-primary" onClick={() => onOpen(t)}><ExternalLink size={16} /> Finish on {t.job.company}&apos;s site</button>}
+          <button className="btn-ghost" disabled={busy} onClick={() => act({ action: "cancel" }, "Skipped — nothing was sent.")}>Skip this job</button>
         </div>
-        {liveUrl && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/60 p-3 sm:p-6" role="dialog" aria-modal="true" aria-label={`Human check for ${t.job.company}`}>
-            <div className="flex h-full max-h-[920px] w-full max-w-[1100px] flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
-              <div className="flex items-center gap-3 border-b border-line px-4 py-3">
-                <MonitorPlay size={18} className="text-brand" />
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-semibold">{t.job.company} · human check</p>
-                  <p className="text-xs text-muted">Only tick the box or pick the images. Your agent sees when it&apos;s done and continues.</p>
-                </div>
-                <button className="btn-secondary" disabled={busy} onClick={async () => { await act({ action: "human_done" }, "Thanks — your agent is continuing."); setLiveUrl(null); }}>I&apos;m done</button>
-                <button className="rounded-lg p-2 hover:bg-canvas" aria-label="Close" onClick={() => setLiveUrl(null)}><X size={18} /></button>
-              </div>
-              <iframe src={liveUrl} title="Your agent's browser" className="w-full flex-1 border-0 bg-canvas" />
-            </div>
-          </div>
-        )}
       </div>
     );
   }
@@ -803,7 +745,6 @@ function NeedCard({ t, hasMailbox, consent, onDone, onOpen }: { t: AgentTask; ha
         <p className="mt-2 text-sm text-muted">Ready to apply with a tailored resume{t.cover_letter ? " and cover letter" : ""}.{t.job.match ? ` ${t.job.match}% match.` : ""}</p>
         <div className="mt-3 flex flex-wrap gap-2">
           <button className="btn-primary" disabled={busy} onClick={() => act({ action: "approve" }, "Approved — applying now.")}><Check size={16} /> Approve and apply</button>
-          {onOpen && <button className="btn-secondary" onClick={() => onOpen(t)}><MonitorPlay size={16} /> Apply in Vantage, watching</button>}
           {t.resume_id && <a className="btn-secondary" href={`/api/resume/${t.resume_id}/pdf?inline=1`} target="_blank" rel="noopener noreferrer"><FileText size={16} /> Resume</a>}
           {t.resume_id && t.cover_letter && <a className="btn-secondary" href={`/api/resume/${t.resume_id}/pdf?kind=cover&inline=1`} target="_blank" rel="noopener noreferrer">Cover letter</a>}
           <button className="btn-ghost" disabled={busy} onClick={() => act({ action: "cancel" }, "Skipped.")}><X size={16} /> Skip</button>
@@ -831,10 +772,10 @@ function NeedCard({ t, hasMailbox, consent, onDone, onOpen }: { t: AgentTask; ha
     <div className="card p-5">
       {head}
       <p className="mt-2 text-sm">{t.error || t.step || "This application needs you to finish it on the company's site."}</p>
-      <p className="mt-1 text-xs text-muted">Nothing was submitted. <b>Finish in Vantage</b> opens {t.job.company}&apos;s real page right here: your agent signs in or creates the account, reads the email code and fills every page — you take over for anything only a person can do, and you approve Submit.</p>
+      <p className="mt-1 text-xs text-muted">Nothing was submitted. <b>Finish on {t.job.company}&apos;s site</b> opens the job in your Chrome: the Vantage extension fills every page with your tailored resume and saved answers, and you press Submit.</p>
       <div className="mt-3 flex flex-wrap gap-2">
-        {onOpen && <button className="btn-primary" onClick={() => onOpen(t)}><MonitorPlay size={16} /> Finish in Vantage</button>}
-        <a className="btn-secondary" href={`${(t.apply_url || t.job.url).split("#")[0]}#vantage-apply`} target="_blank" rel="noopener noreferrer"><ExternalLink size={15} /> Finish in my Chrome</a>
+        {onOpen ? <button className="btn-primary" onClick={() => onOpen(t)}><ExternalLink size={16} /> Finish on {t.job.company}&apos;s site</button>
+          : <a className="btn-primary" href={`${(t.apply_url || t.job.url).split("#")[0]}#vantage-apply`} target="_blank" rel="noopener noreferrer"><ExternalLink size={15} /> Finish on {t.job.company}&apos;s site</a>}
         <button className="btn-ghost" disabled={busy} onClick={() => act({ action: "retry" }, "Your agent will try again.")}><RotateCcw size={16} /> Try again</button>
         <button className="btn-ghost" disabled={busy} onClick={() => act({ action: "cancel" }, "Dismissed.")}>Dismiss</button>
       </div>

@@ -133,6 +133,12 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       void wakeWorker();
       return json({ ok: true });
     }
+    case "to_browser": {
+      // Finishing it on the company's site in the person's own Chrome (the extension fills it): the agent lets go.
+      if (mayBeSent) return json({ error: "Submit was already pressed on this one — check your email for a receipt before sending it again." }, 409);
+      if (!(await set({ status: "manual", needs: [], error: null, locked_at: null, step: `Finishing on ${(task.job as { company?: string }).company || "the company"}'s site in your browser` }, ["needs_human", "manual", "failed", "needs_user", "awaiting_approval", "queued", "cancelled"]))) return moved();
+      return json({ ok: true });
+    }
     case "submit_ok":
       // "Submit it for me" while the agent waits at the final Submit in the in-app browser.
       if (task.status !== "needs_human") return moved();

@@ -1,7 +1,7 @@
 "use client";
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowRight, Check, ChevronDown, ExternalLink, FileText, Loader2, MonitorPlay, RotateCcw, Search, ShieldCheck, Sparkles, X } from "lucide-react";
+import { ArrowRight, Check, ChevronDown, ExternalLink, FileText, Loader2, RotateCcw, Search, ShieldCheck, Sparkles, X } from "lucide-react";
 import { Badge } from "@/components/ui";
 import { supabaseBrowser } from "@/lib/supabase/client";
 import { timeAgo } from "@/lib/format";
@@ -294,8 +294,8 @@ function TaskRow({ t, role, pos, stage, onChange, onToast, onOpen }: { t: AgentT
               );
             })()}
             <div className="mt-4 flex flex-wrap gap-2">
-              {onOpen && !t.submit_clicked_at && (["queued", "running", "waiting_code", "needs_human", "manual", "failed", "awaiting_approval"].includes(t.status) || (t.status === "cancelled" && t.cancel_reason !== "duplicate")) && (
-                <button className="btn-pink min-h-9 text-xs" onClick={() => onOpen(t)}><MonitorPlay size={14} /> {["running", "waiting_code", "needs_human"].includes(t.status) ? "Watch live" : "Finish in Vantage"}</button>
+              {onOpen && !t.submit_clicked_at && (["needs_human", "manual", "failed"].includes(t.status) || (t.status === "cancelled" && t.cancel_reason !== "duplicate")) && (
+                <button className="btn-primary min-h-9 text-xs" onClick={() => onOpen(t)}><ExternalLink size={14} /> Finish on {t.job.company}&apos;s site</button>
               )}
               {t.status === "queued" && <button className="btn-primary min-h-9 text-xs" onClick={async () => { const r = await patch(t.id, { action: "apply_now" }); onToast(r.ok ? `${t.job.company} is next — starting now.` : r.error || "Couldn't move it."); onChange(); }}><Sparkles size={14} /> Apply now</button>}
               {(t.status === "failed" || (t.status === "cancelled" && t.cancel_reason !== "duplicate")) && !t.submit_clicked_at && <button className="btn-secondary min-h-9 text-xs" onClick={async () => { const r = await patch(t.id, { action: "apply_now" }); onToast(r.ok ? `${t.job.company} is back in line and goes next.` : r.error || "Couldn't re-apply."); onChange(); }}><RotateCcw size={13} /> {t.status === "cancelled" && t.cancel_reason !== "system" ? "Apply after all" : "Try again"}</button>}
