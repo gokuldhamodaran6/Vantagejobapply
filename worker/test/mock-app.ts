@@ -29,6 +29,8 @@ const tasks: T[] = [
 ];
 let codePolls = 0;
 let acctPolls = 0;
+// Jobs opened with "Finish in Vantage" (the in-app browser).
+for (const t of tasks) if ((process.env.INTERACTIVE || "").split(",").includes(t.id)) t.userInput = { interactive: true };
 if (process.env.ONLY) tasks.splice(0, tasks.length, ...tasks.filter((t) => process.env.ONLY!.split(",").includes(t.id)));
 const vault: Record<string, { login: string; password: string }> = {};
 export const events: string[] = [];
@@ -57,11 +59,18 @@ const server = http.createServer(async (req, res) => {
     res.writeHead(200, { "content-type": "application/json" });
     return res.end(JSON.stringify({ tasks: tasks.map((t) => ({ id: t.id, status: t.status, needs: t.needs, log: t.log })), vault, answers }));
   }
+  if (url.pathname === "/control/input" && req.method === "POST") {
+    const body = JSON.parse(await read(req));
+    const t = tasks.find((x) => x.id === body.taskId)!;
+    t.userInput = { ...t.userInput, ...body.input };
+    return res.writeHead(200).end("{}");
+  }
   if (url.pathname === "/control/answer" && req.method === "POST") {
     const body = JSON.parse(await read(req));
     for (const [label, answer] of Object.entries(body.answers as Record<string, string>)) answers.push({ qkey: qkeyOf(label), question: label, answer });
     const t = tasks.find((x) => x.id === body.taskId)!;
-    t.status = "queued";
+    // Asked live in the in-app browser: the same run carries on.
+    t.status = Array.isArray(t.needs) && (t.needs as { live?: boolean }[]).some((n) => n.live) ? "running" : "queued";
     t.needs = [];
     return res.writeHead(200).end("{}");
   }
@@ -78,7 +87,7 @@ const server = http.createServer(async (req, res) => {
     else {
       next.status = "running";
       next.attempts++;
-      out = { task: { id: next.id, ats: next.ats, url: next.url, host: new URL(next.url).hostname, job: next.job, attempts: next.attempts, userInput: {} }, identity: { email: "priya.careers@gmail.com", name: "Priya Raman" }, credential: vault[next.id] || null, hasMailbox: next.id === "t-wd", files: await files() };
+      out = { task: { id: next.id, ats: next.ats, url: next.url, host: new URL(next.url).hostname, job: next.job, attempts: next.attempts, userInput: next.userInput }, identity: { email: "priya.careers@gmail.com", name: "Priya Raman" }, credential: vault[next.id] || null, hasMailbox: next.id === "t-wd", files: await files() };
     }
   } else if (op === "plan") {
     out = await planFields(body.fields as FormField[], { facts: facts(), answers, job: t!.job, resume, coverLetter: "Dear team,\n\nHello.\n\nSincerely,\nPriya Raman", consent: true });
@@ -94,7 +103,8 @@ const server = http.createServer(async (req, res) => {
     // The Greenhouse security code "arrives" in the inbox a few polls after Submit; first a stale wrong one.
     else if (t!.id === "t-acct") out = { code: acctPolls++ < 1 ? null : "730514", link: null, userInput: {} };
     else if (t!.id === "t-code") out = { code: (codePolls++ < 2 ? null : codePolls < 4 ? "ZZZZ1111" : "O2YJR3FJ"), link: null, userInput: {} };
-    else out = { userInput: t!.userInput };
+    else out = { status: t!.status, userInput: t!.userInput };
+    if (body.lite) out = { status: t!.status, userInput: t!.userInput };
   } else if (op === "credential") {
     if (body.getOnly) out = vault[t!.id] ? { ...vault[t!.id], host: body.host } : { none: true };
     else {

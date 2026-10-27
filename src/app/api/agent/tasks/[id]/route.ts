@@ -86,7 +86,9 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       // unless they also chose "confirm for me on future applications" above).
       const terms = needs.filter((n) => (n as Need & { kind?: string }).kind === "consent");
       const consentAnswered = terms.length > 0 && terms.every((n) => String(body.answers?.[n.id] ?? "").trim() !== "");
-      if (!(await set({ status: "queued", needs: [], error: null, locked_at: null, ...(consentAnswered ? { user_input: { ...(task.user_input || {}), terms_ok: true } } : {}) }, ["needs_user"]))) return json({ ok: true, saved: rows.length, note: "Saved — this job had already moved on." });
+      // Asked live in the in-app browser: the same run carries on with the page still open.
+      const liveAsk = needs.some((n) => (n as Need & { live?: boolean }).live);
+      if (!(await set({ status: liveAsk ? "running" : "queued", needs: [], error: null, ...(liveAsk ? {} : { locked_at: null }), ...(consentAnswered ? { user_input: { ...(task.user_input || {}), terms_ok: true } } : {}) }, ["needs_user"]))) return json({ ok: true, saved: rows.length, note: "Saved — this job had already moved on." });
       void wakeWorker();
       return json({ ok: true, saved: rows.length });
     }
@@ -106,6 +108,36 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       }
       return json({ ok: true });
     }
+    case "open_here": {
+      // "Finish in Vantage": the job runs in the agent's browser while the person watches in the app, can take control,
+      // and approves the final Submit. Never after Submit may have been pressed, never a job already applied to.
+      if (mayBeSent) return json({ error: "Submit was already pressed on this one, so it may have been sent. Check your job email for a receipt before doing anything." }, 409);
+      if (task.status === "submitted") return json({ error: "Already applied." }, 409);
+      if (task.status === "cancelled" && task.cancel_reason === "duplicate") return json({ error: "You've already applied to this role, so it won't be sent again." }, 409);
+      const prev = { ...((task.user_input || {}) as Record<string, unknown>) };
+      delete prev.submit_ok_at;
+      const input = { ...prev, interactive: true };
+      const liveAsk = task.status === "needs_user" && ((task.needs as { live?: boolean }[]) || []).some((n) => n.live);
+      if (["running", "waiting_code", "needs_human"].includes(task.status) || liveAsk) {
+        await set({ user_input: input });
+        return json({ ok: true, live: true });
+      }
+      if (["queued", "awaiting_approval"].includes(task.status)) {
+        if (!(await set({ status: "queued", priority: 0, needs: [], error: null, locked_at: null, user_input: input }, ["queued", "awaiting_approval"]))) return moved();
+      } else if (["failed", "manual", "needs_user", "cancelled"].includes(task.status)) {
+        const { data: ok, error } = await ctx.supabase.rpc("apply_now", { p_task: id });
+        if (error) return json({ error: error.message }, 409);
+        if (!ok) return moved();
+        await set({ user_input: input });
+      } else return moved();
+      void wakeWorker();
+      return json({ ok: true });
+    }
+    case "submit_ok":
+      // "Submit it for me" while the agent waits at the final Submit in the in-app browser.
+      if (task.status !== "needs_human") return moved();
+      await set({ user_input: { ...(task.user_input || {}), submit_ok_at: new Date().toISOString() } });
+      return json({ ok: true });
     case "human_done":
       await set({ user_input: { ...(task.user_input || {}), human_done: true } });
       return json({ ok: true });

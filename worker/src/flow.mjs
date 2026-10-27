@@ -33,7 +33,7 @@ async function stopIfRefused(bundle, page, text, fields = []) {
   const keys = [...new Set([siteKey(page.url()), siteKey(task.url)].filter(Boolean))];
   if (keys.length) await call("block", { taskId: task.id, keys, reason, status, url: page.url().slice(0, 300), snippet: text.slice(0, 400) }).catch((e) => console.error("block report failed", e.message));
   const why = reason === "no_automation" ? "asks applicants not to use automated tools" : reason === "rate_limited" ? "is limiting automated visits right now" : "refused automated access";
-  throw new Stop("manual", `${task.job.company}'s careers site ${why}, so Vantage has stopped applying there. Open the job link to apply yourself — the Vantage Chrome extension can fill the form while you press Submit.`);
+  throw new Stop("manual", `${task.job.company}'s careers site ${why}, so Vantage has stopped applying there. Open the job link to apply yourself — the Vantage Chrome extension can fill the form while you press Submit.`, { final: true });
 }
 
 // Buttons that send the application even when they aren't labelled "Submit".
@@ -70,8 +70,15 @@ export async function runTask(bundle, browser) {
     return route.continue();
   });
   let page = await context.newPage();
-  context.on("page", (p) => (page = p)); // follow "Apply" links that open a new tab
-  live.attach(task.id, () => page);
+  // "Finish in Vantage": the person watches in the app, can take control at any time, and approves the final Submit.
+  bundle.interactive = Boolean(task.userInput?.interactive) && task.mode !== "dry_run";
+  const onChooser = (fc) => live.chooser(task.id, fc);
+  page.on("filechooser", onChooser);
+  context.on("page", (p) => {
+    page = p; // follow "Apply" links that open a new tab
+    p.on("filechooser", onChooser);
+  });
+  live.attach(task.id, () => page, { interactive: bundle.interactive });
   const filled = {};
   bundle.filledRef = filled;
   const seen = new Set();
@@ -110,8 +117,12 @@ export async function runTask(bundle, browser) {
     // The pilot reads each page like a person and works through it (any careers site, any widget). If the AI isn't
     // reachable it falls back to the rule-based filler below.
     bundle.pilot = process.env.PILOT !== "0";
+    // In the in-app browser a step the agent can't do goes to the person (who is watching) instead of ending the run.
+    for (let round = 0; ; round++) {
+    try {
     for (let step = 0; step < (bundle.pilot ? 36 : 14); step++) {
-      if (Date.now() - started - clock.waited > TASK_BUDGET_MS || Date.now() - started > HARD_CAP_MS) throw new Stop("failed", "Took too long on this site. You can finish it yourself from the job link.");
+      await holdIfYou(bundle, page);
+      if (Date.now() - started - clock.waited > TASK_BUDGET_MS || Date.now() - started > (bundle.interactive ? 60 * 60 * 1000 : HARD_CAP_MS)) throw new Stop("failed", "Took too long on this site. You can finish it yourself from the job link.");
       // A new visit to a page (even one seen earlier in this run, like a sign-in page) is filled afresh.
       if (page.url() !== bundle.lastUrl) {
         bundle.visit = (bundle.visit || 0) + 1;
@@ -122,7 +133,7 @@ export async function runTask(bundle, browser) {
         // A "thanks for applying" page counts only after this run pressed Submit; before that it means the site
         // thinks you already applied (or it's boilerplate) — never record it as an application by the agent.
         if (bundle.submitPressed) break;
-        throw new Stop("manual", "The site already shows an application-received page before anything was submitted — you may have applied before. Check Applications and your job email; nothing was sent this time.");
+        throw new Stop("manual", "The site already shows an application-received page before anything was submitted — you may have applied before. Check Applications and your job email; nothing was sent this time.", { final: true });
       }
 
       if (await humanCheckVisible(page)) {
@@ -192,7 +203,7 @@ export async function runTask(bundle, browser) {
         if (r.status === "advanced") continue;
         if (r.status === "done") {
           if (bundle.submitPressed) break;
-          throw new Stop("manual", "The site looks finished, but your agent never pressed Submit — nothing was sent. Open the job to check.");
+          throw new Stop("manual", "The site looks finished, but your agent never pressed Submit — nothing was sent. Open the job to check.", { final: true });
         }
         if (r.status === "ask") {
           if (bundle.dry) throw new Stop("manual", `Dry run: the form needs ${r.ask.length} answer${r.ask.length > 1 ? "s" : ""} only the person can give`, { needs: r.ask });
@@ -282,7 +293,17 @@ export async function runTask(bundle, browser) {
       // Also stops before a final button labelled "Apply", "Send" or "Finish", and again if the form now holds answers
       // the person didn't see (a new question, or one that couldn't be matched to what they approved).
       const changed = Object.values(filled).filter((x) => !x.reviewed && !x.info);
-      if (finalStep && task.review && (!bundle.reviewed || changed.length)) {
+      if (finalStep && !bundle.interactive) {
+        // The person may have opened this run in Vantage after it started: then they approve the Submit there.
+        const p = await call("poll", { taskId: task.id, checkMail: false, lite: true }).catch(() => ({}));
+        if (p.userInput?.interactive) bundle.interactive = true;
+      }
+      if (finalStep && bundle.interactive) {
+        await holdIfYou(bundle, page);
+        const who = await submitGate(bundle, page, submit || next);
+        if (who === "you") continue; // the person pressed Submit on the page: the loop reads what came next
+      }
+      if (finalStep && task.review && !bundle.interactive && (!bundle.reviewed || changed.length)) {
         if (bundle.reviewed && (task.userInput?.review_round || 0) >= 3) {
           throw new Stop("manual", "This form kept changing after you reviewed it, so your agent didn't send it. Open the job link to check and submit it yourself.");
         }
@@ -307,6 +328,7 @@ export async function runTask(bundle, browser) {
         await update(task.id, { submitClicked: true, step: "Submitting" });
         bundle.submitPressed = true;
       }
+      if (!finalStep) await holdIfYou(bundle, page);
       if (submit) {
         await log(task.id, "Submitting the application", "Submitting");
         await human(600, 1400);
@@ -338,6 +360,13 @@ export async function runTask(bundle, browser) {
           if (missing.length) throw new Stop("needs_user", "A few questions only you can answer", { needs: missing });
         }
       }
+    }
+    break;
+    } catch (e) {
+      if (!(e instanceof Stop) || !canHandOff(bundle, e, round)) throw e;
+      await handToYou(bundle, page, e);
+      await settle(page);
+    }
     }
 
     const finalText = await pageText(page);
@@ -821,8 +850,9 @@ async function waitForHuman(task, page, clock) {
   const begin = Date.now();
   const deadline = Math.min(begin + 10 * 60 * 1000, (clock?.started || begin) + HARD_CAP_MS);
   while (Date.now() < deadline) {
-    await sleep(3000);
-    if (live.doneFlag(task.id)) break;
+    await sleep(2000);
+    if (live.takeHandBack(task.id)) break;
+    if (live.mode(task.id) === "you") continue; // the person is doing it right now
     const r = await call("poll", { taskId: task.id }).catch(() => ({}));
     if (r.cancelled) throw new Stop("cancelled", "Cancelled");
     if (r.userInput?.human_done) break;
@@ -834,5 +864,114 @@ async function waitForHuman(task, page, clock) {
   if (clock) clock.waited += Date.now() - begin;
   if (await humanCheckVisible(page)) throw new Stop("manual", "The human check wasn't completed in time. Open the job link to finish the application.");
   live.clearDone(task.id);
+  live.setMode(task.id, "watch");
   await update(task.id, { status: "running", step: "Continuing the application", clearInput: true, log: "Human check done — continuing" });
+}
+
+/** Stops the person can finish themselves in the in-app browser (not refusals, not anything after Submit). */
+function canHandOff(bundle, e, round) {
+  if (!bundle.interactive || bundle.dry || bundle.submitPressed || e.extra?.final || round >= 6) return false;
+  return e.status === "manual" || (e.status === "needs_user" && Array.isArray(e.extra?.needs));
+}
+
+/**
+ * The person is watching in Vantage: hand them this step on the live page and carry on when they hand back.
+ * Questions are answered in the panel (saved to their answers) or right on the page.
+ */
+async function handToYou(bundle, page, e) {
+  const { task } = bundle;
+  const questions = e.status === "needs_user" && e.extra.needs.length > 0;
+  const reason = String(e.message || "").replace(/\s*Open the job( link)?[^.]*\.?/i, "").trim();
+  await update(task.id, {
+    status: questions ? "needs_user" : "needs_human",
+    step: questions ? reason : `Your turn: ${reason} Take control, do it on the page, then press Hand back.`,
+    needs: questions ? e.extra.needs.map((n) => ({ ...n, live: true })) : [{ id: "handoff", qkey: "", label: reason, type: "handoff", kind: "handoff" }],
+    log: questions ? `Asked you ${e.extra.needs.length} question${e.extra.needs.length > 1 ? "s" : ""} in Vantage` : `Handed this step to you: ${reason}`,
+  });
+  const begin = Date.now();
+  let lastPoll = 0;
+  let back = false;
+  while (Date.now() - begin < 15 * 60 * 1000) {
+    await sleep(1200);
+    if (live.takeHandBack(task.id)) { back = true; break; }
+    if (Date.now() - lastPoll > 3000) {
+      lastPoll = Date.now();
+      const r = await call("poll", { taskId: task.id, checkMail: false, lite: true }).catch(() => ({}));
+      if (r.cancelled) throw new Stop("cancelled", "Cancelled");
+      if (r.status === "running" || r.userInput?.human_done) { back = true; break; }
+    }
+  }
+  bundle.clock.waited += Date.now() - begin;
+  live.setMode(task.id, "watch");
+  if (!back) throw new Stop("manual", `${reason} Nothing was sent.`, { final: true });
+  bundle.visit = (bundle.visit || 0) + 1; // read the page afresh
+  bundle.lastUrl = null;
+  await update(task.id, { status: "running", step: "Continuing the application", needs: [], clearInput: true, log: "You handed back — your agent is continuing" });
+}
+
+/** While the person has taken control, the agent waits (and never records the screen). */
+async function holdIfYou(bundle, page) {
+  const { task } = bundle;
+  if (live.mode(task.id) !== "you") return;
+  await update(task.id, { step: "You're in control — your agent is paused", log: "You took control of the page" });
+  const begin = Date.now();
+  let lastPoll = 0;
+  while (live.mode(task.id) === "you" && Date.now() - begin < 15 * 60 * 1000) {
+    await sleep(800);
+    if (Date.now() - lastPoll > 5000) {
+      lastPoll = Date.now();
+      const r = await call("poll", { taskId: task.id, checkMail: false, lite: true }).catch(() => ({}));
+      if (r.cancelled) throw new Stop("cancelled", "Cancelled");
+      await update(task.id, { status: "running" }); // keeps the run marked as alive
+    }
+  }
+  live.setMode(task.id, "watch");
+  live.takeHandBack(task.id);
+  bundle.clock.waited += Date.now() - begin;
+  bundle.lastUrl = null;
+  await update(task.id, { step: "Back to your agent — continuing", log: "You handed back — your agent is continuing" });
+  await settle(page, 400);
+}
+
+/**
+ * Everything is filled: the person decides. They press Submit on the page themselves, or tap "Submit it for me".
+ * Returns "agent" (press it now) or "you" (they pressed it; the loop reads the next page).
+ */
+async function submitGate(bundle, page, button) {
+  const { task } = bundle;
+  const startUrl = page.url();
+  await button.evaluate((el) => el.addEventListener("click", () => { window.__vpSubmit = true; }, { capture: true })).catch(() => {});
+  await update(task.id, {
+    status: "needs_human",
+    step: "Everything is filled — check the page, then press Submit on it, or tap “Submit it for me”",
+    needs: [{ id: "submit_gate", qkey: "", label: "Submit", type: "submit_gate", kind: "submit_gate" }],
+    log: "Filled every page — waiting for your Submit",
+  });
+  const begin = Date.now();
+  let lastPoll = 0;
+  let who = null;
+  while (Date.now() - begin < 20 * 60 * 1000) {
+    await sleep(900);
+    const pressed = await page.evaluate(() => Boolean(window.__vpSubmit)).catch(() => null);
+    // The person pressed it on the page (the click was seen, or the page moved on while they were in control).
+    if (pressed || (live.mode(task.id) === "you" && page.url() !== startUrl) || (pressed === null && page.url() !== startUrl)) { who = "you"; break; }
+    if (Date.now() - lastPoll > 2000) {
+      lastPoll = Date.now();
+      const r = await call("poll", { taskId: task.id, checkMail: false, lite: true }).catch(() => ({}));
+      if (r.cancelled) throw new Stop("cancelled", "Cancelled");
+      if (Date.parse(r.userInput?.submit_ok_at || "") >= begin - 5000) { who = "agent"; break; }
+    }
+  }
+  bundle.clock.waited += Date.now() - begin;
+  if (!who) throw new Stop("manual", "Everything was filled, but Submit wasn't pressed within 20 minutes — nothing was sent.", { final: true });
+  if (who === "you") {
+    bundle.submitPressed = true;
+    live.setMode(task.id, "watch");
+    await update(task.id, { status: "running", submitClicked: true, needs: [], step: "You pressed Submit — checking the confirmation", log: "You pressed Submit on the page" });
+    await settle(page, 2500);
+    return "you";
+  }
+  live.setMode(task.id, "watch");
+  await update(task.id, { status: "running", needs: [], step: "Submitting for you", log: "You asked your agent to submit" });
+  return "agent";
 }

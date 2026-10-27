@@ -297,6 +297,19 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
       const tabId = msg.tabId || sender.tab?.id;
       if (tabId) await run(tabId);
       reply({ ok: true });
+    } else if (msg.type === "queue") {
+      // "Send to my Vantage list": read the job on this tab and hand it to the cloud agent (Up next).
+      const tabId = msg.tabId;
+      try {
+        await inject(tabId);
+        const info = await top(tabId, () => window.__vp?.info() || window.__vantage?.info());
+        if (!info) return reply({ error: "Couldn't read this page. Open the job's own page and try again." });
+        if (info.signIn) return reply({ error: "This is a sign-in page. Open the job's own page and try again." });
+        const r = await api("/api/ext/start", { method: "POST", body: { ...info, queue: true } });
+        reply(r);
+      } catch (e) {
+        reply({ error: String(e.message || e) });
+      }
     } else if (msg.type === "panel" && sender.tab?.id) {
       await onPanel(sender.tab.id, msg);
       reply({ ok: true });

@@ -7,6 +7,10 @@ import { matchJob } from "@/lib/jobs/match";
 import { ghostRisk } from "@/lib/jobs/ghost";
 import { isSafePublicUrl } from "@/lib/net";
 import type { Job } from "@/lib/types";
+import { dailyLimit, PER_EMPLOYER_30D } from "@/lib/access";
+import { normCompany } from "@/lib/jobs/signals";
+import { wakeWorker } from "@/lib/agent/svc";
+import { ingestSecret, supabaseAnon } from "@/lib/supabase/server";
 
 export const maxDuration = 120;
 
@@ -24,7 +28,7 @@ export async function POST(req: Request) {
   if (ver.localeCompare("1.1.2", undefined, { numeric: true }) < 0) {
     return extJson({ error: "Please update the Vantage extension: open vantagejobapply.onrender.com → Chrome extension → Download version 1.1.2, unzip it over the old folder, then press reload on Vantage in chrome://extensions. This version only records a job as applied after Submit is really pressed." }, 426);
   }
-  const b = (await req.json().catch(() => ({}))) as { url?: string; title?: string; company?: string; description?: string; location?: string; force?: boolean };
+  const b = (await req.json().catch(() => ({}))) as { url?: string; title?: string; company?: string; description?: string; location?: string; force?: boolean; queue?: boolean };
   const url = String(b.url || "").slice(0, 2000);
   if (!/^https:\/\//i.test(url) || !(await isSafePublicUrl(url))) return extJson({ error: "Open the job's application page first." }, 400);
 
@@ -80,6 +84,19 @@ export async function POST(req: Request) {
   if (existing && existing.status !== "cancelled") return extJson({ taskId: existing.id, job: { title: job.title, company: job.company }, ghost, reused: true });
 
   const match = matchJob(job, { roles: u.roles, prefs: u.prefs, auth: u.auth });
+  // "Send to my Vantage list": the cloud agent applies (Up next), within the daily and per-company limits.
+  if (b.queue) {
+    if (existing && existing.status !== "cancelled") return extJson({ error: "This job is already in Your agent." }, 409);
+    if (!match.eligible) return extJson({ error: `This job can't hire you: ${match.blockers[0]}.` }, 400);
+    const lim = await supabaseAnon().rpc("agent_limits", { secret: ingestSecret(), p_user: u.user_id }).then((r) => r.data as { daily_limit: number | null; high_volume_ok: boolean | null; today: number; employers: Record<string, number> } | null, () => null);
+    const limit = dailyLimit({ daily_limit: lim?.daily_limit, high_volume_ok: lim?.high_volume_ok }, u.plan);
+    if ((lim?.employers?.[normCompany(job.company)] || 0) >= PER_EMPLOYER_30D) return extJson({ error: `Your agent has already sent ${PER_EMPLOYER_30D} applications to ${job.company} in the last 30 days. Fill this one here instead.` }, 429);
+    const wait = (lim?.today || 0) >= limit;
+    const q = await prepareAndQueue({ userId: u.user_id, name: u.profile?.full_name || "", job, roleId: match.role?.id || null, match: match.score, status: wait ? "awaiting_approval" : "queued", priority: 3 });
+    if (q.error) return extJson({ error: q.error }, 400);
+    if (!wait) void wakeWorker();
+    return extJson({ queued: true, waiting: wait, job: { title: job.title, company: job.company }, match: match.score });
+  }
   // Filling starts right away; the resume and cover letter for this job are written meanwhile (~30 s) and attached
   // when the form reaches the upload.
   const r = await prepareAndQueue({ userId: u.user_id, name: u.profile?.full_name || "", job, roleId: match.role?.id || null, match: match.score, status: "extension", priority: 9, deferTailoring: true });

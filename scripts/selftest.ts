@@ -1,4 +1,5 @@
 import { ghostRisk } from "../src/lib/jobs/ghost";
+import { runNow, todaysRuns, cleanSchedule } from "../src/lib/agent/schedule";
 import { classifyMail, nextStatus } from "../src/lib/mail-classify";
 import { extractCode } from "../src/lib/mail-code";
 // Quick sanity checks for the eligibility engine. Run: npx tsx scripts/selftest.ts
@@ -344,6 +345,20 @@ async function aiMeterChecks() {
       else process.env[k] = v;
     }
   }
+}
+
+// Auto-apply schedule: set times in the person's own time zone, quiet hours, spreading the daily limit.
+{
+  const at = (iso: string) => Date.parse(iso);
+  const sc = { tz: "America/Chicago", times: ["08:30", "12:30", "18:30"], quiet: { from: 22, to: 7 } };
+  ok(runNow(null, at("2026-10-27T03:00:00Z")).run, "schedule: none = runs every time");
+  ok(runNow(sc, at("2026-10-27T13:33:00Z")).run && runNow(sc, at("2026-10-27T13:33:00Z")).runsLeft === 3, "schedule: 8:33 AM Chicago is the 8:30 run, 3 runs left");
+  ok(!runNow(sc, at("2026-10-27T13:45:00Z")).run, "schedule: 8:45 AM is not a run time");
+  ok(runNow(sc, at("2026-10-27T17:31:00Z")).runsLeft === 2, "schedule: at 12:31 PM two runs are left");
+  ok(!runNow({ tz: "America/Chicago", quiet: { from: 22, to: 7 } }, at("2026-10-28T04:00:00Z")).run, "schedule: 11 PM is quiet hours");
+  ok(runNow({ tz: "America/Chicago", quiet: { from: 22, to: 7 } }, at("2026-10-27T15:00:00Z")).run, "schedule: 10 AM outside quiet hours runs");
+  ok(todaysRuns(sc, at("2026-10-27T15:00:00Z")).map((r) => r.state).join(",") === "done,next,later", "schedule: today's runs show done / next / later");
+  ok(cleanSchedule({ tz: "UTC", times: ["25:00", "09:00", "09:00"] })?.times?.join() === "09:00", "schedule: bad and repeated times are dropped");
 }
 
 plannerChecks().then(aiMeterChecks).then(() => {

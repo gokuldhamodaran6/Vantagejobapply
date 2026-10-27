@@ -8,7 +8,7 @@ import { supabaseBrowser } from "@/lib/supabase/client";
 import { effectivePlan, DEFAULT_DAILY, HIGH_VOLUME_MAX, PER_EMPLOYER_30D } from "@/lib/access";
 import { ALL_NATIONALITIES, COUNTRIES } from "@/lib/countries";
 import { hardNavigate } from "@/lib/nav";
-import { ApplicationProfileCard, JobEmailCard, SavedAnswersCard, VaultCard } from "@/components/settings-agent";
+import { ApplicationProfileCard, JobEmailCard, SavedAnswersCard, ScheduleCard, VaultCard } from "@/components/settings-agent";
 
 export default function SettingsPage() {
   const { profile, refresh, userId } = useMe();
@@ -127,6 +127,8 @@ export default function SettingsPage() {
           <p className="mt-4 text-sm text-muted">Always on: truthful answers, only facts you confirmed, human checks on company sites are handed to you.</p>
           <button className="btn-primary mt-5" onClick={saveProfile}>Save settings</button>
         </section>
+
+        <ScheduleCard onToast={setToast} />
 
         <section id="early-access" className="card overflow-hidden">
           <div className="flex flex-wrap items-start gap-4 p-5 sm:p-6">

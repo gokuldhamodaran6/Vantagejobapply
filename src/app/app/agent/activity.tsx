@@ -1,7 +1,7 @@
 "use client";
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowRight, Check, ChevronDown, ExternalLink, FileText, Loader2, RotateCcw, Search, ShieldCheck, Sparkles, X } from "lucide-react";
+import { ArrowRight, Check, ChevronDown, ExternalLink, FileText, Loader2, MonitorPlay, RotateCcw, Search, ShieldCheck, Sparkles, X } from "lucide-react";
 import { Badge } from "@/components/ui";
 import { supabaseBrowser } from "@/lib/supabase/client";
 import { timeAgo } from "@/lib/format";
@@ -9,11 +9,12 @@ import { NEEDS_YOU, STATUS_META, statusLine, type AgentTask } from "@/lib/agent/
 import type { TargetRole } from "@/lib/types";
 import { patch, STAGE, type LightTask, type RetryRow } from "./shared";
 
-type GroupKey = "all" | "needs" | "progress" | "browser" | "applied" | "failed";
+type GroupKey = "all" | "needs" | "next" | "progress" | "browser" | "applied" | "failed";
 const GROUPS: { key: GroupKey; label: string; statuses: string[] | null }[] = [
   { key: "all", label: "All", statuses: null },
   { key: "needs", label: "Needs you", statuses: NEEDS_YOU },
-  { key: "progress", label: "In progress", statuses: ["queued", "running", "waiting_code", "needs_human"] },
+  { key: "next", label: "Up next", statuses: ["queued"] },
+  { key: "progress", label: "Applying now", statuses: ["running", "waiting_code", "needs_human"] },
   { key: "browser", label: "In your browser", statuses: ["extension"] },
   { key: "applied", label: "Applied", statuses: ["submitted"] },
   { key: "failed", label: "Skipped / couldn't apply", statuses: ["failed", "cancelled"] },
@@ -43,7 +44,7 @@ function sinceOf(r: Range) {
 const cleanTerm = (s: string) => s.replace(/[,()*%\\:"']/g, " ").replace(/\s+/g, " ").trim().slice(0, 60);
 
 export function Activity({
-  index, version, roles, queuePos, stages, retry, busy, onRetry, onChange, onToast, initialGroup,
+  index, version, roles, queuePos, stages, retry, busy, onRetry, onChange, onToast, initialGroup, onOpen,
 }: {
   index: LightTask[] | null;
   version: number;
@@ -56,6 +57,7 @@ export function Activity({
   onChange: () => void;
   onToast: (m: string) => void;
   initialGroup?: GroupKey;
+  onOpen?: (t: AgentTask) => void;
 }) {
   const [group, setGroup] = useState<GroupKey>(initialGroup || "all");
   const [roleId, setRoleId] = useState("");
@@ -223,7 +225,7 @@ export function Activity({
       )}
       {rows && rows.length > 0 && (
         <ul className={`space-y-2 transition-opacity ${loading ? "opacity-60" : ""}`}>
-          {rows.map((t) => <TaskRow key={t.id} t={t} role={roleTitle(t)} pos={queuePos.get(t.id)} stage={stages.get(t.id)} onChange={onChange} onToast={onToast} />)}
+          {rows.map((t) => <TaskRow key={t.id} t={t} role={roleTitle(t)} pos={queuePos.get(t.id)} stage={stages.get(t.id)} onChange={onChange} onToast={onToast} onOpen={onOpen} />)}
         </ul>
       )}
       {rows && rows.length < total && (
@@ -237,7 +239,7 @@ export function Activity({
   );
 }
 
-function TaskRow({ t, role, pos, stage, onChange, onToast }: { t: AgentTask; role: string | null; pos?: number; stage?: string; onChange: () => void; onToast: (m: string) => void }) {
+function TaskRow({ t, role, pos, stage, onChange, onToast, onOpen }: { t: AgentTask; role: string | null; pos?: number; stage?: string; onChange: () => void; onToast: (m: string) => void; onOpen?: (t: AgentTask) => void }) {
   const [open, setOpen] = useState(false);
   const [proof, setProof] = useState<string | null>(null);
   const meta = STATUS_META[t.status] || { label: t.status, tone: "gray" as const };
@@ -292,6 +294,9 @@ function TaskRow({ t, role, pos, stage, onChange, onToast }: { t: AgentTask; rol
               );
             })()}
             <div className="mt-4 flex flex-wrap gap-2">
+              {onOpen && !t.submit_clicked_at && (["queued", "running", "waiting_code", "needs_human", "manual", "failed", "awaiting_approval"].includes(t.status) || (t.status === "cancelled" && t.cancel_reason !== "duplicate")) && (
+                <button className="btn-pink min-h-9 text-xs" onClick={() => onOpen(t)}><MonitorPlay size={14} /> {["running", "waiting_code", "needs_human"].includes(t.status) ? "Watch live" : "Finish in Vantage"}</button>
+              )}
               {t.status === "queued" && <button className="btn-primary min-h-9 text-xs" onClick={async () => { const r = await patch(t.id, { action: "apply_now" }); onToast(r.ok ? `${t.job.company} is next — starting now.` : r.error || "Couldn't move it."); onChange(); }}><Sparkles size={14} /> Apply now</button>}
               {(t.status === "failed" || (t.status === "cancelled" && t.cancel_reason !== "duplicate")) && !t.submit_clicked_at && <button className="btn-secondary min-h-9 text-xs" onClick={async () => { const r = await patch(t.id, { action: "apply_now" }); onToast(r.ok ? `${t.job.company} is back in line and goes next.` : r.error || "Couldn't re-apply."); onChange(); }}><RotateCcw size={13} /> {t.status === "cancelled" && t.cancel_reason !== "system" ? "Apply after all" : "Try again"}</button>}
               {t.status === "extension" && <button className="btn-primary min-h-9 text-xs" onClick={async () => { const r = await patch(t.id, { action: "submitted_myself" }); onToast(r.ok ? `${t.job.company} is in your Applications.` : r.error || "Couldn't save that."); onChange(); }}><Check size={14} /> I submitted it</button>}

@@ -3,7 +3,7 @@ import type { GhostRisk } from "@/lib/jobs/ghost";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { motion } from "motion/react";
-import { Building2, ExternalLink, MapPin, RefreshCw, Search, ShieldCheck } from "lucide-react";
+import { Building2, Check, ExternalLink, Loader2, MapPin, RefreshCw, Search, ShieldCheck, Sparkles, X } from "lucide-react";
 import { EmptyState, PageHeader } from "@/components/app-shell";
 import { PrepareDrawer } from "@/components/prepare-drawer";
 import { Badge, Toast, Toggle } from "@/components/ui";
@@ -11,6 +11,22 @@ import { useMe } from "@/lib/me";
 import { COUNTRY_BY_CODE } from "@/lib/countries";
 import { money, timeAgo, tintFor, initials } from "@/lib/format";
 import type { Job, MatchResult } from "@/lib/types";
+import { supabaseBrowser } from "@/lib/supabase/client";
+import { roleKey } from "@/lib/agent/plan";
+
+/** What you've already done with a job (or the same role reposted): shown on its card. */
+type Known = { label: string; tone: "green" | "blue" | "orange" | "gray"; applied: boolean };
+const KNOWN_OF: Record<string, Omit<Known, "label"> & { label: (at: string) => string }> = {
+  submitted: { label: (at) => `Applied ${new Date(at).toLocaleDateString(undefined, { month: "short", day: "numeric" })}`, tone: "green", applied: true },
+  extension: { label: () => "In your browser", tone: "blue", applied: false },
+  queued: { label: () => "In your list", tone: "blue", applied: false },
+  awaiting_approval: { label: () => "Waiting for your OK", tone: "orange", applied: false },
+  running: { label: () => "Applying now", tone: "blue", applied: false },
+  waiting_code: { label: () => "Applying now", tone: "blue", applied: false },
+  needs_human: { label: () => "Needs you", tone: "orange", applied: false },
+  needs_user: { label: () => "Needs you", tone: "orange", applied: false },
+  manual: { label: () => "Needs you", tone: "orange", applied: false },
+};
 
 type Item = { job: Job; match: MatchResult; ghost?: GhostRisk };
 type Live = { open_jobs?: number; companies?: number; new_24h?: number; updated_at?: string };
@@ -35,6 +51,40 @@ export default function JobsPage() {
   const [open, setOpen] = useState<Item | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [linked, setLinked] = useState(false);
+  // Jobs you've already applied to, queued or are working on — by posting, and by role (reposts).
+  const [known, setKnown] = useState<{ byJob: Map<string, Known>; byRole: Map<string, Known> }>({ byJob: new Map(), byRole: new Map() });
+  const [hideApplied, setHideApplied] = useState(true);
+  const [picked, setPicked] = useState<Set<string>>(new Set());
+  const [adding, setAdding] = useState<{ done: number; total: number } | null>(null);
+  const loadKnown = useCallback(async () => {
+    const s = supabaseBrowser();
+    const [t, a] = await Promise.all([
+      s.from("agent_tasks").select("job_id,job,status,finished_at,updated_at").neq("status", "cancelled").order("updated_at", { ascending: false }).limit(3000),
+      s.from("applications").select("job_id,job,applied_at").not("applied_at", "is", null).limit(3000),
+    ]);
+    const byJob = new Map<string, Known>();
+    const byRole = new Map<string, Known>();
+    const put = (jobId: string | null, j: { company?: string; title?: string } | null, k: Known) => {
+      if (jobId && !byJob.has(jobId)) byJob.set(jobId, k);
+      const rk = j?.company && j?.title ? roleKey(j.company, j.title) : "";
+      if (rk && (!byRole.has(rk) || (k.applied && !byRole.get(rk)!.applied))) byRole.set(rk, k);
+    };
+    for (const r of (a.data as { job_id: string | null; job: { company?: string; title?: string } | null; applied_at: string }[]) || []) put(r.job_id, r.job, { ...KNOWN_OF.submitted, label: KNOWN_OF.submitted.label(r.applied_at) });
+    for (const r of (t.data as { job_id: string; job: { company?: string; title?: string }; status: string; finished_at: string | null; updated_at: string }[]) || []) {
+      const m = KNOWN_OF[r.status];
+      if (m) put(r.job_id, r.job, { ...m, label: m.label(r.finished_at || r.updated_at) });
+    }
+    setKnown({ byJob, byRole });
+  }, []);
+  useEffect(() => {
+    void loadKnown();
+  }, [loadKnown]);
+  const knownOf = useCallback((j: Job): Known | null => {
+    const k = known.byJob.get(j.id);
+    if (k) return k;
+    const r = known.byRole.get(roleKey(j.company, j.title));
+    return r ? { ...r, label: r.applied ? `Applied to this role${r.label.replace("Applied", "")}` : r.label } : null;
+  }, [known]);
 
   const c = country || countries[0];
   const activeRoles = roles.filter((r) => r.active);
@@ -64,6 +114,37 @@ export default function JobsPage() {
   useEffect(() => {
     if (!loading && linked) load();
   }, [loading, linked, load]);
+
+  const results = useMemo(() => (data?.results || []).filter((it) => !(hideApplied && knownOf(it.job)?.applied)), [data, hideApplied, knownOf]);
+  const appliedHidden = (data?.results.length || 0) - results.length;
+
+  // Add the picked jobs to your agent's list. Each gets a tailored resume; over today's limit they wait for your OK.
+  async function addPicked() {
+    const items = results.filter((it) => picked.has(it.job.id));
+    if (!items.length) return;
+    setAdding({ done: 0, total: items.length });
+    let queued = 0, later = 0, skipped = 0;
+    let overLimit = false;
+    const msgs: string[] = [];
+    for (const it of items) {
+      let r = await fetch("/api/agent/tasks", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ jobId: it.job.id, roleId: it.match.role?.id || null, later: overLimit }) }).catch(() => null);
+      if (r?.status === 429 && !overLimit) {
+        overLimit = true;
+        r = await fetch("/api/agent/tasks", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ jobId: it.job.id, roleId: it.match.role?.id || null, later: true }) }).catch(() => null);
+      }
+      if (r?.ok) { if (overLimit) later++; else queued++; }
+      else { skipped++; const d = r ? await r.json().catch(() => ({})) : {}; if (d.error && msgs.length < 1) msgs.push(d.error); }
+      setAdding((x) => (x ? { ...x, done: x.done + 1 } : x));
+    }
+    setAdding(null);
+    setPicked(new Set());
+    void loadKnown();
+    setToast([
+      queued ? `${queued} added to Up next — your agent starts now.` : "",
+      later ? `${later} over today's limit wait in Your agent for your OK.` : "",
+      skipped ? `${skipped} skipped${msgs[0] ? `: ${msgs[0]}` : "."}` : "",
+    ].filter(Boolean).join(" "));
+  }
 
   const sourcesText = useMemo(() => {
     const s = data?.meta.sources || {};
@@ -145,11 +226,12 @@ export default function JobsPage() {
         <div className="mb-4 space-y-2">
           <p className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted">
             <span className="font-semibold text-ink">
-              {data.results.length} {data.results.length === 1 ? "job fits" : "jobs fit"}{" "}
+              {results.length} {results.length === 1 ? "job fits" : "jobs fit"}{" "}
               {query ? <>“{query}”</> : role ? <>your <span className="capitalize">{role.title}</span> target</> : "your targets"}
             </span>
             {sourcesText && <span>· from {sourcesText}</span>}
             {data.meta.sponsorCheck && <span className="inline-flex items-center gap-1 text-green-ink"><ShieldCheck size={14} /> Sponsor register checked</span>}
+            <label className="ml-auto flex items-center gap-2 font-medium text-ink-2"><Toggle checked={hideApplied} onChange={setHideApplied} label="Hide jobs you applied to" /> Hide applied{hideApplied && appliedHidden > 0 ? ` (${appliedHidden})` : ""}</label>
           </p>
           {data.meta.hidden > 0 && !showBlocked && (
             <div className="flex flex-wrap items-center gap-2 rounded-xl border border-line bg-white px-3.5 py-2.5 text-sm">
@@ -176,7 +258,7 @@ export default function JobsPage() {
         <div className="space-y-3">{Array.from({ length: 5 }).map((_, i) => <div key={i} className="skeleton h-28" />)}</div>
       )}
 
-      {data && !data.error && data.results.length === 0 && (
+      {data && !data.error && results.length === 0 && (
         <EmptyState
           title="No matching jobs here yet"
           body="Add target companies so Vantage watches their careers sites, try another title, or switch country. New jobs arrive throughout the day."
@@ -185,12 +267,22 @@ export default function JobsPage() {
       )}
 
       <ul className="space-y-3">
-        {data?.results.map((it, i) => (
+        {results.map((it, i) => (
           <motion.li key={it.job.id} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: Math.min(i, 10) * 0.025 }}>
-            <JobCard item={it} onOpen={() => setOpen(it)} />
+            <JobCard item={it} known={knownOf(it.job)} picked={picked.has(it.job.id)} onPick={(v) => setPicked((p) => { const n = new Set(p); if (v) n.add(it.job.id); else n.delete(it.job.id); return n; })} onOpen={() => setOpen(it)} />
           </motion.li>
         ))}
       </ul>
+
+      {(picked.size > 0 || adding) && (
+        <div className="sticky bottom-3 z-30 mt-4 flex flex-wrap items-center gap-3 rounded-2xl bg-ink px-4 py-3 text-white shadow-xl" role="region" aria-label="Selected jobs">
+          <p className="min-w-0 flex-1 text-sm">
+            {adding ? <><Loader2 size={15} className="mr-1.5 inline animate-spin" aria-hidden /> Adding {adding.done} of {adding.total} — tailoring a resume for each…</> : <><b>{picked.size} selected</b> <span className="text-white/70">· {results.filter((r) => picked.has(r.job.id)).map((r) => r.job.company).slice(0, 4).join(", ")}{picked.size > 4 ? "…" : ""} · resumes tailored automatically</span></>}
+          </p>
+          {!adding && <button className="min-h-10 rounded-lg border border-white/25 px-4 text-sm font-semibold hover:bg-white/10" onClick={() => setPicked(new Set())}><X size={15} className="mr-1 inline" aria-hidden />Clear</button>}
+          <button className="btn-primary min-h-10" disabled={Boolean(adding)} onClick={() => void addPicked()}><Sparkles size={16} /> Add {picked.size || adding?.total} to my agent</button>
+        </div>
+      )}
 
       <PrepareDrawer item={open} onClose={() => setOpen(null)} onSaved={(m) => setToast(m)} />
       <Toast message={toast} onClose={() => setToast(null)} />
@@ -198,12 +290,13 @@ export default function JobsPage() {
   );
 }
 
-function JobCard({ item, onOpen }: { item: Item; onOpen: () => void }) {
+function JobCard({ item, known, picked, onPick, onOpen }: { item: Item; known: Known | null; picked: boolean; onPick: (v: boolean) => void; onOpen: () => void }) {
   const { job, match, ghost } = item;
   const blocked = !match.eligible;
+  const canPick = !blocked && !known;
   const pay = money(job.salary_min, job.salary_max, job.currency);
   return (
-    <article className={`card p-5 transition hover:border-[#c9d5fb] ${blocked ? "opacity-70" : ""} ${ghost?.level === "high" ? "border-red/40 bg-red-tint/30" : ""}`}>
+    <article className={`card p-5 transition hover:border-[#c9d5fb] ${blocked ? "opacity-70" : ""} ${picked ? "border-brand ring-2 ring-brand/15" : ""} ${ghost?.level === "high" ? "border-red/40 bg-red-tint/30" : ""}`}>
       {ghost && (
         <p className={`-mx-5 -mt-5 mb-4 flex items-start gap-2 rounded-t-[inherit] px-5 py-2 text-[13px] font-semibold ${ghost.level === "high" ? "bg-red-tint text-red-ink" : "bg-orange-tint text-orange-ink"}`}>
           <span aria-hidden>●</span>
@@ -211,6 +304,11 @@ function JobCard({ item, onOpen }: { item: Item; onOpen: () => void }) {
         </p>
       )}
       <div className="flex flex-wrap items-start gap-4">
+        {canPick ? (
+          <label className="mt-2.5 flex cursor-pointer items-center">
+            <input type="checkbox" className="size-5 accent-[var(--color-brand)]" checked={picked} onChange={(e) => onPick(e.target.checked)} aria-label={`Select ${job.title} at ${job.company}`} />
+          </label>
+        ) : <span className="w-5" aria-hidden />}
         <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-sm font-bold" style={tintFor(job.company)}>{initials(job.company)}</span>
         <div className="min-w-0 flex-1">
           <button onClick={onOpen} className="text-left text-[17px] font-semibold leading-snug hover:text-brand-ink">{job.title}</button>
@@ -226,6 +324,7 @@ function JobCard({ item, onOpen }: { item: Item; onOpen: () => void }) {
         </span>
       </div>
       <div className="mt-3 flex flex-wrap gap-1.5">
+        {known && <Badge tone={known.tone}>{known.applied ? <Check size={12} className="mr-0.5 inline" aria-hidden /> : null}{known.label}</Badge>}
         {job.sponsor_registered && <Badge tone="green">{job.country === "US" ? "✓ Has sponsored H-1B visas" : job.country === "GB" ? "✓ Licensed UK visa sponsor" : "✓ Known visa sponsor"}</Badge>}
         {job.sponsorship === "offers" && <Badge tone="green">✓ Offers sponsorship</Badge>}
         {job.sponsorship === "silent" && !job.sponsor_registered && <Badge tone="gray">Sponsorship not mentioned</Badge>}
@@ -239,7 +338,7 @@ function JobCard({ item, onOpen }: { item: Item; onOpen: () => void }) {
         <span className="text-xs text-muted">Official posting on {job.company}&apos;s careers site</span>
         <div className="ml-auto flex gap-2">
           <a href={job.url} target="_blank" rel="noopener noreferrer" className="btn-ghost min-h-9 text-[13px]">View posting <ExternalLink size={14} /></a>
-          {!blocked && <button onClick={onOpen} className="btn-primary min-h-9 text-[13px]">Prepare application</button>}
+          {!blocked && !known?.applied && <button onClick={onOpen} className={`${known ? "btn-secondary" : "btn-primary"} min-h-9 text-[13px]`}>Prepare application</button>}
         </div>
       </div>
     </article>

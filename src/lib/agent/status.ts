@@ -8,7 +8,7 @@ export type AgentTask = {
   apply_url: string;
   status: string;
   step: string | null;
-  needs: { id: string; qkey: string; label: string; type: string; options?: string[]; required?: boolean; kind?: "consent"; tried?: string; locked?: string; suggest?: string }[];
+  needs: { id: string; qkey: string; label: string; type: string; options?: string[]; required?: boolean; kind?: "consent" | "handoff" | "submit_gate"; tried?: string; locked?: string; suggest?: string; live?: boolean }[];
   user_input: Record<string, unknown>;
   log: { at: string; text: string }[];
   resume_id: string | null;
@@ -35,7 +35,7 @@ export const STATUS_META: Record<string, { label: string; tone: "green" | "red" 
   running: { label: "Applying now", tone: "blue", live: true },
   waiting_code: { label: "Verifying email", tone: "blue", live: true },
   needs_user: { label: "Needs your answer", tone: "orange", needsYou: true },
-  needs_human: { label: "Human check needed", tone: "orange", live: true, needsYou: true },
+  needs_human: { label: "Your turn", tone: "orange", live: true, needsYou: true },
   submitted: { label: "Applied", tone: "green" },
   manual: { label: "Finish on site", tone: "orange", needsYou: true },
   failed: { label: "Couldn't apply", tone: "red" },
@@ -53,7 +53,7 @@ export function statusLine(t: AgentTask, queuePos?: number) {
     case "running": return t.step || "Applying now";
     case "waiting_code": return t.step || "Reading the verification email";
     case "needs_user": return "Needs your answer";
-    case "needs_human": return "Waiting for your human check";
+    case "needs_human": return t.needs?.[0]?.kind === "submit_gate" ? "Filled — waiting for your Submit" : t.needs?.[0]?.kind === "handoff" ? "Your turn on the page" : "Waiting for your human check";
     case "awaiting_approval": return "Waiting for your OK";
     case "submitted": return `Applied ${timeAgo(t.finished_at || t.updated_at)}`;
     case "manual": case "failed": return t.error || t.step || "Couldn't finish on this site";

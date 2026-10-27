@@ -1,10 +1,11 @@
 "use client";
 import { useCallback, useEffect, useState } from "react";
-import { Check, Copy, Eye, EyeOff, KeyRound, Loader2, Mail, ShieldCheck, Trash2 } from "lucide-react";
+import { Check, Clock, Copy, Eye, EyeOff, KeyRound, Loader2, Mail, Plus, ShieldCheck, Trash2, X } from "lucide-react";
 import { supabaseBrowser } from "@/lib/supabase/client";
 import { useMe } from "@/lib/me";
 import { timeAgo } from "@/lib/format";
 import { Toggle } from "@/components/ui";
+import { cleanSchedule, label12, todaysRuns, type AutoSchedule } from "@/lib/agent/schedule";
 
 const PROVIDERS = [
   { id: "gmail", label: "Gmail", steps: ["Create a new Gmail just for job hunting (e.g. yourname.careers@gmail.com).", "In that Gmail: Google Account → Security → turn on 2-Step Verification.", "Open myaccount.google.com/apppasswords, name it “Vantage”, and copy the 16-letter code."] },
@@ -287,6 +288,86 @@ export function VaultCard({ onToast }: { onToast: (m: string) => void }) {
           </li>
         ))}
       </ul>
+    </section>
+  );
+}
+
+/* --------------------------- Auto-apply schedule --------------------------- */
+const PRESET = ["08:30", "12:30", "18:30"];
+export function ScheduleCard({ onToast }: { onToast: (m: string) => void }) {
+  const { userId } = useMe();
+  const tz = typeof Intl !== "undefined" ? Intl.DateTimeFormat().resolvedOptions().timeZone : "UTC";
+  const [mode, setMode] = useState<"day" | "times">("day");
+  const [times, setTimes] = useState<string[]>(PRESET);
+  const [quiet, setQuiet] = useState(true);
+  const [from, setFrom] = useState(22);
+  const [to, setTo] = useState(7);
+  const [add, setAdd] = useState("15:00");
+  const [busy, setBusy] = useState(false);
+  const [nowMs] = useState(() => Date.now());
+  useEffect(() => {
+    if (!userId) return;
+    supabaseBrowser().from("profiles").select("auto_schedule").eq("id", userId).maybeSingle().then(({ data }) => {
+      const sc = cleanSchedule((data as { auto_schedule: AutoSchedule } | null)?.auto_schedule || null);
+      if (!sc) return;
+      if (sc.times?.length) { setMode("times"); setTimes(sc.times); }
+      setQuiet(Boolean(sc.quiet));
+      if (sc.quiet) { setFrom(sc.quiet.from); setTo(sc.quiet.to); }
+    });
+  }, [userId]);
+  async function save() {
+    setBusy(true);
+    const sc = cleanSchedule({ tz, times: mode === "times" ? times : [], quiet: quiet ? { from, to } : null });
+    const { error } = await supabaseBrowser().from("profiles").update({ auto_schedule: sc }).eq("id", userId!);
+    setBusy(false);
+    onToast(error ? `Couldn't save: ${error.message}` : sc?.times?.length ? `Saved — your agent looks for new jobs at ${sc.times.map(label12).join(", ")} (${tz}).` : "Saved — your agent looks for new jobs through the day.");
+  }
+  const hours = Array.from({ length: 24 }, (_, h) => h);
+  const h12 = (h: number) => label12(`${String(h).padStart(2, "0")}:00`);
+  const preview = mode === "times" ? todaysRuns({ tz, times, quiet: null }, nowMs) : [];
+  return (
+    <section id="schedule" className="card scroll-mt-24 p-5 sm:p-6">
+      <h2 className="flex items-center gap-2 text-lg font-bold"><Clock size={18} className="text-brand" aria-hidden /> When auto-apply runs</h2>
+      <p className="text-sm text-muted">When your agent looks for new matches and lines them up. Jobs you add yourself start right away.</p>
+      <div className="mt-4 grid gap-3 md:grid-cols-2">
+        {([["day", "Through the day", "Checks for new jobs every 10 minutes and spreads your daily limit out."], ["times", "At set times", "Runs only at the times you pick, in your time zone. Your daily limit is split between them."]] as const).map(([k, t, b]) => (
+          <button key={k} type="button" onClick={() => setMode(k)} aria-pressed={mode === k} className={`rounded-xl border p-4 text-left transition ${mode === k ? "border-brand bg-brand-tint/50 ring-2 ring-brand/15" : "border-line hover:bg-canvas"}`}>
+            <span className="block text-sm font-semibold">{t}</span><span className="mt-0.5 block text-xs text-muted">{b}</span>
+          </button>
+        ))}
+      </div>
+      {mode === "times" && (
+        <div className="mt-4 rounded-xl border border-line p-4">
+          <p className="text-sm font-semibold">Run times <span className="font-normal text-muted">· {tz}</span></p>
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            {times.map((t) => (
+              <span key={t} className="inline-flex min-h-9 items-center gap-1.5 rounded-full bg-brand-tint pl-3 pr-1.5 text-sm font-semibold text-brand-ink">
+                {label12(t)}
+                <button type="button" className="rounded-full p-1 hover:bg-brand/10" aria-label={`Remove ${label12(t)}`} onClick={() => setTimes(times.filter((x) => x !== t))}><X size={13} /></button>
+              </span>
+            ))}
+            {times.length < 6 && (
+              <span className="inline-flex items-center gap-1.5">
+                <input type="time" className="input min-h-9 w-[130px] py-0 text-sm" value={add} onChange={(e) => setAdd(e.target.value)} aria-label="Add a run time" />
+                <button type="button" className="btn-secondary min-h-9 text-[13px]" onClick={() => add && setTimes([...new Set([...times, add])].sort())}><Plus size={14} /> Add</button>
+              </span>
+            )}
+          </div>
+          {preview.length > 0 && <p className="mt-3 text-xs text-muted">Today: {preview.map((r) => `${r.label} ${r.state === "done" ? "(done)" : r.state === "next" ? "(next)" : ""}`).join(" · ")}</p>}
+        </div>
+      )}
+      <div className="mt-3 rounded-xl border border-line p-4">
+        <label className="flex items-center gap-3 text-sm font-semibold"><Toggle checked={quiet} onChange={setQuiet} label="Quiet hours" /> Quiet hours — no new applications overnight</label>
+        {quiet && (
+          <div className="mt-3 flex flex-wrap items-center gap-2 text-sm">
+            <span className="text-muted">From</span>
+            <select className="input min-h-9 w-auto py-0 text-sm" value={from} onChange={(e) => setFrom(Number(e.target.value))} aria-label="Quiet hours start">{hours.map((h) => <option key={h} value={h}>{h12(h)}</option>)}</select>
+            <span className="text-muted">to</span>
+            <select className="input min-h-9 w-auto py-0 text-sm" value={to} onChange={(e) => setTo(Number(e.target.value))} aria-label="Quiet hours end">{hours.map((h) => <option key={h} value={h}>{h12(h)}</option>)}</select>
+          </div>
+        )}
+      </div>
+      <button className="btn-primary mt-5" disabled={busy || (mode === "times" && !times.length)} onClick={() => void save()}>{busy ? <Loader2 size={16} className="animate-spin" /> : <Check size={16} />} Save schedule</button>
     </section>
   );
 }

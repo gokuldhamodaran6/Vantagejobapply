@@ -7,6 +7,7 @@ import { dailyLimit, effectivePlan, PER_EMPLOYER_30D } from "@/lib/access";
 import { prepareAndQueue } from "./prepare";
 import { autoSkipReason, DEFAULT_FRESH_DAYS, interleaveByPriority, roleKey, taskPriority } from "./plan";
 import { rpc, wakeWorker } from "./svc";
+import { runNow, type AutoSchedule } from "./schedule";
 import { ingestSecret, supabaseAnon } from "@/lib/supabase/server";
 import type { Job, TargetPrefs, TargetRole, WorkAuth } from "@/lib/types";
 
@@ -39,12 +40,16 @@ export async function autoSource(deadline: number) {
   for (const u of users) {
     if (Date.now() > deadline) break;
     // auto_users doesn't carry every setting; read the person's volume settings and recent employers.
-    const lim = await supabaseAnon().rpc("agent_limits", { secret: ingestSecret(), p_user: u.user_id }).then((r) => (r.data as { daily_limit: number | null; high_volume_ok: boolean | null; employers: Record<string, number> } | null), () => null);
+    const lim = await supabaseAnon().rpc("agent_limits", { secret: ingestSecret(), p_user: u.user_id }).then((r) => (r.data as { daily_limit: number | null; high_volume_ok: boolean | null; employers: Record<string, number>; schedule?: AutoSchedule } | null), () => null);
+    // Their schedule: set times (in their own time zone) and quiet hours. Outside it, this run doesn't look for jobs.
+    const when = runNow(lim?.schedule || null, Date.now());
+    if (!when.run) { detail[u.user_id] = { searched: 0, candidates: 0, skipped: { "Not a scheduled time": 1 }, errors: [] }; continue; }
     const limit = dailyLimit({ daily_limit: lim?.daily_limit ?? u.daily_limit, high_volume_ok: lim?.high_volume_ok ?? u.high_volume_ok }, effectivePlan(null, u.role));
     const recentByEmployer = lim?.employers || {};
     const remaining = limit - (u.today || 0);
     if (remaining <= 0 || !u.roles.length) continue;
-    const perRun = Math.min(remaining, 8);
+    // With set times, today's remaining applications are spread over the runs still to come.
+    const perRun = Math.min(remaining, Math.max(1, Math.ceil(remaining / when.runsLeft)), when.runsLeft > 1 || lim?.schedule ? 15 : 8);
     const known = new Set(u.known_jobs || []);
     const sentRoles = new Set(u.known_roles || []);
     const since = new Date(Date.now() - (u.prefs?.max_days_old || DEFAULT_FRESH_DAYS) * 864e5).toISOString();

@@ -167,6 +167,8 @@ async function handle(req: Request, op: string) {
       const t = await rpc<{ status: string; user_input: Record<string, unknown>; user_id: string; apply_url: string; started_at: string | null; locked_at: string | null; job: { company: string } } | null>("task", { task_id: taskId });
       if (!t) return j({ cancelled: true });
       if (t.status === "cancelled") return j({ cancelled: true });
+      // Waiting on the person (take control, hand-back, Submit): only their state, no mail lookups.
+      if (body.lite) return j({ status: t.status, userInput: t.user_input });
       // Only codes that arrived during this run, from the employer or its careers system.
       const floor = Date.parse(t.started_at || "") || Date.now() - 15 * 60 * 1000;
       const asked = Date.parse(String(body.since || "")) || floor;
@@ -201,7 +203,7 @@ async function handle(req: Request, op: string) {
       }
       // A verification link is opened only if it points at the same site the agent is applying on.
       const link = pick?.link && domains.some((d) => hostOf(pick.link!).endsWith(d)) ? pick.link : null;
-      return j({ userInput: t.user_input, code: pick?.code || null, link });
+      return j({ status: t.status, userInput: t.user_input, code: pick?.code || null, link });
     }
 
     if (op === "credential") {

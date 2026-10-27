@@ -10,12 +10,21 @@ import { supabaseBrowser } from "@/lib/supabase/client";
 import { initials, timeAgo, tintFor } from "@/lib/format";
 import { dailyLimit, effectivePlan } from "@/lib/access";
 import { limitDayStart } from "@/lib/agent/plan";
+import { cleanSchedule, inQuietHours, todaysRuns, type AutoSchedule } from "@/lib/agent/schedule";
 import { ACTIVE, NEEDS_YOU, STATUS_META, statusLine, type AgentTask } from "@/lib/agent/status";
 import { Activity } from "./activity";
+import { FinishPanel } from "./finish";
 import { MatchedWaiting } from "./pipeline";
 import { agoShort, countsToday, patch, useAgentData, useTicker, type RetryRow } from "./shared";
 
-type Setup = { mailbox: { address: string; status: string } | null; profileDone: boolean; consent: boolean; hasResume: boolean };
+type LinkPreview = {
+  job: { id: string; title: string; company: string; location: string | null; remote: boolean; posted_at: string | null; url: string; pay: string | null };
+  match: { score: number; eligible: boolean; blockers: string[]; warnings: string[]; reasons: string[]; role: { id: string; title: string } | null };
+  site: { system: string; host: string; account: boolean };
+  duplicate: string | null;
+  closed: boolean;
+};
+type Setup = { mailbox: { address: string; status: string } | null; profileDone: boolean; consent: boolean; hasResume: boolean; schedule: AutoSchedule };
 
 const STAGES = ["Open the job", "Account & email", "Fill the form", "Submit"];
 function stageOf(t: AgentTask) {
@@ -44,13 +53,36 @@ export default function AgentPage() {
   const [toast, setToast] = useState<string | null>(null);
   const [agentUp, setAgentUp] = useState<boolean | null>(null);
   const now = useTicker(5000);
+  // "Finish in Vantage": one job open in the in-app browser.
+  const [panelId, setPanelId] = useState<string | null>(null);
+  const [panelTask, setPanelTask] = useState<AgentTask | null>(null);
+  useEffect(() => {
+    if (!panelId) return setPanelTask(null);
+    let stop = false;
+    supabaseBrowser().from("agent_tasks").select("*").eq("id", panelId).maybeSingle().then(({ data }) => { if (!stop && data) setPanelTask(data as AgentTask); });
+    return () => { stop = true; };
+  }, [panelId, version]);
+  useEffect(() => {
+    if (!panelId) return;
+    const i = setInterval(() => void resync(), 2000);
+    return () => clearInterval(i);
+  }, [panelId, resync]);
+  const openPanel = useCallback(async (t: AgentTask, start = true) => {
+    if (start) {
+      const r = await patch(t.id, { action: "open_here" });
+      if (!r.ok) return setToast(r.error || "Couldn't open it here.");
+    }
+    setPanelId(t.id);
+    void resync();
+  }, [resync]);
 
   const loadSetup = useCallback(async () => {
     const s = supabaseBrowser();
-    const [m, a, r] = await Promise.all([
+    const [m, a, r, p] = await Promise.all([
       s.from("mail_accounts").select("address,status").maybeSingle(),
       s.from("applicant_profiles").select("*").maybeSingle(),
       s.from("resumes").select("id", { count: "exact", head: true }),
+      s.from("profiles").select("auto_schedule").maybeSingle(),
     ]);
     const ap = a.data as Record<string, unknown> | null;
     setSetup({
@@ -58,6 +90,7 @@ export default function AgentPage() {
       profileDone: Boolean(ap && ap.phone && ap.city && ap.country),
       consent: Boolean(ap?.agent_consent),
       hasResume: (r.count || 0) > 0,
+      schedule: cleanSchedule((p.data as { auto_schedule: AutoSchedule } | null)?.auto_schedule || null),
     });
   }, []);
 
@@ -104,15 +137,32 @@ export default function AgentPage() {
     };
   }, [waiting, busyNow]);
 
-  async function applyLink() {
+  // Paste a link: Vantage reads it first and shows what it is; then you choose what happens.
+  const [preview, setPreview] = useState<LinkPreview | null>(null);
+  async function readLink() {
     if (!/^https?:\/\//i.test(link.trim())) return setToast("Paste the full job link, starting with https://");
     setBusy(true);
-    const r = await fetch("/api/agent/tasks", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ link: link.trim() }) }).catch(() => null);
+    setPreview(null);
+    const r = await fetch("/api/agent/tasks/preview", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ link: link.trim() }) }).catch(() => null);
     const d = r ? await r.json().catch(() => ({})) : { error: "Network error. Try again." };
     setBusy(false);
-    if (!r?.ok) return setToast(d.error || "Couldn't start that application.");
+    if (!r?.ok) return setToast(d.error || "Couldn't read that job link.");
+    setPreview(d as LinkPreview);
+  }
+  async function applyLink(how: "now" | "next" | "later") {
+    setBusy(true);
+    const r = await fetch("/api/agent/tasks", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ link: link.trim(), later: how === "later", roleId: preview?.match.role?.id || null }) }).catch(() => null);
+    const d = r ? await r.json().catch(() => ({})) : { error: "Network error. Try again." };
+    if (!r?.ok) { setBusy(false); return setToast(d.error || "Couldn't start that application."); }
     setLink("");
-    setToast(`Preparing ${d.job.title} at ${d.job.company} — tailored resume and cover letter, then applying.`);
+    setPreview(null);
+    if (how === "now") {
+      const { data: t } = await supabaseBrowser().from("agent_tasks").select("*").eq("job_id", d.job.id).order("created_at", { ascending: false }).limit(1).maybeSingle();
+      setBusy(false);
+      if (t) return void openPanel(t as AgentTask);
+    }
+    setBusy(false);
+    setToast(how === "later" ? `${d.job.company} saved — it waits in Your agent for your OK.` : `${d.job.title} at ${d.job.company} is in Up next — tailored resume and cover letter, then your agent applies.`);
     void resync();
   }
 
@@ -213,11 +263,44 @@ export default function AgentPage() {
         <div className="relative">
           <p className="flex items-center gap-2 text-sm font-semibold text-brand-ink"><Link2 size={16} /> Apply from any job link</p>
           <h2 className="mt-1 text-xl font-bold">Paste a job from a company&apos;s careers site — your agent does the rest</h2>
-          <form className="mt-4 flex flex-col gap-2 sm:flex-row" onSubmit={(e) => { e.preventDefault(); applyLink(); }}>
-            <input className="input flex-1" placeholder="https://boards.greenhouse.io/… · jobs.lever.co/… · company.wd5.myworkdayjobs.com/…" value={link} onChange={(e) => setLink(e.target.value)} aria-label="Job link" />
-            <button className="btn-pink whitespace-nowrap" disabled={busy || !link.trim()}>{busy ? <Loader2 size={16} className="animate-spin" /> : <Sparkles size={16} />} Apply with agent</button>
+          <form className="mt-4 flex flex-col gap-2 sm:flex-row" onSubmit={(e) => { e.preventDefault(); void readLink(); }}>
+            <input className="input flex-1" placeholder="https://boards.greenhouse.io/… · jobs.lever.co/… · company.wd5.myworkdayjobs.com/…" value={link} onChange={(e) => { setLink(e.target.value); setPreview(null); }} aria-label="Job link" />
+            <button className="btn-pink whitespace-nowrap" disabled={busy || !link.trim()}>{busy ? <Loader2 size={16} className="animate-spin" /> : <Sparkles size={16} />} Read job</button>
           </form>
-          <p className="mt-2 text-xs text-muted">Works with Greenhouse, Lever, Ashby, Workday, Workable and most company sites. Vantage also starts watching that company for new roles.</p>
+          {preview ? (
+            <div className="mt-4 rounded-2xl border border-line bg-surface p-4 sm:p-5">
+              <div className="flex flex-wrap items-start gap-3">
+                <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-sm font-bold" style={tintFor(preview.job.company)}>{initials(preview.job.company)}</span>
+                <div className="min-w-0 flex-1">
+                  <p className="text-lg font-bold">{preview.job.title}</p>
+                  <p className="text-sm text-muted">{[preview.job.company, preview.job.location, preview.job.remote ? "Remote" : null, preview.job.pay, preview.job.posted_at ? `posted ${timeAgo(preview.job.posted_at)}` : null].filter(Boolean).join(" · ")}</p>
+                </div>
+                <div className="text-right"><p className={`text-2xl font-bold ${preview.match.eligible ? "text-green-ink" : "text-red-ink"}`}>{preview.match.eligible ? `${preview.match.score}%` : "—"}</p><p className="text-xs text-muted">{preview.match.eligible ? "match" : "can't hire you"}</p></div>
+              </div>
+              <div className="mt-3 flex flex-wrap gap-1.5">
+                <Badge tone="gray">{preview.site.system}</Badge>
+                <Badge tone={preview.site.account ? "orange" : "green"}>{preview.site.account ? "Needs an account — your agent creates it" : "No account needed"}</Badge>
+                <Badge tone={preview.duplicate ? "red" : "green"}>{preview.duplicate ? "Applied before" : "Not applied before"}</Badge>
+                {preview.match.role && <Badge tone="blue">{preview.match.role.title}</Badge>}
+                {preview.match.blockers.map((b) => <Badge key={b} tone="red">{b}</Badge>)}
+                {preview.match.warnings.slice(0, 2).map((w) => <Badge key={w} tone="orange">{w}</Badge>)}
+              </div>
+              {preview.match.reasons.length > 0 && <p className="mt-3 text-sm text-ink-2"><b>Why it fits:</b> {preview.match.reasons.join(" · ")}</p>}
+              {preview.duplicate || preview.closed ? (
+                <p className="mt-3 text-sm font-semibold text-red-ink">{preview.closed ? `${preview.job.company} has closed this job.` : `${preview.duplicate} — it won't be sent again.`}</p>
+              ) : (
+                <div className="mt-4 flex flex-wrap gap-2">
+                  <button className="btn-primary" disabled={busy} onClick={() => void applyLink("now")}><MonitorPlay size={16} /> Apply now in Vantage</button>
+                  <button className="btn-secondary" disabled={busy} onClick={() => void applyLink("next")}>Add to Up next</button>
+                  <button className="btn-ghost" disabled={busy} onClick={() => void applyLink("later")}>Save for later</button>
+                  <a className="btn-ghost" href={preview.job.url} target="_blank" rel="noopener noreferrer">View posting <ExternalLink size={14} /></a>
+                </div>
+              )}
+              <p className="mt-3 text-xs text-muted">A resume is tailored for this job when you choose. The form&apos;s questions are read when it opens — known ones fill from your answers, new ones come to you.</p>
+            </div>
+          ) : (
+            <p className="mt-2 text-xs text-muted">Works with Greenhouse, Lever, Ashby, Workday, Workable and most company sites. Vantage reads the job first, then you choose — apply now while watching, add it to Up next, or save it.</p>
+          )}
         </div>
       </section>
 
@@ -229,6 +312,18 @@ export default function AgentPage() {
               ? `Your agent applies to your best new matches (up to ${limit} a day, ${Math.max(0, limit - usedToday)} left today)${profile?.autonomy === "approve_important" ? ", and asks you first for target companies and top matches" : profile?.autonomy === "approve_all" ? ", and waits for your OK on each one" : ""}.`
               : "Your agent only applies when you press “Apply with agent” or paste a link. Turn this on to let it find and apply to new matches by itself."}
           </p>
+          {profile?.agent_enabled && setup && (() => {
+            const runs = todaysRuns(setup.schedule, now);
+            const quiet = inQuietHours(setup.schedule, now);
+            return (
+              <div className="mt-2 flex flex-wrap items-center gap-1.5 text-xs">
+                {runs.length ? runs.map((r) => (
+                  <span key={r.time} className={`rounded-full px-2.5 py-1 font-semibold ${r.state === "done" ? "bg-green-tint text-green-ink" : r.state === "next" ? "bg-brand-tint text-brand-ink" : "bg-line-2 text-muted"}`}>{r.state === "done" ? "✓ " : r.state === "next" ? "Next · " : ""}{r.label}</span>
+                )) : <span className="rounded-full bg-line-2 px-2.5 py-1 font-semibold text-muted">{quiet ? "Quiet hours — resumes in the morning" : "Checks for new jobs every 10 minutes"}</span>}
+                <Link href="/app/settings#schedule" className="ml-1 font-semibold text-brand-ink">Change schedule</Link>
+              </div>
+            );
+          })()}
         </div>
         <button
           role="switch"
@@ -291,6 +386,7 @@ export default function AgentPage() {
                 {t.status === "waiting_code" && siteCode(t) && !codeNeedsYou(t, hasMailbox, now) && (
                   <p className="mt-2 flex items-start gap-2 rounded-lg border border-brand/20 bg-brand-tint px-3 py-2 text-[13px] text-ink-2"><Mail size={15} className="mt-0.5 shrink-0 text-brand" /> {siteCode(t)!.system} emailed a security code to {siteCode(t)!.sentTo}. Your agent is reading it from your inbox and will submit in a few seconds — nothing to do.</p>
                 )}
+                <button className="btn-secondary mt-3 min-h-9 text-[13px]" onClick={() => void openPanel(t)}><MonitorPlay size={15} /> Watch live in Vantage</button>
                 {liveNow.length > 1 && <p className="mt-2 text-xs text-muted">+{liveNow.length - 1} more in progress</p>}
               </div>
             );
@@ -370,7 +466,7 @@ export default function AgentPage() {
             <AnimatePresence initial={false}>
               {needs.map((t) => (
                 <motion.div key={t.id} layout initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, height: 0 }}>
-                  <NeedCard t={t} hasMailbox={hasMailbox} consent={Boolean(setup?.consent)} onDone={(m) => { setToast(m); void resync(); }} />
+                  <NeedCard t={t} hasMailbox={hasMailbox} consent={Boolean(setup?.consent)} onOpen={(x) => void openPanel(x)} onDone={(m) => { setToast(m); void resync(); }} />
                 </motion.div>
               ))}
             </AnimatePresence>
@@ -389,7 +485,19 @@ export default function AgentPage() {
         onRetry={retrySafe}
         onChange={() => void resync()}
         onToast={setToast}
+        onOpen={(t) => void openPanel(t)}
       />
+      {panelId && (
+        <FinishPanel
+          task={panelTask}
+          others={[...needs, ...liveNow, ...upNext]}
+          onClose={() => setPanelId(null)}
+          onOpen={(t) => void openPanel(t)}
+          onToast={setToast}
+          onChange={() => void resync()}
+          renderAsk={(t) => <NeedCard t={t} hasMailbox={hasMailbox} consent={Boolean(setup?.consent)} onDone={(m) => { setToast(m); void resync(); }} />}
+        />
+      )}
       <Toast message={toast} onClose={() => setToast(null)} />
     </>
   );
@@ -542,7 +650,7 @@ function ReviewCard({ t, head, busy, act }: { t: AgentTask; head: ReactNode; bus
   );
 }
 
-function NeedCard({ t, hasMailbox, consent, onDone }: { t: AgentTask; hasMailbox: boolean; consent: boolean; onDone: (msg: string) => void }) {
+function NeedCard({ t, hasMailbox, consent, onDone, onOpen }: { t: AgentTask; hasMailbox: boolean; consent: boolean; onDone: (msg: string) => void; onOpen?: (t: AgentTask) => void }) {
   // Eligibility questions come with what your profile suggests, pre-selected — you confirm it for this exact wording.
   const [vals, setVals] = useState<Record<string, string>>(() => Object.fromEntries((t.needs || []).filter((n) => n.suggest).map((n) => [n.id, n.suggest as string])));
   const [busy, setBusy] = useState(false);
@@ -658,9 +766,9 @@ function NeedCard({ t, hasMailbox, consent, onDone }: { t: AgentTask; hasMailbox
     return (
       <div className="card border-orange/30 p-5">
         {head}
-        <p className="mt-2 text-sm">{t.job.company}&apos;s site wants a quick “I&apos;m human” check. Everything else is filled in. Open the check, complete it, and your agent carries on by itself — this window closes when it&apos;s done.</p>
+        <p className="mt-2 text-sm">{(t.needs as { kind?: string }[] | null)?.[0]?.kind === "submit_gate" ? `Everything is filled on ${t.job.company}'s form. Open it in Vantage, check the page and press Submit — or let your agent press it.` : (t.needs as { kind?: string }[] | null)?.[0]?.kind === "handoff" ? (t.step || "").replace(/^Your turn:\s*/, "") : `${t.job.company}'s site wants a quick “I'm human” check. Everything else is filled in. Open it in Vantage, do the check, and your agent carries on by itself.`}</p>
         <div className="mt-4 flex flex-wrap gap-2">
-          <button className="btn-pink" onClick={openLive}><MonitorPlay size={16} /> Do the human check</button>
+          <button className="btn-pink" onClick={() => (onOpen ? onOpen(t) : void openLive())}><MonitorPlay size={16} /> Open in Vantage</button>
           <a className="btn-ghost" href={`${t.apply_url.split("#")[0]}#vantage-apply`} target="_blank" rel="noopener noreferrer" title="Needs the Vantage Chrome extension"><ExternalLink size={16} /> Finish in my browser instead</a>
         </div>
         {liveUrl && (
@@ -691,6 +799,7 @@ function NeedCard({ t, hasMailbox, consent, onDone }: { t: AgentTask; hasMailbox
         <p className="mt-2 text-sm text-muted">Ready to apply with a tailored resume{t.cover_letter ? " and cover letter" : ""}.{t.job.match ? ` ${t.job.match}% match.` : ""}</p>
         <div className="mt-3 flex flex-wrap gap-2">
           <button className="btn-primary" disabled={busy} onClick={() => act({ action: "approve" }, "Approved — applying now.")}><Check size={16} /> Approve and apply</button>
+          {onOpen && <button className="btn-secondary" onClick={() => onOpen(t)}><MonitorPlay size={16} /> Apply in Vantage, watching</button>}
           {t.resume_id && <a className="btn-secondary" href={`/api/resume/${t.resume_id}/pdf?inline=1`} target="_blank" rel="noopener noreferrer"><FileText size={16} /> Resume</a>}
           {t.resume_id && t.cover_letter && <a className="btn-secondary" href={`/api/resume/${t.resume_id}/pdf?kind=cover&inline=1`} target="_blank" rel="noopener noreferrer">Cover letter</a>}
           <button className="btn-ghost" disabled={busy} onClick={() => act({ action: "cancel" }, "Skipped.")}><X size={16} /> Skip</button>
@@ -718,10 +827,11 @@ function NeedCard({ t, hasMailbox, consent, onDone }: { t: AgentTask; hasMailbox
     <div className="card p-5">
       {head}
       <p className="mt-2 text-sm">{t.error || t.step || "This application needs you to finish it on the company's site."}</p>
-      <p className="mt-1 text-xs text-muted">Nothing was submitted. “Finish in my browser” opens the job with the Vantage extension (if it&apos;s installed): it fills every page in your own Chrome and you press Submit.</p>
+      <p className="mt-1 text-xs text-muted">Nothing was submitted. <b>Finish in Vantage</b> opens {t.job.company}&apos;s real page right here: your agent signs in or creates the account, reads the email code and fills every page — you take over for anything only a person can do, and you approve Submit.</p>
       <div className="mt-3 flex flex-wrap gap-2">
-        <a className="btn-primary" href={`${(t.apply_url || t.job.url).split("#")[0]}#vantage-apply`} target="_blank" rel="noopener noreferrer"><ExternalLink size={15} /> Finish in my browser</a>
-        <button className="btn-secondary" disabled={busy} onClick={() => act({ action: "retry" }, "Your agent will try again.")}><RotateCcw size={16} /> Try again</button>
+        {onOpen && <button className="btn-primary" onClick={() => onOpen(t)}><MonitorPlay size={16} /> Finish in Vantage</button>}
+        <a className="btn-secondary" href={`${(t.apply_url || t.job.url).split("#")[0]}#vantage-apply`} target="_blank" rel="noopener noreferrer"><ExternalLink size={15} /> Finish in my Chrome</a>
+        <button className="btn-ghost" disabled={busy} onClick={() => act({ action: "retry" }, "Your agent will try again.")}><RotateCcw size={16} /> Try again</button>
         <button className="btn-ghost" disabled={busy} onClick={() => act({ action: "cancel" }, "Dismissed.")}>Dismiss</button>
       </div>
     </div>
