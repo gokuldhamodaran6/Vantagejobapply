@@ -137,7 +137,7 @@ async function ensureStream(s) {
       for (const res of st.subs) writeFrame(res, buf);
       cdp.send("Page.screencastFrameAck", { sessionId }).catch(() => {});
     });
-    await cdp.send("Page.startScreencast", { format: "jpeg", quality: 72, maxWidth: vp.width, maxHeight: vp.height, everyNthFrame: 1 });
+    await cdp.send("Page.startScreencast", { format: "jpeg", quality: 60, maxWidth: vp.width, maxHeight: vp.height, everyNthFrame: 1 });
   } catch (e) {
     console.error("screencast failed", e.message);
     st.cdp = null;

@@ -10,6 +10,14 @@ import { patch } from "./shared";
  * email code and fills every page; the person watches, takes control whenever a step needs them, and approves Submit.
  */
 const PROGRESS = ["Open", "Account", "Email code", "Fill", "Your Submit"] as const;
+/** Which steps this run has actually been through (from its own log), so nothing is ticked that didn't happen. */
+function reachedOf(t: AgentTask) {
+  const log = (t.log || []).map((l) => l.text.toLowerCase());
+  let start = 0;
+  log.forEach((l, i) => { if (/^opening /.test(l)) start = i; });
+  const run = log.slice(start).join(" | ");
+  return { account: /account|sign(ed)? in|signing in/.test(run), code: /code|verif/.test(run), fill: /fill|question|answer|next step|resume|page/.test(run) };
+}
 function progressOf(t: AgentTask) {
   if (t.status === "submitted") return 5;
   const kind = (t.needs as { kind?: string }[] | null)?.[0]?.kind;
@@ -152,9 +160,12 @@ export function FinishPanel({
               <p className="truncate text-xs text-muted">{task.job.match ? `${task.job.match}% match · ` : ""}Tailored resume · on {task.job.company}&apos;s own careers site</p>
             </div>
             <ol className="hidden items-center gap-1 text-[11px] font-semibold xl:flex" aria-label="Progress">
-              {PROGRESS.map((label, i) => (
-                <li key={label} className={`rounded-full px-2.5 py-1 ${i < p ? "bg-green-tint text-green-ink" : i === p ? (i === 4 ? "bg-orange-tint text-orange-ink" : "bg-brand-tint text-brand-ink") : "bg-line-2 text-subtle"}`}>{i < p ? "✓ " : ""}{label}</li>
-              ))}
+              {PROGRESS.map((label, i) => {
+                const r = reachedOf(task);
+                const happened = i === 0 || (i === 1 && r.account) || (i === 2 && r.code) || (i === 3 && r.fill) || (i === 4 && task.status === "submitted");
+                const done = i < p && happened;
+                return <li key={label} className={`rounded-full px-2.5 py-1 ${done ? "bg-green-tint text-green-ink" : i === p ? (i === 4 ? "bg-orange-tint text-orange-ink" : "bg-brand-tint text-brand-ink") : "bg-line-2 text-subtle"}`}>{done ? "✓ " : ""}{label}</li>;
+              })}
             </ol>
             {src && !done && !stopped && (
               <button className={`min-h-10 rounded-lg px-3.5 text-sm font-semibold transition ${you ? "bg-brand text-white" : "bg-orange-tint text-orange-ink hover:bg-orange/20"}`} onClick={() => setMode(!you)} aria-pressed={you}>

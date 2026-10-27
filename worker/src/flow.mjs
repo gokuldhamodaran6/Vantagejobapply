@@ -361,6 +361,8 @@ export async function runTask(bundle, browser) {
         }
       }
     }
+    // Out of steps before Submit: in the in-app browser the person takes it from here (e.g. a sign-in page).
+    if (!bundle.submitPressed) throw new Stop("manual", "Your agent couldn't get past this page by itself — nothing was sent.");
     break;
     } catch (e) {
       if (!(e instanceof Stop) || !canHandOff(bundle, e, round)) throw e;
