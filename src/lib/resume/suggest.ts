@@ -25,7 +25,7 @@ Use standard, common titles (e.g. "Product Analyst", not "Data & Product Wizard"
 Return ONLY JSON: [{"title":string,"fit":"strong"|"adjacent"|"switch","why":string}]`,
       [{ role: "user", content: JSON.stringify({ headline: r.headline, summary: r.summary, experience: (r.experience || []).map((e) => ({ title: e.title, company: e.company, start: e.start, end: e.end, bullets: e.bullets.slice(0, 3) })), skills: r.skills, education: r.education, certifications: r.certifications, projects: r.projects }).slice(0, 9000) }],
       900,
-      { model: "fast", temperature: 0.3 },
+      { model: "fast", temperature: 0.3, feature: "suggest-roles" },
     );
     for (const s of extractJson<RoleSuggestion[]>(res) || []) {
       if (s?.title && ["strong", "adjacent", "switch"].includes(s.fit)) add({ title: String(s.title).slice(0, 60), fit: s.fit, why: String(s.why || "").slice(0, 120) });

@@ -2,6 +2,7 @@ import { tailorForJob } from "@/lib/tailor";
 import { scoreResume } from "@/lib/ats";
 import { pickArm, STYLE_ARMS, styleStats, TONE_ARMS } from "@/lib/resume/learn";
 import { json, loadUserContext } from "@/lib/server-user";
+import { runWithAi } from "@/lib/ai-context";
 import type { Job, LetterTone, Resume, ResumeContent, ResumeStyle } from "@/lib/types";
 
 export const maxDuration = 120;
@@ -43,7 +44,7 @@ export async function POST(req: Request) {
     style ||= pickArm(st.styles, STYLE_ARMS, (base.style as ResumeStyle) || "classic");
   }
 
-  const result = await tailorForJob(base.content as ResumeContent, { title: job.title, company: job.company, description: job.description, country: job.country, location: job.location }, ctx.profile.full_name || "", tone);
+  const result = await runWithAi({ userId: ctx.user.id, feature: "tailor" }, () => tailorForJob(base.content as ResumeContent, { title: job.title, company: job.company, description: job.description, country: job.country, location: job.location }, ctx.profile.full_name || "", tone));
   const report = scoreResume(result.resume, result.keywords);
   await ctx.supabase.from("usage_events").insert({ user_id: ctx.user.id, type: "tailor", meta: { job: job.id, ai: result.ai, tone, style } });
   return json({ ...result, report, style, baseResumeId: base.id, baseName: base.name });

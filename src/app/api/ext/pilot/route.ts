@@ -1,6 +1,7 @@
 import { extJson, extUser, ownTask } from "@/lib/ext";
 import { loadBundle } from "@/lib/agent/bundle";
 import { cleanSnapshot, pilotCtx, pilotStep, type PilotHistory } from "@/lib/agent/pilot";
+import { runWithAi } from "@/lib/ai-context";
 
 export const maxDuration = 90;
 
@@ -15,6 +16,6 @@ export async function POST(req: Request) {
   if (!snap) return extJson({ error: "No page" }, 400);
   const b = await loadBundle(String(body.taskId));
   if (!b) return extJson({ error: "Not found" }, 404);
-  const turn = await pilotStep(snap, Array.isArray(body.history) ? body.history.slice(-4) : [], pilotCtx(b, "extension"));
+  const turn = await runWithAi({ userId: u.user_id, taskId: String(body.taskId), feature: "pilot-ext" }, () => pilotStep(snap, Array.isArray(body.history) ? body.history.slice(-4) : [], pilotCtx(b, "extension")));
   return extJson(turn);
 }

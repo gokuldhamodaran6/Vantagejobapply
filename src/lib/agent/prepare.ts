@@ -1,5 +1,6 @@
 import "server-only";
 import { tailorForJob } from "@/lib/tailor";
+import { runWithAi } from "@/lib/ai-context";
 import { scoreResume } from "@/lib/ats";
 import { pickArm, STYLE_ARMS, styleStats, TONE_ARMS } from "@/lib/resume/learn";
 import { applyTarget } from "./jobs";
@@ -62,7 +63,7 @@ export async function prepareAndQueue(input: {
       const s0 = style, t0 = tone;
       const tailor = async (taskId: string) => {
         const description = await fullDescription(job).catch(() => job.description);
-        const t = await tailorForJob(base.content, { title: job.title, company: job.company, description, country: job.country, location: job.location }, bestName(input.name, base.content?.name), t0);
+        const t = await runWithAi({ userId, taskId, feature: "tailor" }, () => tailorForJob(base.content, { title: job.title, company: job.company, description, country: job.country, location: job.location }, bestName(input.name, base.content?.name), t0));
         const report = scoreResume(t.resume, t.keywords);
         const saved = await rpcExt<{ id: string }>("save_resume", { user_id: userId, role_id: input.roleId || "", name: `${job.title} — ${job.company}`, content: t.resume, ats_score: report.score, style: s0 });
         await rpc("update", { task_id: taskId, resume_id: saved.id, cover_letter: t.coverLetter, log: "Tailored resume and cover letter ready" });
@@ -71,7 +72,7 @@ export async function prepareAndQueue(input: {
     }
     // Tailor against the full posting, read live from the employer (Vantage only stores a summary).
     const description = await fullDescription(job).catch(() => job.description);
-    const t = await tailorForJob(base.content, { title: job.title, company: job.company, description, country: job.country, location: job.location }, bestName(input.name, base.content?.name), tone);
+    const t = await runWithAi({ userId, feature: "tailor" }, () => tailorForJob(base.content, { title: job.title, company: job.company, description, country: job.country, location: job.location }, bestName(input.name, base.content?.name), tone));
     coverLetter = coverLetter || t.coverLetter;
     const report = scoreResume(t.resume, t.keywords);
     const saved = await rpcExt<{ id: string }>("save_resume", {
@@ -124,7 +125,7 @@ export async function ensureFreshTailoring(input: {
   const jd = await rpcExt<{ description: string | null; location: string | null; country: string | null } | null>("job", { job_id: input.jobId }).catch(() => null);
   const tone = (input.tone as LetterTone) || "confident";
   const fullText = await fullDescription({ ...(input.job as unknown as Job), id: input.jobId, description: jd?.description || null, desc_len: (jd as { desc_len?: number } | null)?.desc_len ?? 999999 }).catch(() => jd?.description || null);
-  const t = await tailorForJob(base.content, { title: input.job.title, company: input.job.company, description: fullText || jd?.description || null, country: input.job.country || jd?.country || "US", location: input.job.location || jd?.location }, input.fullName || input.name, tone);
+  const t = await runWithAi({ userId: input.userId, taskId: input.taskId, feature: "tailor" }, () => tailorForJob(base.content, { title: input.job.title, company: input.job.company, description: fullText || jd?.description || null, country: input.job.country || jd?.country || "US", location: input.job.location || jd?.location }, input.fullName || input.name, tone));
   // The rewrite itself must pass the gate; otherwise keep the clean base resume rather than send something broken.
   const content = resumeIssues(t.resume, input.fullName).length ? base.content : t.resume;
   const report = scoreResume(content, t.keywords);

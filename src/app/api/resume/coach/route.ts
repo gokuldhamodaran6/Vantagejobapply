@@ -2,6 +2,7 @@ import { json, loadUserContext } from "@/lib/server-user";
 import { marketKeywords } from "@/lib/resume/market";
 import { assessFit, coachQuestions, FIT_VERSION, type Coach, type CoachAnswer } from "@/lib/resume/coach";
 import { writeRoleResume } from "@/lib/resume/write-role";
+import { runWithAi } from "@/lib/ai-context";
 import type { ResumeContent } from "@/lib/types";
 
 export const maxDuration = 120;
@@ -25,7 +26,7 @@ export async function POST(req: Request) {
     if (!master) return json({ error: "Upload your resume first." }, 400);
     const kws = await marketKeywords(ctx.supabase, role.title, country);
     const fit = assessFit(master.content as ResumeContent, role.title, kws);
-    const questions = await coachQuestions(master.content as ResumeContent, role.title, fit);
+    const questions = await runWithAi({ userId: ctx.user.id }, () => coachQuestions(master.content as ResumeContent, role.title, fit));
     const next: Coach = { ...coach, v: FIT_VERSION, fit, questions, assessedAt: new Date().toISOString() };
     await ctx.supabase.from("target_roles").update({ coach: next }).eq("id", role.id);
     return json({ coach: next });
