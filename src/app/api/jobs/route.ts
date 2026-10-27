@@ -4,7 +4,9 @@ import { json, loadUserContext } from "@/lib/server-user";
 import { keyOf, memo } from "@/lib/memo";
 
 export async function GET(req: NextRequest) {
+  const t0 = Date.now();
   const ctx = await loadUserContext();
+  const ctxMs = Date.now() - t0;
   if (!ctx) return json({ error: "Log in to search jobs." }, 401);
 
   const sp = req.nextUrl.searchParams;
@@ -26,7 +28,7 @@ export async function GET(req: NextRequest) {
     const run = () => searchForUser(ctx.supabase, { roles: ctx.roles, prefs: ctx.prefs, auth: ctx.auth, roleLimit: ctx.plan.limits.roles }, input);
     const out = sp.get("fresh") === "1" ? await run() : await memo(keyOf("jobs", ctx.user.id, input, ctx.roles, ctx.prefs, ctx.auth), 2 * 60_000, run);
     ctx.supabase.from("usage_events").insert({ user_id: ctx.user.id, type: "job_search", meta: { country, n: out.results.length, ms: Date.now() - started } }).then(() => {});
-    return json({ ...out, country, tookMs: Date.now() - started });
+    return json({ ...out, country, tookMs: Date.now() - started, ctxMs });
   } catch (e) {
     console.error("job search failed", e);
     return json({ error: "Job search is temporarily unavailable. Try again in a minute." }, 500);
