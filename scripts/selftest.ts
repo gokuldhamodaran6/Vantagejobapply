@@ -19,6 +19,7 @@ import { siteKey } from "../src/lib/agent/sites";
 import { isJobMail } from "../src/lib/agent/mailsync";
 import { __validate, __line } from "../src/lib/agent/pilot";
 import { autoFix, checkResume } from "../src/lib/resume/check";
+import { cleanOptions, isCodeQuestion } from "../src/lib/agent/options";
 import { testCtx } from "../src/lib/agent/pilot-test";
 import { isPrivateIp } from "../src/lib/net";
 import { parseEventText, parseIcs } from "../src/lib/mail-event";
@@ -331,6 +332,14 @@ ok(isJobMail({ kind: "other", from_addr: "no-reply@us.greenhouse-mail.io", subje
   ok(f.name === "Priya Raman" && f.experience!.length === 2 && f.experience![0].company === "Globex" && f.experience![1].bullets[0] === "Built dashboards for sales team, cutting reporting time 40%", "fix my resume: fixed name, one Globex role first, cut line joined");
   ok(f.experience![1].start === "Jan 2019" && f.experience![1].title === "Analyst" && (f.links || []).includes("linkedin.com/in/priya") && f.skills!.flatMap((g) => g.items).length === 2, "fix my resume: one date style, normal capitals, link moved, repeats dropped");
   ok(JSON.stringify(f).length <= JSON.stringify(r).length + 40, "fix my resume: nothing is added");
+}
+
+// Questions shown to the person: real choices only; one-time code boxes are never asked.
+{
+  const q = "Are you eligible to work in the United States without Visa sponsorship, either now or in the future ?";
+  const o = cleanOptions(q, ["NO", "YES", "Are you eligible to work in the United States without Visa sponsorship, either now or in the future (eg. F1, H-1B)? NO", "NO", "Select..."]);
+  ok(o?.join() === "NO,YES", "options: the widget's own display text, placeholders and repeats are dropped");
+  ok(isCodeQuestion("Enter verification code 1") && isCodeQuestion("Security code") && !isCodeQuestion("Zip code") && !isCodeQuestion("Postal code"), "options: one-time code boxes are recognised (zip codes aren't)");
 }
 
 // AI usage meter: price table, token mapping, and that a call is recorded with its user and feature.

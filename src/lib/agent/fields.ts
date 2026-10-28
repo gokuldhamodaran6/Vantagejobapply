@@ -2,6 +2,7 @@ import "server-only";
 import { aiConfigured, claude, extractJson } from "@/lib/ai";
 import { authorisedNow, needsSponsorshipLater, workAuthAnswers } from "@/lib/answers";
 import type { ResumeContent, WorkAuth } from "@/lib/types";
+import { cleanOptions, isCodeQuestion } from "./options";
 
 /** A form control the worker found on an employer's application page. */
 export type FormField = {
@@ -376,7 +377,7 @@ export async function planFields(
       } else if (v && !f.options?.length) fills.push({ id: f.id, value: v });
       else if (f.required || !v) {
         // Optional statements are left blank rather than guessed.
-        if (f.required) missing.push({ id: f.id, qkey: qkeyOf(f.label), label: coreLabel(f.label), type: f.type, options: f.options, required: true, locked: lk, suggest: suggestLocked(lk, label, f, ctx.facts) || undefined });
+        if (f.required && !isCodeQuestion(f.label)) missing.push({ id: f.id, qkey: qkeyOf(f.label), label: coreLabel(f.label), type: f.type, options: cleanOptions(f.label, f.options), required: true, locked: lk, suggest: suggestLocked(lk, label, f, ctx.facts) || undefined });
       }
       continue;
     }
@@ -507,7 +508,7 @@ Return ONLY JSON {"<id>": "<value or ASK>"}.`,
         continue;
       }
     }
-    if (f.required) missing.push({ id: f.id, qkey: qkeyOf(f.label), label: coreLabel(f.label), type: f.type, options: f.options, required: true, ...(isConsent(f) ? { kind: "consent" as const } : {}) });
+    if (f.required && !isCodeQuestion(f.label)) missing.push({ id: f.id, qkey: qkeyOf(f.label), label: coreLabel(f.label), type: f.type, options: cleanOptions(f.label, f.options), required: true, ...(isConsent(f) ? { kind: "consent" as const } : {}) });
   }
   return { fills, missing };
 }

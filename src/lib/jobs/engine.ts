@@ -125,6 +125,17 @@ function cachedSearch(supabase: SupabaseClient, country: string, tsquery: string
   });
 }
 
+/**
+ * The same shared search, for server jobs without a signed-in user (auto-apply): same question, same answer as the
+ * person's own Matched & waiting panel — and whichever asks first fills the cache for the other.
+ */
+export function sharedSearch(country: string, phrases: string[], run: (country: string, tsquery: string, since: string) => Promise<unknown[]>) {
+  const tsquery = titleTsQuery(phrases);
+  const since = new Date(Date.now() - LIVE_MAX_DAYS * 864e5).toISOString();
+  const hour = new Date(Math.floor(Date.parse(since) / 3_600_000) * 3_600_000).toISOString();
+  return memo(keyOf("search", country, tsquery, hour), 3 * 60_000, async () => ({ data: await run(country, tsquery, hour), error: null as null | { message: string } }));
+}
+
 export async function searchForUser(
   supabase: SupabaseClient,
   ctx: { roles: TargetRole[]; prefs: TargetPrefs | null; auth: WorkAuth[]; roleLimit: number },

@@ -9,6 +9,7 @@ import { useMe } from "@/lib/me";
 import { supabaseBrowser } from "@/lib/supabase/client";
 import { initials, timeAgo, tintFor } from "@/lib/format";
 import { dailyLimit, effectivePlan } from "@/lib/access";
+import { cleanOptions, isCodeQuestion } from "@/lib/agent/options";
 import { limitDayStart } from "@/lib/agent/plan";
 import { cleanSchedule, inQuietHours, todaysRuns, type AutoSchedule } from "@/lib/agent/schedule";
 import { ACTIVE, NEEDS_YOU, STATUS_META, statusLine, type AgentTask } from "@/lib/agent/status";
@@ -488,7 +489,7 @@ function tidy(n: AgentTask["needs"][number]): AgentTask["needs"][number] {
   const label = (again > 0 ? t.slice(0, again) : t).trim();
   const opts = n.options || [];
   const foreign = opts.length > 20 && opts.filter((o) => /\+\d{1,4}$/.test(o.trim())).length > opts.length / 2; // a phone country-code list
-  return { ...n, label, options: foreign ? undefined : n.options };
+  return { ...n, label, options: foreign ? undefined : cleanOptions(label, n.options) };
 }
 
 type SiteCode = { kind: "site_code"; system: string; company: string; sentTo: string; length: number | null; auto: boolean; purpose?: "application" | "account"; startedAt: string; expiresAt: string; error?: string };
@@ -789,6 +790,7 @@ function AskOnce({ tasks, onDone }: { tasks: AgentTask[]; onDone: (m: string) =>
   const groups = useMemo(() => {
     const m = new Map<string, { n: AgentTask["needs"][number]; companies: string[] }>();
     for (const t of tasks) for (const raw of t.needs || []) {
+      if (isCodeQuestion(raw.label || "")) continue; // codes are read from the mailbox, never saved as answers
       const n = tidy(raw);
       const g = m.get(n.qkey || n.label);
       if (g) { if (!g.companies.includes(t.job.company)) g.companies.push(t.job.company); }

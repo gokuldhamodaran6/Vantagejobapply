@@ -1,7 +1,7 @@
 import "server-only";
 import { matchJob } from "@/lib/jobs/match";
 import { searchVariants } from "@/lib/jobs/roles";
-import { titleTsQuery } from "@/lib/jobs/engine";
+import { sharedSearch, titleTsQuery } from "@/lib/jobs/engine";
 import { normCompany } from "@/lib/jobs/signals";
 import { dailyLimit, effectivePlan, PER_EMPLOYER_30D } from "@/lib/access";
 import { prepareAndQueue } from "./prepare";
@@ -60,10 +60,19 @@ export async function autoSource(deadline: number) {
       // One small search per target role: each stays well inside the database's 3 s limit for server calls, and a
       // slow one (or a slow country) never stops the rest — a single combined search used to time out every run.
       const byId = new Map<string, Job>();
-      for (const r of u.roles) {
-        const got = await rpc<Job[]>("search", { country, tsquery: titleTsQuery(searchVariants(r.title, 10)), since, limit: 150 })
-          .catch((e) => { d.errors.push(`search ${r.title}: ${String(e).slice(0, 80)}`); return null; });
-        for (const j of got || []) if (!byId.has(j.id)) byId.set(j.id, j);
+      // The same search as the person's "Matched & waiting" panel, so "Up next" is what the agent really takes.
+      const active = u.roles.filter((r) => r.active);
+      const all = await sharedSearch(country, [...new Set(active.flatMap((r) => searchVariants(r.title, 10)))],
+        (c, tsquery, from) => rpc<Job[]>("search", { country: c, tsquery, since: from, limit: 900 }).then((x) => x || []))
+        .then((x) => x.data as Job[]).catch((e) => { d.errors.push(`search: ${String(e).slice(0, 80)}`); return null; });
+      if (all) for (const j of all) byId.set(j.id, j);
+      else {
+        // Fallback: one small search per target role (each well inside the database's time limit).
+        for (const r of u.roles) {
+          const got = await rpc<Job[]>("search", { country, tsquery: titleTsQuery(searchVariants(r.title, 10)), since, limit: 200 })
+            .catch((e) => { d.errors.push(`search ${r.title}: ${String(e).slice(0, 80)}`); return null; });
+          for (const j of got || []) if (!byId.has(j.id)) byId.set(j.id, j);
+        }
       }
       const jobs = [...byId.values()];
       d.searched += jobs.length;
