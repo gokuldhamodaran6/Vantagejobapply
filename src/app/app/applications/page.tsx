@@ -1,17 +1,21 @@
 "use client";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Bot, Building2, CalendarPlus, ChevronDown, Download, ExternalLink, FileText, LayoutGrid, List, Mail, Search, ShieldCheck, Sparkles, User, X } from "lucide-react";
+import { Building2, CalendarPlus, Check, ChevronDown, Clock, Copy, Download, ExternalLink, FileText, Inbox, LayoutGrid, List, Mail, PenLine, Search, ShieldCheck, Sparkles, User, X } from "lucide-react";
 import { EmptyState, PageHeader } from "@/components/app-shell";
 import { Segmented, Toast } from "@/components/ui";
 import { useMe } from "@/lib/me";
 import { supabaseBrowser } from "@/lib/supabase/client";
 import { initials, timeAgo, tintFor } from "@/lib/format";
 import { RESUME_STYLES } from "@/lib/resume/styles";
-import { statusLine, type AgentTask } from "@/lib/agent/status";
+import { followUpDraft, followUpDue, FOLLOW_UP_DAYS } from "@/lib/mail-apply";
 import type { Application, AppStatus, ResumeStyle } from "@/lib/types";
 
-type App = Application & { source?: string | null; agent_task_id?: string | null; resume_style?: string | null; letter_tone?: string | null };
+/** `job.title_guess`: the inbox found the application but couldn't read the role, so the person is asked to confirm it. */
+type App = Application & {
+  job: Application["job"] & { title_guess?: boolean; board?: string | null };
+  source?: string | null; agent_task_id?: string | null; resume_style?: string | null; letter_tone?: string | null;
+};
 type ResumeLite = { id: string; name: string; style: string | null; ats_score: number | null; target_role_id: string | null; kind: string | null };
 type Mail = { id: string; subject: string; from_name: string; kind: string; received_at: string; snippet: string };
 type Range = "today" | "week" | "month" | "all";
@@ -40,10 +44,32 @@ const COLUMNS: { ids: AppStatus[]; title: string; dot: string }[] = [
 const RANGE_DAYS: Record<Range, number> = { today: 1, week: 7, month: 30, all: 0 };
 
 const sentAt = (a: App) => Date.parse(a.applied_at || a.created_at);
+const titleOf = (a: App) => (a.job.title_guess ? `Role at ${a.job.company}` : a.job.title);
+/** How the application got here. Older rows sent by the retired cloud agent read as "Vantage". */
+function sourceLabel(a: App, long = false) {
+  if (a.source === "email") return `Found in your inbox${a.job.board ? ` · ${a.job.board}` : ""}`;
+  if (a.source === "extension") return long ? "Applied by you with the Vantage extension" : "Applied by you · Vantage extension";
+  if (a.source === "agent") return "Applied with Vantage";
+  return "Added by you";
+}
+function InboxBadge() {
+  return <span className="chip inline-flex items-center gap-1 bg-green-tint text-green-ink"><Inbox size={12} /> Found in your inbox</span>;
+}
+function FollowUpChip({ days }: { days: number }) {
+  return <span className="chip inline-flex items-center gap-1 bg-orange-tint text-orange-ink"><Clock size={12} /> No reply in {days} days — follow up</span>;
+}
+async function copyText(text: string) {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    return false;
+  }
+}
 const dayKey = (t: number) => { const d = new Date(t); return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime(); };
 
 export default function ApplicationsPage() {
-  const { roles, userId } = useMe();
+  const { roles, userId, profile } = useMe();
   const [apps, setApps] = useState<App[] | null>(null);
   const [resumes, setResumes] = useState<Map<string, ResumeLite>>(new Map());
   const [range, setRange] = useState<Range>("week");
@@ -55,29 +81,23 @@ export default function ApplicationsPage() {
   const [open, setOpen] = useState<App | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [now, setNow] = useState(() => Date.now());
-  const [working, setWorking] = useState<AgentTask[]>([]);
 
   const load = useCallback(async () => {
     const s = supabaseBrowser();
-    const [a, r, w] = await Promise.all([
+    const [a, r] = await Promise.all([
       s.from("applications").select("*").order("applied_at", { ascending: false, nullsFirst: false }).limit(3000),
       s.from("resumes").select("id,name,style,ats_score,target_role_id,kind"),
-      s.from("agent_tasks").select("*").neq("mode", "dry_run").in("status", ["queued", "running", "waiting_code", "needs_user", "needs_human", "awaiting_approval"]).order("created_at"),
     ]);
     setApps((a.data as App[]) || []);
-    setWorking((w.data as AgentTask[]) || []);
     setResumes(new Map(((r.data as ResumeLite[]) || []).map((x) => [x.id, x])));
     setNow(Date.now());
   }, []);
   useEffect(() => {
     if (userId) load();
   }, [userId, load]);
-  // Keep the in-progress list live while the agent is working.
-  useEffect(() => {
-    if (!userId || !working.length) return;
-    const id = setInterval(load, 8000);
-    return () => clearInterval(id);
-  }, [userId, working.length, load]);
+  // Applications in "Applied" with no reply for 10+ days, oldest first.
+  const nudges = useMemo(() => (apps || []).map((a) => ({ a, days: followUpDue(a, now) })).filter((x): x is { a: App; days: number } => x.days !== null).sort((x, y) => y.days - x.days), [apps, now]);
+  const myName = profile?.full_name || null;
 
   const roleName = useCallback((id: string | null) => roles.find((r) => r.id === id)?.title || "Other roles", [roles]);
   const days = RANGE_DAYS[range];
@@ -93,7 +113,7 @@ export default function ApplicationsPage() {
   const filtered = useMemo(() => {
     const needle = q.trim().toLowerCase();
     return inRange.filter((a) => {
-      if (needle && !`${a.job.company} ${a.job.title} ${a.job.location || ""}`.toLowerCase().includes(needle)) return false;
+      if (needle && !`${a.job.company} ${titleOf(a)} ${a.job.location || ""}`.toLowerCase().includes(needle)) return false;
       if (status === "active") return ["applied", "in_review", "assessment", "interview"].includes(a.status);
       if (status === "interviewing") return a.status === "interview";
       if (status === "offers") return a.status === "offer";
@@ -146,11 +166,30 @@ export default function ApplicationsPage() {
     load();
   }
 
-  if (apps && apps.length === 0 && working.length === 0) {
+  /** The person followed up: note it, and the nudge rests for another 10 days. */
+  async function followedUp(a: App) {
+    const events = [...(a.events || []), { at: new Date().toISOString(), type: "follow_up", text: "You followed up with the company" }];
+    const { error } = await supabaseBrowser().from("applications").update({ events }).eq("id", a.id);
+    if (error) return setToast(error.message);
+    setToast(`Noted — we'll remind you again in ${FOLLOW_UP_DAYS} days if ${a.job.company} doesn't reply`);
+    if (open?.id === a.id) setOpen({ ...a, events });
+    load();
+  }
+
+  async function copyDraft(a: App) {
+    const d = followUpDraft({ company: a.job.company, title: a.job.title, titleGuess: a.job.title_guess, appliedAt: a.applied_at, name: myName });
+    setToast((await copyText(`Subject: ${d.subject}\n\n${d.body}`)) ? "Follow-up email copied — paste it into your mail app and send it yourself" : "Couldn't copy — open the application to select the text");
+  }
+
+  if (apps && apps.length === 0) {
     return (
       <>
         <PageHeader title="Applications" />
-        <EmptyState title="No applications yet" body="Every job your agent applies to — or you mark as applied — is tracked here with the resume it used, every email from the company, and each interview round." action={<Link href="/app/jobs" className="btn-primary">Find jobs</Link>} />
+        <EmptyState
+          title="No applications yet"
+          body="Apply anywhere — with the Vantage extension, LinkedIn Easy Apply, Indeed or a company's own site. Connect your inbox and each confirmation adds the application here by itself, then every reply and interview round keeps it up to date."
+          action={<div className="flex flex-wrap justify-center gap-2"><Link href="/app/jobs" className="btn-primary">Find jobs</Link><Link href="/app/inbox" className="btn-secondary">Connect your inbox</Link></div>}
+        />
       </>
     );
   }
@@ -184,7 +223,7 @@ export default function ApplicationsPage() {
           {s1.length === 0 ? (
             <div className="mt-5 flex h-28 flex-col items-center justify-center rounded-xl bg-canvas text-center">
               <p className="text-sm font-semibold">Nothing sent {rangeLabel}</p>
-              <p className="mt-1 text-xs text-muted">{sent(apps || []).length ? "Try a longer range to see your history." : <>Paste a job link on <Link href="/app/agent" className="font-semibold text-brand-ink">Your agent</Link> or switch on Auto-apply.</>}</p>
+              <p className="mt-1 text-xs text-muted">{sent(apps || []).length ? "Try a longer range to see your history." : <>Apply on any site, then <Link href="/app/inbox" className="font-semibold text-brand-ink">connect your inbox</Link> — confirmations add themselves here.</>}</p>
             </div>
           ) : <>
           <div className="mt-5 flex h-28 items-end gap-[3px]" aria-label="Applications over time">
@@ -217,32 +256,31 @@ export default function ApplicationsPage() {
         </div>
       </section>
 
-      {working.length > 0 && (
-        <section className="card mb-5 overflow-hidden">
+      {nudges.length > 0 && (
+        <section className="card mb-5 overflow-hidden" aria-label="Applications to follow up">
           <div className="flex items-center gap-2 border-b border-line px-4 py-3">
-            <span className="live-dot" />
-            <h2 className="flex-1 text-sm font-bold">Your agent is working on {working.length} application{working.length > 1 ? "s" : ""}</h2>
-            <Link href="/app/agent" className="text-xs font-semibold text-brand-ink">Open Your agent →</Link>
+            <Clock size={16} className="text-orange-ink" />
+            <h2 className="flex-1 text-sm font-bold">{nudges.length} application{nudges.length > 1 ? "s have" : " has"} had no reply in {FOLLOW_UP_DAYS}+ days</h2>
+            <span className="hidden text-xs text-muted sm:block">A short, polite follow-up often gets a reply.</span>
           </div>
           <ul className="divide-y divide-line">
-            {working.slice(0, 8).map((t, i) => {
-              const live = ["running", "waiting_code"].includes(t.status);
-              const needsYou = ["needs_user", "needs_human", "awaiting_approval"].includes(t.status);
-              return (
-                <li key={t.id}>
-                  <Link href="/app/agent" className="flex items-center gap-3 px-4 py-2.5 hover:bg-canvas">
-                    <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[11px] font-bold" style={tintFor(t.job.company)}>{initials(t.job.company)}</span>
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate text-sm font-semibold">{t.job.title} <span className="font-normal text-muted">· {t.job.company}</span></span>
-                      <span className="block truncate text-xs text-muted">{roleName(t.job.role_id || null)} · {statusLine(t, t.status === "queued" ? working.filter((x) => x.status === "queued").indexOf(t) + 1 : undefined)}</span>
-                    </span>
-                    <span className={`chip ${live ? "bg-brand-tint text-brand-ink" : needsYou ? "bg-orange-tint text-orange-ink" : "bg-[#eef0f4] text-ink-2"}`}>{live ? "Applying now" : needsYou ? "Needs you" : `In queue${i >= 0 ? "" : ""}`}</span>
-                  </Link>
-                </li>
-              );
-            })}
+            {nudges.slice(0, 5).map(({ a, days }) => (
+              <li key={a.id} className="flex flex-wrap items-center gap-3 px-4 py-2.5">
+                <button onClick={() => setOpen(a)} className="flex min-w-0 flex-1 items-center gap-3 text-left">
+                  <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[11px] font-bold" style={tintFor(a.job.company)}>{initials(a.job.company)}</span>
+                  <span className="min-w-0">
+                    <span className="block truncate text-sm font-semibold">{titleOf(a)} <span className="font-normal text-muted">· {a.job.company}</span></span>
+                    <span className="block truncate text-xs text-muted">No reply in {days} days — follow up</span>
+                  </span>
+                </button>
+                <span className="flex gap-2">
+                  <button className="btn-secondary min-h-8 text-xs" onClick={() => copyDraft(a)}><Copy size={13} /> Copy follow-up email</button>
+                  <button className="btn-ghost min-h-8 text-xs" onClick={() => followedUp(a)}><Check size={13} /> I followed up</button>
+                </span>
+              </li>
+            ))}
           </ul>
-          {working.length > 8 && <p className="border-t border-line px-4 py-2 text-xs text-muted">+{working.length - 8} more on Your agent</p>}
+          {nudges.length > 5 && <p className="border-t border-line px-4 py-2 text-xs text-muted">+{nudges.length - 5} more — look for “No reply” below</p>}
         </section>
       )}
 
@@ -290,8 +328,15 @@ export default function ApplicationsPage() {
                     {items.slice(0, 60).map((a) => (
                       <button key={a.id} onClick={() => setOpen(a)} className="block w-full rounded-lg border border-line bg-white p-3 text-left shadow-sm transition hover:border-[#c9d5fb]">
                         <div className="flex items-center gap-2"><span className="flex h-6 w-6 items-center justify-center rounded-md text-[10px] font-bold" style={tintFor(a.job.company)}>{initials(a.job.company)}</span><span className="truncate text-[13px] font-semibold">{a.job.company}</span></div>
-                        <p className="mt-1.5 line-clamp-2 text-[13px] font-medium leading-snug">{a.job.title}</p>
+                        <p className="mt-1.5 line-clamp-2 text-[13px] font-medium leading-snug">{titleOf(a)}</p>
                         <p className="mt-1.5 text-[11px] text-muted">{timeAgo(a.applied_at || a.created_at)}{a.match_score ? ` · ${a.match_score}% match` : ""}</p>
+                        {(a.source === "email" || a.job.title_guess || followUpDue(a, now) !== null) && (
+                          <p className="mt-1.5 flex flex-wrap gap-1 text-[11px]">
+                            {a.source === "email" && <span className="chip inline-flex items-center gap-1 bg-green-tint text-green-ink"><Inbox size={11} /> Inbox</span>}
+                            {a.job.title_guess && <span className="chip bg-orange-tint text-orange-ink">Confirm the role</span>}
+                            {followUpDue(a, now) !== null && <span className="chip bg-orange-tint text-orange-ink">No reply in {followUpDue(a, now)} days</span>}
+                          </p>
+                        )}
                       </button>
                     ))}
                     {items.length > 60 && <p className="px-2 text-xs text-muted">+{items.length - 60} more — use search or List view</p>}
@@ -303,7 +348,7 @@ export default function ApplicationsPage() {
         </div>
       )}
 
-      {open && <Detail a={open} resume={open.resume_id ? resumes.get(open.resume_id) : undefined} roleName={roleName(open.target_role_id)} onClose={() => setOpen(null)} onMove={move} onSaved={(m) => { setToast(m); load(); }} />}
+      {open && <Detail a={open} resume={open.resume_id ? resumes.get(open.resume_id) : undefined} roleName={roleName(open.target_role_id)} now={now} myName={myName} onClose={() => setOpen(null)} onMove={move} onFollowedUp={followedUp} onUpdated={(x) => setOpen(x)} onSaved={(m) => { setToast(m); load(); }} />}
       <Toast message={toast} onClose={() => setToast(null)} />
     </>
   );
@@ -352,19 +397,27 @@ function GroupCard({ g, group, roleName, resumes, onOpen, now }: {
         <ul className="divide-y divide-line border-t border-line">
           {g.items.map((a) => {
             const r = a.resume_id ? resumes.get(a.resume_id) : undefined;
+            const nudge = followUpDue(a, now);
             return (
               <li key={a.id}>
                 <button onClick={() => onOpen(a)} className="grid w-full grid-cols-1 items-center gap-x-4 gap-y-1.5 px-4 py-3 text-left hover:bg-brand-soft lg:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)_auto_auto]">
                   <span className="min-w-0">
                     <span className="flex items-center gap-2">
                       {group !== "company" && <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-[10px] font-bold" style={tintFor(a.job.company)}>{initials(a.job.company)}</span>}
-                      <span className="line-clamp-2 font-medium lg:line-clamp-1">{group !== "company" ? `${a.job.company} · ` : ""}{a.job.title}</span>
+                      <span className="line-clamp-2 font-medium lg:line-clamp-1">{group !== "company" ? `${a.job.company} · ` : ""}{titleOf(a)}</span>
                     </span>
-                    <span className="mt-0.5 block truncate text-xs text-muted">{a.job.location || a.job.country}{group !== "role" ? ` · ${roleName(a.target_role_id)}` : ""}</span>
+                    <span className="mt-0.5 block truncate text-xs text-muted">{[a.job.location || a.job.country, group !== "role" ? roleName(a.target_role_id) : ""].filter(Boolean).join(" · ")}</span>
+                    {(a.source === "email" || a.job.title_guess || nudge !== null) && (
+                      <span className="mt-1.5 flex flex-wrap gap-1.5">
+                        {a.source === "email" && <InboxBadge />}
+                        {a.job.title_guess && <span className="chip inline-flex items-center gap-1 bg-orange-tint text-orange-ink"><PenLine size={12} /> Confirm the role</span>}
+                        {nudge !== null && <FollowUpChip days={nudge} />}
+                      </span>
+                    )}
                   </span>
                   <span className="min-w-0 text-xs text-muted">
                     <span className="flex items-center gap-1.5 truncate"><FileText size={13} className="shrink-0" />{r ? `${RESUME_STYLES[(r.style || "classic") as ResumeStyle]?.label || "Classic"} resume${r.ats_score ? ` · ATS ${r.ats_score}` : ""}` : "—"}</span>
-                    <span className="mt-0.5 flex items-center gap-1.5">{a.source === "agent" ? <><Bot size={13} /> Applied by your agent</> : a.source === "extension" ? <><User size={13} /> Applied by you · Vantage extension</> : <><User size={13} /> Added by you</>}</span>
+                    <span className="mt-0.5 flex items-center gap-1.5">{a.source === "email" ? <Inbox size={13} /> : <User size={13} />} {sourceLabel(a)}</span>
                   </span>
                   <span className="flex items-center gap-3"><Progress s={a.status} /><span className={`chip ${STATUS[a.status].cls}`}>{STATUS[a.status].label}</span></span>
                   <span className="text-xs text-muted lg:w-24 lg:text-right">{a.applied_at ? new Date(a.applied_at).toLocaleDateString(undefined, { month: "short", day: "numeric" }) : "Not sent"}<span className="block">{a.applied_at && Date.parse(a.applied_at) > now - 864e5 * 2 ? timeAgo(a.applied_at) : ""}</span></span>
@@ -378,8 +431,15 @@ function GroupCard({ g, group, roleName, resumes, onOpen, now }: {
   );
 }
 
-function Detail({ a, resume, roleName, onClose, onMove, onSaved }: { a: App; resume?: ResumeLite; roleName: string; onClose: () => void; onMove: (a: App, s: AppStatus) => void; onSaved: (m: string) => void }) {
+function Detail({ a, resume, roleName, now, myName, onClose, onMove, onFollowedUp, onUpdated, onSaved }: {
+  a: App; resume?: ResumeLite; roleName: string; now: number; myName: string | null; onClose: () => void; onMove: (a: App, s: AppStatus) => void;
+  onFollowedUp: (a: App) => void; onUpdated: (a: App) => void; onSaved: (m: string) => void;
+}) {
   const [mails, setMails] = useState<Mail[]>([]);
+  const [role, setRole] = useState("");
+  const [copied, setCopied] = useState(false);
+  const nudge = followUpDue(a, now);
+  const draft = nudge !== null ? followUpDraft({ company: a.job.company, title: a.job.title, titleGuess: a.job.title_guess, appliedAt: a.applied_at, name: myName }) : null;
   const [proof, setProof] = useState<string | null>(null);
   const [notes, setNotes] = useState(a.notes || "");
   const [showLetter, setShowLetter] = useState(false);
@@ -408,23 +468,66 @@ function Detail({ a, resume, roleName, onClose, onMove, onSaved }: { a: App; res
     onSaved("Notes saved");
   }
 
+  /** The inbox couldn't read the role from the confirmation: the person names it once. */
+  async function confirmRole() {
+    const title = role.trim().slice(0, 160);
+    if (!title) return;
+    const job = { ...a.job, title };
+    delete job.title_guess;
+    const { error } = await supabaseBrowser().from("applications").update({ job }).eq("id", a.id);
+    if (error) return onSaved(error.message);
+    onUpdated({ ...a, job });
+    onSaved("Role saved");
+  }
+
+  async function copyDraft() {
+    if (!draft) return;
+    const ok = await copyText(`Subject: ${draft.subject}\n\n${draft.body}`);
+    setCopied(ok);
+    if (!ok) onSaved("Couldn't copy — select the text below instead");
+  }
+
   return (
-    <div className="fixed inset-0 z-[55]" role="dialog" aria-modal="true" aria-label={a.job.title}>
+    <div className="fixed inset-0 z-[55]" role="dialog" aria-modal="true" aria-label={titleOf(a)}>
       <button className="absolute inset-0 bg-ink/30" aria-label="Close" onClick={onClose} />
       <aside className="absolute inset-y-0 right-0 flex w-full max-w-[600px] flex-col overflow-y-auto bg-white shadow-2xl">
         <div className="sticky top-0 z-10 border-b border-line bg-white/95 p-5 backdrop-blur">
           <div className="flex items-start gap-3">
             <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-sm font-bold" style={tintFor(a.job.company)}>{initials(a.job.company)}</span>
             <div className="min-w-0 flex-1">
-              <p className="text-sm text-muted">{a.job.company} · {a.job.location || a.job.country}</p>
-              <h2 className="text-xl font-bold leading-snug">{a.job.title}</h2>
-              <p className="mt-1 text-xs text-muted">{roleName}{a.match_score ? ` · ${a.match_score}% match` : ""} · {a.source === "agent" ? "Applied by your agent" : a.source === "extension" ? "Applied by you with the Vantage extension" : "Added by you"}</p>
+              <p className="text-sm text-muted">{[a.job.company, a.job.location || a.job.country].filter(Boolean).join(" · ")}</p>
+              <h2 className="text-xl font-bold leading-snug">{titleOf(a)}</h2>
+              <p className="mt-1 text-xs text-muted">{roleName}{a.match_score ? ` · ${a.match_score}% match` : ""} · {sourceLabel(a, true)}</p>
+              {a.source === "email" && <p className="mt-2"><InboxBadge /></p>}
             </div>
             <button onClick={onClose} className="rounded-lg p-2 hover:bg-canvas" aria-label="Close"><X size={20} /></button>
           </div>
         </div>
 
         <div className="space-y-6 p-5">
+          {a.job.title_guess && (
+            <form className="rounded-xl border border-orange/40 bg-orange-tint/50 p-3" onSubmit={(e) => { e.preventDefault(); confirmRole(); }}>
+              <p className="flex items-center gap-2 text-sm font-semibold"><PenLine size={15} className="text-orange-ink" /> Confirm the role</p>
+              <p className="mt-0.5 text-xs text-muted">We found this application in your inbox, but the email from {a.job.company} didn&apos;t say which job it was for. What role did you apply to?</p>
+              <div className="mt-2 flex gap-2">
+                <input className="input h-9 flex-1 text-sm" placeholder="e.g. Data Analyst" value={role} onChange={(e) => setRole(e.target.value)} aria-label="Job title" maxLength={160} />
+                <button type="submit" className="btn-primary min-h-9 text-[13px]" disabled={!role.trim()}>Save</button>
+              </div>
+            </form>
+          )}
+
+          {draft && nudge !== null && (
+            <section className="rounded-xl border border-line p-3" aria-label="Follow up">
+              <p className="flex items-center gap-2 text-sm font-semibold"><Clock size={15} className="text-orange-ink" /> No reply in {nudge} days — follow up</p>
+              <p className="mt-0.5 text-xs text-muted">Here&apos;s a short, polite note. Copy it, send it from your own mailbox{a.job.url ? " (or the recruiter's address if you have it)" : ""}, then mark it done.</p>
+              <textarea readOnly className="input mt-2 py-2 font-normal text-[13px] leading-relaxed" rows={8} value={`Subject: ${draft.subject}\n\n${draft.body}`} aria-label="Follow-up email draft" onFocus={(e) => e.currentTarget.select()} />
+              <div className="mt-2 flex flex-wrap gap-2">
+                <button className="btn-secondary min-h-9 text-[13px]" onClick={copyDraft}>{copied ? <><Check size={14} /> Copied</> : <><Copy size={14} /> Copy to clipboard</>}</button>
+                <button className="btn-ghost min-h-9 text-[13px]" onClick={() => onFollowedUp(a)}><Check size={14} /> I followed up</button>
+              </div>
+            </section>
+          )}
+
           {/* Stage tracker */}
           <div>
             <div className="grid grid-cols-5 gap-2">
@@ -441,13 +544,13 @@ function Detail({ a, resume, roleName, onClose, onMove, onSaved }: { a: App; res
                 );
               })}
             </div>
-            {["rejected", "withdrawn"].includes(a.status) && <p className="mt-3 rounded-lg bg-canvas px-3 py-2 text-sm text-muted">{a.status === "rejected" ? "The company chose other candidates. Your agent learns from this to pick better-fitting jobs." : "You withdrew this application."}</p>}
+            {["rejected", "withdrawn"].includes(a.status) && <p className="mt-3 rounded-lg bg-canvas px-3 py-2 text-sm text-muted">{a.status === "rejected" ? "The company chose other candidates this time." : "You withdrew this application."}</p>}
           </div>
 
           <div className="flex flex-wrap gap-2">
-            <a href={a.job.url} target="_blank" rel="noopener noreferrer" className="btn-secondary min-h-9 text-[13px]"><ExternalLink size={14} /> Job posting</a>
+            {a.job.url && <a href={a.job.url} target="_blank" rel="noopener noreferrer" className="btn-secondary min-h-9 text-[13px]"><ExternalLink size={14} /> Job posting</a>}
             <Link href={`/app/interviews?app=${a.id}`} className="btn-secondary min-h-9 text-[13px]"><CalendarPlus size={14} /> Add interview</Link>
-            <Link href={`/app/assistant?q=${encodeURIComponent(`Prepare me for an interview with ${a.job.company} for ${a.job.title}`)}`} className="btn-secondary min-h-9 text-[13px]"><Sparkles size={14} /> Prepare me</Link>
+            <Link href={`/app/assistant?q=${encodeURIComponent(`Prepare me for an interview with ${a.job.company}${a.job.title_guess ? "" : ` for ${a.job.title}`}`)}`} className="btn-secondary min-h-9 text-[13px]"><Sparkles size={14} /> Prepare me</Link>
             <select aria-label="Move to stage" className="input h-9 w-auto py-0 text-[13px] font-semibold" value={a.status} onChange={(e) => onMove(a, e.target.value as AppStatus)}>
               {(Object.keys(STATUS) as AppStatus[]).map((s) => <option key={s} value={s}>{STATUS[s].label}</option>)}
             </select>

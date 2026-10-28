@@ -124,7 +124,8 @@ function htmlToText(html: string) {
   return html.replace(/<style[\s\S]*?<\/style>|<script[\s\S]*?<\/script>/gi, " ").replace(/<br\s*\/?>|<\/p>|<\/div>|<\/tr>/gi, "\n").replace(/<[^>]+>/g, " ").replace(/&nbsp;/g, " ").replace(/&amp;/g, "&").replace(/[ \t]+/g, " ");
 }
 
-const ATS_SENDERS = /(greenhouse|lever|ashbyhq|myworkday|workday|icims|taleo|successfactors|smartrecruiters|workable|recruitee|jobvite|bamboohr|breezy|jazzhr|oracle|avature|eightfold|phenom|gem\.com|rippling)/i;
+// Careers systems and job boards: never the company itself ("LinkedIn" sends Easy Apply receipts for Stripe).
+const ATS_SENDERS = /(greenhouse|lever|ashbyhq|myworkday|workday|icims|taleo|successfactors|smartrecruiters|workable|recruitee|jobvite|bamboohr|breezy|jazzhr|oracle|avature|eightfold|phenom|gem\.com|rippling|linkedin|indeed|glassdoor|ziprecruiter)/i;
 
 /** Decide what an email is and pull out any verification code or link. */
 export function classify(fromAddr: string, fromName: string, subject: string, text: string, html: string): { kind: string; sure: boolean; code: string | null; link: string | null; company: string | null } {

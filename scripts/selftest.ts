@@ -5,6 +5,7 @@ import { runNow, todaysRuns, cleanSchedule } from "../src/lib/agent/schedule";
 import { classifyMail, nextStatus } from "../src/lib/mail-classify";
 import { extractCode } from "../src/lib/mail-code";
 import { verifyLink } from "../src/lib/mail";
+import { followUpDraft, followUpDue, parseAppliedJob, placeholderTitle, receiptVerdict, senderLabel } from "../src/lib/mail-apply";
 // Quick sanity checks for the eligibility engine. Run: npx tsx scripts/selftest.ts
 import { jobTypeOf, matchJob, workModeOf, workModeOk } from "../src/lib/jobs/match";
 import { autoSkipReason, interleaveByPriority, shareOfLimit, taskPriority } from "../src/lib/agent/plan";
@@ -473,6 +474,219 @@ async function precheckChecks() {
   ok(verifyLink(html, `Click this link to confirm your email address ${wd}`) === wd, "mail: Workday activation link found in the text part even when HTML links are tracked");
   ok(verifyLink(`<a href="https://acme.wd1.myworkdayjobs.com/ext/activate/tok123">Verify</a>`, "") === "https://acme.wd1.myworkdayjobs.com/ext/activate/tok123", "mail: Workday activation link found in HTML");
   ok(verifyLink(`<a href="https://x.com/privacy">p</a>`, "Your code is 123456") === null, "mail: no link when there is only a privacy link");
+}
+
+// Resume engine: country formats (resume vs CV, paper, personal statement) and Harvard's bullet rules.
+import { formatFor, pagesFor, sectionOrderFor, COUNTRY_FORMATS, DEFAULT_FORMAT } from "../src/lib/resume/country";
+import { lintBullets, harvardScore, isActionVerb, HARVARD_PROMPT } from "../src/lib/resume/harvard";
+import { formatPrompt, matchFrom } from "../src/lib/tailor";
+import type { ResumeContent } from "../src/lib/types";
+{
+  const gb = formatFor("GB"), us = formatFor("us"), de = formatFor("DE"), inn = formatFor("IN");
+  ok(gb.docName === "CV" && gb.paper === "a4" && gb.personalStatement && gb.spelling === "uk" && gb.maxPages === 2, "format: UK = CV, A4, personal statement, UK spelling, up to 2 pages");
+  ok(us.docName === "Resume" && us.paper === "letter" && us.spelling === "us" && us.photo === "never" && !us.personalStatement, "format: US = resume, Letter, US spelling, no photo");
+  ok(formatFor("CA").paper === "letter" && formatFor("CA").photo === "never", "format: Canada = Letter, no photo");
+  ok(de.photo === "optional" && de.personalDetails === "optional" && de.dateFormat === "MM/YYYY", "format: Germany allows photo/personal details only as optional");
+  ok(inn.photo === "never" && formatFor("UK").code === "GB" && formatFor("ZZ") === DEFAULT_FORMAT && formatFor(null) === DEFAULT_FORMAT, "format: India no photo; UK alias; unknown = default");
+  ok([...Object.values(COUNTRY_FORMATS), DEFAULT_FORMAT].every((f) => f.references === false && ["never", "optional"].includes(f.photo) && ["never", "optional"].includes(f.personalDetails) && f.note.length > 20), "format: never a references line, photo/details never on by default, every country has a note");
+  ok(Boolean(formatFor("AU").referencesNote) && formatFor("AU").docName === "Resume", "format: Australia = resume, referees noted but left off");
+  const now = new Date("2026-10-28T00:00:00Z");
+  const grad = { experience: [{ title: "Intern", company: "Acme", start: "Jun 2026", end: "Aug 2026", bullets: [] }], education: [{ degree: "BSc", school: "Leeds", end: "2026" }] };
+  const senior = { experience: [{ title: "Lead", company: "Acme", start: "Jan 2015", end: "Present", bullets: [] }], education: [{ degree: "BSc", school: "Leeds", end: "2014" }] };
+  const undated = { experience: [{ title: "Analyst", company: "Acme", bullets: [] }], education: [{ degree: "BSc", school: "Leeds", end: "2014" }] };
+  ok(sectionOrderFor(grad, now) === "education-first" && sectionOrderFor(senior, now) === "experience-first" && sectionOrderFor(undated, now) === "experience-first", "format: education first only for new grads / under 2 years");
+  ok(pagesFor(gb, grad, now) === 1 && pagesFor(gb, senior, now) === 2 && pagesFor(us, { ...senior, experience: [{ ...senior.experience[0], start: "Jan 2021" }] }, now) === 1 && pagesFor(us, senior, now) === 2, "format: 1 page early career; US 1 page under 10 years");
+  const gp = formatPrompt(gb, senior as never);
+  ok(/UK\/Commonwealth spelling/.test(gp) && /personal statement/.test(gp) && /Never add a photo, date of birth/.test(gp) && /A4/.test(gp), "format: UK writing rules ask for UK spelling, a personal statement, A4 and no photo/DOB");
+  ok(/US spelling/.test(formatPrompt(us)) && !/personal statement/.test(formatPrompt(us)), "format: US writing rules = US spelling, no personal statement");
+  ok(/Never invent/.test(HARVARD_PROMPT) && /action verb/.test(HARVARD_PROMPT), "harvard: writer prompt says action verb first, never invent");
+
+  ok(isActionVerb("Led") && isActionVerb("Built") && isActionVerb("Leads") && isActionVerb("Containerized") && isActionVerb("Identify") && !isActionVerb("The") && !isActionVerb("Team"), "harvard: action verbs in any tense");
+  const cv: ResumeContent = { name: "A", experience: [{ title: "Analyst", company: "Monzo", start: "Jan 2022", end: "Present", bullets: [
+    "Responsible for managing the weekly reports",
+    "I led a team of 4 analysts",
+    "Built SQL dashboards used by 40 people",
+    "Built a churn model that cut losses by 12%",
+    "The dashboard was used by the US sales team every week for 3 years",
+    "Analyzed customer data across 6 markets, and the results were presented to leadership, which led to a new pricing plan that the company adopted across every region and product line in 2023",
+    "Ran Phase I trial reporting for US clients",
+    "Presented findings to leadership",
+  ] }] };
+  const li = lintBullets(cv);
+  const kinds = (n: number) => li.filter((x) => x.bullet === n).map((x) => x.kind);
+  ok(kinds(0).includes("weak") && kinds(0).includes("metric"), "harvard: 'Responsible for' is a weak opener (and gets a quantify tip)");
+  ok(kinds(1).includes("pronoun") && !kinds(1).includes("metric"), "harvard: 'I led…' uses a pronoun");
+  ok(kinds(2).length === 0, "harvard: a clean bullet passes");
+  ok(kinds(3).includes("repeat"), "harvard: the same opening verb twice in one role is flagged");
+  ok(kinds(4).includes("verb") && !kinds(4).includes("pronoun"), "harvard: no action verb flagged; 'US' is not a pronoun");
+  ok(kinds(5).includes("long"), "harvard: over 30 words is too long");
+  ok(kinds(6).join() === "metric", "harvard: 'Phase I' and 'US clients' are not pronouns");
+  ok(kinds(7).join() === "metric" && li.find((x) => x.bullet === 7)!.soft, "harvard: no number is only a soft tip");
+  ok(li[0].kind === "weak" && li.every((x) => x.where.startsWith("Analyst · Monzo, bullet ")), "harvard: hard issues first, each says where");
+  const hs = harvardScore(cv);
+  ok(hs.total === 8 && hs.ok === 3 && hs.quantified === 5, "harvard: score counts passing bullets (soft tips don't fail a bullet)");
+  ok(harvardScore({ name: "A" }).total === 0 && lintBullets(null).length === 0, "harvard: empty resume has nothing to check");
+
+  const own: ResumeContent = { name: "A", skills: [{ group: "Tools", items: ["SQL", "Tableau"] }], experience: [{ title: "Analyst", company: "Monzo", bullets: ["Built SQL dashboards used by 40 people"] }] };
+  const m = matchFrom([
+    { requirement: "SQL", evidence: "Built SQL dashboards used by 40 people" },
+    { requirement: "Budget ownership", evidence: "Managed a $5M marketing budget" },
+    { requirement: "Python", evidence: null },
+  ], [], own);
+  ok(m.total === 3 && m.covered === 1 && m.skills[0].evidence !== null && m.skills[1].evidence === null && m.skills[2].evidence === null, "match: AI evidence kept only when it's really in the resume");
+  const mk = matchFrom([], ["sql", "tableau", "python"], own);
+  ok(mk.total === 3 && mk.covered === 2 && /SQL/.test(mk.skills[0].evidence || "") && mk.skills[2].evidence === null, "match: without AI, keywords are checked against the person's own resume");
+  ok(matchFrom([], [], own).covered === 0 && matchFrom([], [], own).total === 0, "match: nothing to match = 0 of 0, never 100%");
+}
+
+import { addDays as calAddDays, gridDays, groupByDay, isAllDay as calIsAllDay, layoutDay, monthGrid, nowOffset, rangeFor, rangeTitle, roundTone, shiftAnchor, slotAt, startOfWeek } from "../src/lib/calendar-grid";
+import { computeStreak, localDayKey, streakNudge, weekdayLetter } from "../src/lib/streak";
+import { ROUNDS as CAL_ROUNDS } from "../src/lib/calendar";
+
+// Interviews calendar (Google-style): weeks start Sunday, titles, navigation, and where events sit in the time grid.
+{
+  const wed = new Date(2026, 9, 28, 15, 20); // Wed Oct 28 2026, local time
+  ok(startOfWeek(wed).getDay() === 0 && startOfWeek(wed).getDate() === 25, "calendar: the week of Wed Oct 28 starts Sunday Oct 25");
+  const grid = monthGrid(new Date(2026, 9, 5));
+  ok(grid.length === 42 && grid[0].getDay() === 0 && grid[0].getMonth() === 8 && grid[0].getDate() === 27, "calendar: October 2026 month grid is 6 weeks from Sun Sep 27");
+  ok(gridDays("week", wed).length === 7 && gridDays("day", wed).length === 1 && gridDays("day", wed)[0].getHours() === 0, "calendar: week shows 7 days, day shows 1 from midnight");
+  ok(rangeTitle("month", wed) === "October 2026", "calendar: month title");
+  ok(rangeTitle("week", wed) === "Oct 25 – 31, 2026", "calendar: week title in one month");
+  ok(rangeTitle("week", new Date(2026, 10, 30)) === "Nov 29 – Dec 5, 2026", "calendar: week title across months");
+  ok(rangeTitle("week", new Date(2026, 11, 30)) === "Dec 27, 2026 – Jan 2, 2027", "calendar: week title across years");
+  ok(rangeTitle("day", wed) === "Wednesday, October 28, 2026", "calendar: day title");
+  ok(shiftAnchor("month", new Date(2026, 0, 31), 1).getMonth() === 1 && shiftAnchor("month", new Date(2026, 0, 31), 1).getDate() === 28, "calendar: next month from Jan 31 lands on Feb 28");
+  ok(shiftAnchor("week", wed, -1).getDate() === 21 && shiftAnchor("day", wed, 1).getDate() === 29, "calendar: previous week / next day");
+  const r = rangeFor("agenda", wed);
+  ok(r.start.getHours() === 0 && Math.round((r.end.getTime() - r.start.getTime()) / 864e5) === 30, "calendar: agenda shows 30 days from the day picked");
+
+  const day = new Date(2026, 9, 28);
+  const at = (h: number, m: number, d = 28) => new Date(2026, 9, d, h, m);
+  const p1 = layoutDay([
+    { id: "A", start: at(10, 0), end: at(11, 0) },
+    { id: "B", start: at(10, 30), end: at(11, 30) },
+    { id: "C", start: at(11, 30), end: at(12, 0) },
+    { id: "D", start: at(13, 0), end: at(13, 10) },
+  ], day);
+  const pos = (id: string, list = p1) => list.find((x) => x.id === id)!;
+  ok(pos("A").top === 600 && pos("A").height === 60 && pos("A").col === 0 && pos("A").cols === 2, "calendar: 10–11 AM sits at 600 min, 60 tall, left of two");
+  ok(pos("B").col === 1 && pos("B").cols === 2, "calendar: an overlapping event goes side by side");
+  ok(pos("C").col === 0 && pos("C").cols === 1, "calendar: an event starting when the others end is full width");
+  ok(pos("D").height === 20, "calendar: a 10-minute event is drawn at least 20 minutes tall");
+  const p2 = layoutDay([
+    { id: "A", start: at(9, 0), end: at(10, 0) },
+    { id: "B", start: at(9, 30), end: at(11, 0) },
+    { id: "C", start: at(10, 0), end: at(10, 30) },
+  ], day);
+  ok(pos("C", p2).col === 0 && pos("C", p2).cols === 2 && pos("B", p2).col === 1, "calendar: a freed column is reused within the same overlap group");
+  const three = layoutDay([0, 1, 2].map((i) => ({ id: `x${i}`, start: at(14, 0), end: at(15, 0) })), day);
+  ok(three.every((x) => x.cols === 3) && new Set(three.map((x) => x.col)).size === 3, "calendar: three at the same time are three columns");
+  const late = { id: "L", start: at(23, 0), end: at(1, 0, 29) };
+  ok(pos("L", layoutDay([late], day)).top === 1380 && pos("L", layoutDay([late], day)).height === 60, "calendar: 11 PM–1 AM shows its first hour on day one");
+  ok(pos("L", layoutDay([late], calAddDays(day, 1))).top === 0 && pos("L", layoutDay([late], calAddDays(day, 1))).height === 60, "calendar: …and its second hour on the next day");
+  ok(layoutDay([late], calAddDays(day, 2)).length === 0, "calendar: nothing on the day after");
+
+  const slot = slotAt(day, 10.5 * 44 + 7, 44);
+  ok(slot.getHours() === 10 && slot.getMinutes() === 30, "calendar: clicking just below 10:30 makes a 10:30 slot");
+  ok(slotAt(day, 99999, 44).getHours() === 23, "calendar: clicking below the grid stays in the day");
+  ok(nowOffset(at(9, 15), day) === 555 && nowOffset(at(9, 15, 27), day) === null, "calendar: the now line is only on today");
+  const g = groupByDay([{ id: "1", start: at(9, 0, 30), end: at(10, 0, 30) }, { id: "2", start: at(8, 0, 28), end: at(9, 0, 28) }, { id: "3", start: at(8, 0, 30), end: at(9, 0, 30) }], day, calAddDays(day, 7));
+  ok(g.length === 2 && g[0].day.getDate() === 28 && g[1].items.map((x) => x.id).join() === "3,1", "calendar: agenda groups by day in time order");
+  ok(calIsAllDay(1440) && !calIsAllDay(45), "calendar: 24 hours or more is all-day");
+  const tones = CAL_ROUNDS.map(roundTone);
+  ok(new Set(tones).size === CAL_ROUNDS.length && !tones.includes("gray"), "calendar: every round has its own color");
+}
+
+// Daily streak: a day counts with one application; today not done yet doesn't break it until the day ends.
+{
+  const tz = "America/Chicago";
+  const today = new Date("2026-10-28T15:00:00Z"); // 10 AM in Chicago
+  const days = ["2026-10-25T18:00:00Z", "2026-10-26T18:00:00Z", "2026-10-27T18:00:00Z"];
+  const s1 = computeStreak(days, today, tz);
+  ok(s1.current === 3 && !s1.todayDone && s1.atRisk, "streak: three days in a row, today not done yet = 3 and at risk");
+  ok(streakNudge(s1) === "Apply today to keep your 3-day streak.", "streak: nudge asks to apply today");
+  const s2 = computeStreak([...days, "2026-10-28T14:00:00Z", "2026-10-28T14:30:00Z"], today, tz);
+  ok(s2.current === 4 && s2.todayDone && !s2.atRisk && s2.best === 4, "streak: applying today makes it 4 (two the same day count once)");
+  ok(s2.last7.length === 7 && s2.last7[6] && s2.last7Days[6] === "2026-10-28" && s2.last7.filter(Boolean).length === 4, "streak: last 7 days end today");
+  ok(computeStreak(["2026-10-26T18:00:00Z"], today, tz).current === 0, "streak: missing yesterday breaks it");
+  ok(computeStreak(["2026-10-28T04:30:00Z"], today, tz).current === 1 && !computeStreak(["2026-10-28T04:30:00Z"], today, tz).todayDone, "streak: 11:30 PM local counts for that local day, not the UTC one");
+  ok(localDayKey(new Date("2026-10-28T04:30:00Z"), tz) === "2026-10-27" && localDayKey(new Date("2026-10-28T04:30:00Z"), "UTC") === "2026-10-28", "streak: local day follows the time zone");
+  const gap = computeStreak(["2026-10-20T15:00:00Z", "2026-10-21T15:00:00Z", "2026-10-22T15:00:00Z", "2026-10-27T15:00:00Z"], today, tz);
+  ok(gap.current === 1 && gap.best === 3, "streak: best run is kept after a break");
+  ok(streakNudge(computeStreak([], today, tz)) === "Apply to one job today to start a streak.", "streak: empty history nudges to start");
+  ok(/best is 3 days/.test(streakNudge(computeStreak(["2026-10-20T15:00:00Z", "2026-10-21T15:00:00Z", "2026-10-22T15:00:00Z"], today, tz))), "streak: broken streak mentions the best");
+  const dst = computeStreak(["2026-10-31T17:00:00Z", "2026-11-01T17:00:00Z", "2026-11-02T17:00:00Z"], new Date("2026-11-02T20:00:00Z"), tz);
+  ok(dst.current === 3 && dst.todayDone, "streak: the daylight-saving change (Nov 1) doesn't skip a day");
+  ok(computeStreak([new Date("2026-10-28T14:00:00Z"), "not a date", null, "2026-10-29T18:00:00Z"], today, tz).current === 1, "streak: Dates and strings mix; bad and future values are ignored");
+  ok(weekdayLetter("2026-10-28") === "W" && weekdayLetter("2026-10-25") === "S", "streak: weekday letters");
+}
+
+// Applications from any site's confirmation email: receipt vs job alert, and company + role read from the mail.
+{
+  type S = { from: string; name: string; subject: string; body: string };
+  const read = (x: S) => {
+    const c = classifyMail(x.from, x.subject, x.body);
+    const m = { from_addr: x.from, from_name: x.name, subject: x.subject, body: x.body };
+    return { c, receipt: receiptVerdict(m, c.kind, c.sure).receipt, job: parseAppliedJob(m) };
+  };
+  const receipts: [string, S, string, string | null, string | null][] = [
+    ["LinkedIn Easy Apply", { from: "jobs-noreply@linkedin.com", name: "LinkedIn", subject: "Gokul, your application was sent to Stripe", body: "Your application was sent to Stripe\n\nStripe\nSoftware Engineer, Payments\nStripe · San Francisco, CA (Hybrid)\n\nApplied on October 27, 2026\nView job: https://www.linkedin.com/comm/jobs/view/4012345678/?trackingId=abc\n\nTop jobs for you\nSenior Engineer at Foo\nApply now to similar jobs" }, "Stripe", "Software Engineer, Payments", "https://www.linkedin.com/jobs/view/4012345678/"],
+    ["Indeed", { from: "indeedapply@indeed.com", name: "Indeed Apply", subject: "Indeed Application: Data Analyst", body: "Application submitted\nData Analyst\nAcme Analytics - Austin, TX\n\nThe following items were sent to Acme Analytics. Good luck!\n• Application\n• Resume\nhttps://www.indeed.com/viewjob?jk=0a1b2c3d4e5f6a7b&from=ia" }, "Acme Analytics", "Data Analyst", "https://www.indeed.com/viewjob?jk=0a1b2c3d4e5f6a7b"],
+    ["Workday", { from: "vanguard@myworkday.com", name: "Vanguard", subject: "Thank You For Applying!", body: "Dear Gokul,\n\nThank you for applying for the Senior Data Analyst (R123456) position at Vanguard. We have received your application and our recruiting team will review your qualifications.\nIf your skills match our needs, we will contact you about next steps." }, "Vanguard", "Senior Data Analyst", null],
+    ["Greenhouse", { from: "no-reply@us.greenhouse-mail.io", name: "Datadog Hiring Team", subject: "Thank you for applying to Datadog", body: "Hi Gokul,\n\nThanks for applying to Datadog. We received your application for our Product Manager - Observability position and our team will review it shortly.\n\nIf there is a fit, we will reach out." }, "Datadog", "Product Manager - Observability", null],
+    ["Lever", { from: "no-reply@hire.lever.co", name: "Plaid", subject: "Thank you for your application to Plaid", body: "Hi Gokul,\n\nThank you for your interest in Plaid! We've received your application for Product Designer and will be reviewing it soon." }, "Plaid", "Product Designer", null],
+    ["Ashby", { from: "no-reply@ashbyhq.com", name: "Ramp Recruiting", subject: "Thanks for applying to Ramp", body: "Hi Gokul,\n\nThank you for applying for the Founding Engineer role at Ramp. We've received your application and will be in touch if there's a match." }, "Ramp", "Founding Engineer", null],
+    ["iCIMS", { from: "careers-acme@talent.icims.com", name: "Acme Careers", subject: "Thank you for applying – Acme Health", body: "Thank you for your interest in the Business Analyst II (Job ID 2026-12345) position at Acme Health. We have received your application." }, "Acme Health", "Business Analyst II", null],
+    ["SmartRecruiters", { from: "noreply@smartrecruiters.com", name: "Bosch", subject: "Your application for Marketing Manager", body: "Dear Gokul, thank you for your application for Marketing Manager at Bosch. We will review it carefully." }, "Bosch", "Marketing Manager", null],
+    ["Taleo", { from: "donotreply@taleo.net", name: "Oracle Talent", subject: "Kroger - Application received: Financial Analyst (Job Number 2601234)", body: "Thank you for applying. We have received your application." }, "Kroger", "Financial Analyst", null],
+    ["careers site, no title", { from: "talent@notion.so", name: "Notion", subject: "Thank you for applying!", body: "Hi Gokul, thanks for applying to Notion! We've received your application and our team will be reviewing it." }, "Notion", null, null],
+  ];
+  for (const [label, x, company, title, url] of receipts) {
+    const r = read(x);
+    ok(r.receipt, `receipt: ${label} confirmation is an application receipt`);
+    ok(r.job.company === company && r.job.title === title, `receipt: ${label} reads ${company} / ${title ?? "(no title)"} (got ${r.job.company} / ${r.job.title})`);
+    if (url) ok(r.job.url === url, `receipt: ${label} keeps a clean job link`);
+  }
+  ok(placeholderTitle("Notion") === "Role at Notion", "receipt: an unreadable title becomes 'Role at <Company>' (never invented)");
+  ok(senderLabel({ from_addr: "vanguard@myworkday.com" }, "Vanguard") === "Vanguard via Workday" && senderLabel({ from_addr: "jobs-noreply@linkedin.com" }, "Stripe") === "LinkedIn", "receipt: sender shown as 'Vanguard via Workday' / 'LinkedIn'");
+  // Mentions a possible later assessment: still a receipt when the classifier wasn't sure.
+  const wdTest = read({ from: "acme@myworkday.com", name: "Acme", subject: "Thank You For Applying!", body: "Thank you for applying for the Analyst position at Acme. As part of our process you may be asked to complete an assessment." });
+  ok(wdTest.c.kind === "assessment" && !wdTest.c.sure && wdTest.receipt && wdTest.job.title === "Analyst", "receipt: a receipt that mentions a possible assessment still creates the application");
+
+  const negatives: [string, S][] = [
+    ["LinkedIn job alert", { from: "jobalerts-noreply@linkedin.com", name: "LinkedIn Job Alerts", subject: "“data analyst”: 30+ new jobs in Austin, TX", body: "Your job alert for data analyst in Austin. Acme is hiring. Data Analyst at Acme. Apply now. Thanks for applying to more jobs on LinkedIn." }],
+    ["'Jobs you may be interested in'", { from: "jobs-listings@linkedin.com", name: "LinkedIn", subject: "Jobs you may be interested in", body: "Thank you for your interest in LinkedIn jobs. Recommended for you: Software Engineer at Foo." }],
+    ["Glassdoor 'new jobs for you'", { from: "noreply@glassdoor.com", name: "Glassdoor Jobs", subject: "New jobs for you: Data Analyst", body: "We found 25 new jobs matching your search. Thanks for applying!" }],
+    ["newsletter", { from: "newsletter@indeed.com", name: "Indeed Career Guide", subject: "5 tips for your job search this week", body: "Our weekly newsletter. Thank you for your application tips." }],
+    ["rejection", { from: "no-reply@us.greenhouse-mail.io", name: "Datadog Hiring Team", subject: "Thank you for your interest in Datadog", body: "Hi Gokul, thank you for applying. Unfortunately, we have decided to move forward with other candidates." }],
+    ["recruiter outreach", { from: "jane@talentco.com", name: "Jane Smith", subject: "Exciting opportunity: Senior Data Analyst", body: "Hi Gokul, I came across your profile and thought you would be a great fit. Would you be interested in a quick chat about a role at my client? Thanks for your interest." }],
+    ["interview invite", { from: "recruiting@acme.com", name: "Acme Recruiting", subject: "Interview invitation – Acme", body: "Thanks for applying! We'd like to invite you to an interview. Please pick a time: https://calendly.com/acme/30min" }],
+  ];
+  for (const [label, x] of negatives) ok(!read(x).receipt, `receipt: ${label} never creates an application`);
+
+  // Stage moves from email (never backwards).
+  const k = (subject: string, body: string) => classifyMail("x@acme.com", subject, body);
+  ok(k("Update on your application", "Great news, you've been shortlisted for the Data Analyst role.").kind === "in_review", "stage: shortlisted → under review");
+  ok(JSON.stringify(k("Acme application", "Hi Gokul, we'd like to move forward with your application and will be in touch about next steps.")) === JSON.stringify({ kind: "in_review", sure: true }), "stage: 'we'd like to move forward with your application' → under review (sure)");
+  ok(k("Thank you for applying", "We received your application. If we'd like to move forward with your candidacy, we will contact you.").kind === "received", "stage: 'if we'd like to move forward' in a receipt stays a receipt");
+  ok(JSON.stringify(k("Next steps", "Thanks for your time. I'd love to discuss next steps with you this week.")) === JSON.stringify({ kind: "in_review", sure: false }), "stage: 'next steps' alone is under review, confirmed before moving");
+  ok(k("Acme | Online assessment", "Please complete the CodeSignal General Coding Assessment within 7 days.").kind === "assessment" && k("Your coding challenge", "You have been invited to a HackerRank test.").kind === "assessment", "stage: CodeSignal / HackerRank → assessment");
+  ok(k("Take-home exercise", "Please complete the take-home exercise by Friday and send it back to us.").kind === "assessment", "stage: take-home → assessment");
+  ok(k("Interview invitation – Acme", "We'd like to invite you to an interview. Please pick a time: https://calendly.com/acme/30min").kind === "interview", "stage: interview invite with a scheduling link → interview");
+  ok(k("Offer of employment", "We are pleased to extend an offer for the Data Analyst position.").kind === "offer", "stage: offer → offer");
+  ok(k("Your application to Acme", "Unfortunately, we have decided to move forward with other candidates.").kind === "rejection", "stage: rejection → not selected");
+  ok(nextStatus("interview", "in_review") === undefined && nextStatus("applied", "in_review") === "in_review" && nextStatus("assessment", "interview") === "interview", "stage: shortlist mail never moves an interview back");
+
+  // Follow-up nudges.
+  const day = 864e5, now = Date.parse("2026-10-28T12:00:00Z");
+  const app = (o: object) => ({ status: "applied", applied_at: new Date(now - 12 * day).toISOString(), created_at: new Date(now - 12 * day).toISOString(), events: [] as { at: string; type: string }[], ...o });
+  ok(followUpDue(app({}), now) === 12, "follow-up: applied 12 days ago with no reply → nudge (12 days)");
+  ok(followUpDue(app({ applied_at: new Date(now - 4 * day).toISOString() }), now) === null, "follow-up: 4 days is too soon");
+  ok(followUpDue(app({ status: "interview" }), now) === null, "follow-up: not once the company replied");
+  ok(followUpDue(app({ events: [{ at: new Date(now - 3 * day).toISOString(), type: "follow_up" }] }), now) === null, "follow-up: quiet for 10 days after the person followed up");
+  const d = followUpDraft({ company: "Stripe", title: "Software Engineer", appliedAt: "2026-10-15T15:00:00Z", name: "Gokul" });
+  ok(d.subject.includes("Software Engineer") && d.body.includes("Stripe") && d.body.includes("the Software Engineer role") && d.body.includes("October 15") && d.body.trim().endsWith("Gokul"), "follow-up: draft names the company, role and date");
+  ok(!followUpDraft({ company: "Notion", title: "Role at Notion", titleGuess: true }).body.includes("Role at Notion"), "follow-up: an unconfirmed title is not used in the draft");
 }
 
 plannerChecks().then(precheckChecks).then(aiMeterChecks).then(() => {
