@@ -9,12 +9,12 @@ import { useMe } from "@/lib/me";
 import { supabaseBrowser } from "@/lib/supabase/client";
 import { initials, timeAgo, tintFor } from "@/lib/format";
 import { dailyLimit, effectivePlan } from "@/lib/access";
-import { cleanOptions, isCodeQuestion } from "@/lib/agent/options";
+import { cleanOptions, isCodeQuestion, isVoluntaryId, isYesNoQuestion } from "@/lib/agent/options";
 import { limitDayStart } from "@/lib/agent/plan";
 import { cleanSchedule, inQuietHours, todaysRuns, type AutoSchedule } from "@/lib/agent/schedule";
-import { ACTIVE, NEEDS_YOU, STATUS_META, statusLine, type AgentTask } from "@/lib/agent/status";
+import { NEEDS_YOU, STATUS_META, statusLine, type AgentTask } from "@/lib/agent/status";
 import { Activity } from "./activity";
-import { MatchedWaiting } from "./pipeline";
+import { JobFunnel, usePipeline } from "./pipeline";
 import { agoShort, countsToday, patch, useAgentData, useTicker, type RetryRow } from "./shared";
 
 type LinkPreview = {
@@ -157,16 +157,11 @@ export default function AgentPage() {
 
   const hasMailbox = Boolean(setup?.mailbox);
   const needs = live.filter((t) => NEEDS_YOU.includes(t.status) || (t.status === "waiting_code" && codeNeedsYou(t, hasMailbox, now)));
-  // The same count as the banner on every page: answers, codes, human checks and approvals. Jobs handed over to finish
-  // on the company's site are counted separately.
-  const onSite = needs.filter((t) => t.status === "manual").length;
-  const answerable = needs.length - onSite;
   // Jobs waiting only on questions: answered together, once (site terms and live runs keep their own cards).
   const askTasks = needs.filter((t) => t.status === "needs_user" && (t.needs || []).length > 0 && !(t.needs || []).some((n) => n.live || n.kind === "consent"));
   const today = new Date(new Date(now).setHours(0, 0, 0, 0)).getTime();
   const appliedToday = ix.filter((t) => t.status === "submitted" && Date.parse(t.finished_at || t.updated_at) >= today).length;
   const week = ix.filter((t) => t.status === "submitted" && Date.parse(t.finished_at || t.updated_at) >= now - 7 * 864e5).length;
-  const inQueue = ix.filter((t) => ACTIVE.includes(t.status)).length;
   const liveNow = live.filter((t) => ["running", "waiting_code", "needs_human"].includes(t.status)).sort((a, b) => Date.parse(b.updated_at) - Date.parse(a.updated_at));
   // Same order the agent takes them in: "Apply now" jobs first, then by priority, then oldest first.
   const upNext = live.filter((t) => t.status === "queued").sort((a, b) => (a.priority ?? 5) - (b.priority ?? 5) || Date.parse(a.created_at) - Date.parse(b.created_at));
@@ -177,10 +172,7 @@ export default function AgentPage() {
   })();
   const etaMin = (i: number) => Math.round((liveNow.length ? perJob * 0.5 : agentUp ? 0.5 : 1) + i * (perJob + 0.15));
   const stuckFor = upNext.length && !liveNow.length ? now - Math.min(...upNext.map((t) => Date.parse(t.updated_at))) : 0;
-  // Retrying is decided by the server's duplicate and safety checks (see /api/agent/tasks/requeue).
-  const retryable = retry?.safe.length || 0;
   const queuePos = new Map(upNext.map((t, i) => [t.id, i + 1]));
-  const roleTitle = (t: AgentTask) => roles.find((r) => r.id === t.job.role_id)?.title || null;
   const limit = dailyLimit(profile as { daily_limit?: number | null; high_volume_ok?: boolean | null } | null, effectivePlan(profile?.plan, profile?.role));
   const usedToday = ix.filter((t) => countsToday(t, limitDayStart(now))).length;
   const steps = setup
@@ -201,18 +193,24 @@ export default function AgentPage() {
     setToast(on ? "Auto-apply is on. Your agent will apply to your best new matches through the day." : "Auto-apply is off. Your agent only applies when you press Apply.");
   }
 
+  const pipeRolesKey = roles.map((r) => `${r.id}:${r.priority}:${r.active}:${r.title}:${r.levels.join(",")}:${r.keywords.length}`).join("|");
+  const pipe = usePipeline(pipeKey, pipeRolesKey);
+  const manualTasks = needs.filter((t) => t.status === "manual");
+  const otherNeeds = needs.filter((t) => t.status !== "manual" && !askTasks.includes(t));
+  const now0 = liveNow[0];
+
   return (
     <>
       <PageHeader
         title="Your agent"
-        subtitle="Applies on companies' official careers sites with a resume and cover letter written for each job. You only step in when a site needs a human."
+        subtitle="Applies for you on companies' own careers sites, with a resume and cover letter written for each job."
         actions={
           <>
             <span className="inline-flex min-h-10 items-center gap-2 rounded-lg px-2 text-xs text-muted" role="status" aria-live="polite">
               {offline ? (
                 <><WifiOff size={13} className="text-orange" aria-hidden /> Reconnecting…</>
               ) : syncedAt ? (
-                <><span className="relative flex h-2 w-2" aria-hidden><span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-green opacity-50" /><span className="relative inline-flex h-2 w-2 rounded-full bg-green" /></span> Live · updated {agoShort(syncedAt, now)}</>
+                <><span className="relative flex h-2 w-2" aria-hidden><span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-green opacity-50" /><span className="relative inline-flex h-2 w-2 rounded-full bg-green" /></span> Live · {agoShort(syncedAt, now)}</>
               ) : (
                 <><Loader2 size={13} className="animate-spin" aria-hidden /> Connecting…</>
               )}
@@ -220,7 +218,6 @@ export default function AgentPage() {
             <button className="btn-secondary" onClick={() => void refreshAll()} disabled={refreshing} aria-label="Refresh everything on this page">
               <RefreshCw size={15} className={refreshing ? "animate-spin" : ""} aria-hidden /> Refresh
             </button>
-            <Link href="/app/settings#agent-mode" className="btn-secondary">{profile?.autonomy === "fully_automatic" ? "Fully automatic" : profile?.autonomy === "approve_all" ? "Approve every application" : "Approve important ones"}</Link>
           </>
         }
       />
@@ -232,9 +229,8 @@ export default function AgentPage() {
           <button className="btn-primary min-h-9" onClick={async () => {
             const { error } = await supabaseBrowser().from("profiles").update({ adult_confirmed_at: new Date().toISOString() }).eq("id", userId!);
             if (error) return setToast(`Couldn't save that: ${error.message}`);
-            // Jobs that stopped only for this check can go again — they never opened the employer's site.
             await supabaseBrowser().from("agent_tasks").update({ status: "queued", error: null, needs: [], locked_at: null, step: "Back in line — you confirmed you're 18 or older" })
-              .eq("status", "manual").ilike("error", "Confirm you're 18 or older%").is("submit_clicked_at", null);
+              .eq("status", "manual").ilike("error", "%18 or older%").is("submit_clicked_at", null);
             await refresh();
             void resync();
             setToast("Thanks — confirmed. Jobs that were waiting on this are back in line.");
@@ -242,86 +238,8 @@ export default function AgentPage() {
         </section>
       )}
 
-      <section className="card relative overflow-hidden p-5 sm:p-6">
-        <div aria-hidden className="pointer-events-none absolute -right-16 -top-20 h-56 w-56 rounded-full bg-gradient-to-br from-brand/15 via-pink/10 to-orange/10 blur-2xl" />
-        <div className="relative">
-          <p className="flex items-center gap-2 text-sm font-semibold text-brand-ink"><Link2 size={16} /> Apply from any job link</p>
-          <h2 className="mt-1 text-xl font-bold">Paste a job from a company&apos;s careers site — your agent does the rest</h2>
-          <form className="mt-4 flex flex-col gap-2 sm:flex-row" onSubmit={(e) => { e.preventDefault(); void readLink(); }}>
-            <input className="input flex-1" placeholder="https://boards.greenhouse.io/… · jobs.lever.co/… · company.wd5.myworkdayjobs.com/…" value={link} onChange={(e) => { setLink(e.target.value); setPreview(null); }} aria-label="Job link" />
-            <button className="btn-pink whitespace-nowrap" disabled={busy || !link.trim()}>{busy ? <Loader2 size={16} className="animate-spin" /> : <Sparkles size={16} />} Read job</button>
-          </form>
-          {preview ? (
-            <div className="mt-4 rounded-2xl border border-line bg-surface p-4 sm:p-5">
-              <div className="flex flex-wrap items-start gap-3">
-                <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-sm font-bold" style={tintFor(preview.job.company)}>{initials(preview.job.company)}</span>
-                <div className="min-w-0 flex-1">
-                  <p className="text-lg font-bold">{preview.job.title}</p>
-                  <p className="text-sm text-muted">{[preview.job.company, preview.job.location, preview.job.remote ? "Remote" : null, preview.job.pay, preview.job.posted_at ? `posted ${timeAgo(preview.job.posted_at)}` : null].filter(Boolean).join(" · ")}</p>
-                </div>
-                <div className="text-right"><p className={`text-2xl font-bold ${preview.match.eligible ? "text-green-ink" : "text-red-ink"}`}>{preview.match.eligible ? `${preview.match.score}%` : "—"}</p><p className="text-xs text-muted">{preview.match.eligible ? "match" : "can't hire you"}</p></div>
-              </div>
-              <div className="mt-3 flex flex-wrap gap-1.5">
-                <Badge tone="gray">{preview.site.system}</Badge>
-                <Badge tone={preview.site.account ? "orange" : "green"}>{preview.site.account ? "Needs an account — your agent creates it" : "No account needed"}</Badge>
-                <Badge tone={preview.duplicate ? "red" : "green"}>{preview.duplicate ? "Applied before" : "Not applied before"}</Badge>
-                {preview.match.role && <Badge tone="blue">{preview.match.role.title}</Badge>}
-                {preview.match.blockers.map((b) => <Badge key={b} tone="red">{b}</Badge>)}
-                {preview.match.warnings.slice(0, 2).map((w) => <Badge key={w} tone="orange">{w}</Badge>)}
-              </div>
-              {preview.match.reasons.length > 0 && <p className="mt-3 text-sm text-ink-2"><b>Why it fits:</b> {preview.match.reasons.join(" · ")}</p>}
-              {preview.duplicate || preview.closed ? (
-                <p className="mt-3 text-sm font-semibold text-red-ink">{preview.closed ? `${preview.job.company} has closed this job.` : `${preview.duplicate} — it won't be sent again.`}</p>
-              ) : (
-                <div className="mt-4 flex flex-wrap gap-2">
-                  <button className="btn-primary" disabled={busy} onClick={() => void applyLink("now")}><Sparkles size={16} /> Apply now</button>
-                  <button className="btn-secondary" disabled={busy} onClick={() => void applyLink("next")}>Add to Up next</button>
-                  <button className="btn-ghost" disabled={busy} onClick={() => void applyLink("later")}>Save for later</button>
-                  <a className="btn-ghost" href={preview.job.url} target="_blank" rel="noopener noreferrer">View posting <ExternalLink size={14} /></a>
-                </div>
-              )}
-              <p className="mt-3 text-xs text-muted">A resume is tailored for this job when you choose. The form&apos;s questions are read when it opens — known ones fill from your answers, new ones come to you.</p>
-            </div>
-          ) : (
-            <p className="mt-2 text-xs text-muted">Works with Greenhouse, Lever, Ashby, Workday, Workable and most company sites. Vantage reads the job first, then you choose — apply now while watching, add it to Up next, or save it.</p>
-          )}
-        </div>
-      </section>
-
-      <section className="mt-5 card flex flex-wrap items-center gap-4 p-5">
-        <div className="min-w-0 flex-1">
-          <p className="font-bold">Auto-apply {profile?.agent_enabled ? <span className="text-green-ink">is on</span> : <span className="text-muted">is off</span>}</p>
-          <p className="text-sm text-muted">
-            {profile?.agent_enabled
-              ? `Your agent applies to your best new matches (up to ${limit} a day, ${Math.max(0, limit - usedToday)} left today)${profile?.autonomy === "approve_important" ? ", and asks you first for target companies and top matches" : profile?.autonomy === "approve_all" ? ", and waits for your OK on each one" : ""}.`
-              : "Your agent only applies when you press “Apply with agent” or paste a link. Turn this on to let it find and apply to new matches by itself."}
-          </p>
-          {profile?.agent_enabled && setup && (() => {
-            const runs = todaysRuns(setup.schedule, now);
-            const quiet = inQuietHours(setup.schedule, now);
-            return (
-              <div className="mt-2 flex flex-wrap items-center gap-1.5 text-xs">
-                {runs.length ? runs.map((r) => (
-                  <span key={r.time} className={`rounded-full px-2.5 py-1 font-semibold ${r.state === "done" ? "bg-green-tint text-green-ink" : r.state === "next" ? "bg-brand-tint text-brand-ink" : "bg-line-2 text-muted"}`}>{r.state === "done" ? "✓ " : r.state === "next" ? "Next · " : ""}{r.label}</span>
-                )) : <span className="rounded-full bg-line-2 px-2.5 py-1 font-semibold text-muted">{quiet ? "Quiet hours — resumes in the morning" : "Checks for new jobs every 10 minutes"}</span>}
-                <Link href="/app/settings#schedule" className="ml-1 font-semibold text-brand-ink">Change schedule</Link>
-              </div>
-            );
-          })()}
-        </div>
-        <button
-          role="switch"
-          aria-checked={Boolean(profile?.agent_enabled)}
-          onClick={() => toggleAuto(!profile?.agent_enabled)}
-          className={`relative h-8 w-14 shrink-0 rounded-full transition ${profile?.agent_enabled ? "bg-green" : ready ? "bg-[#cfd4de]" : "bg-[#e6e8ef]"}`}
-          aria-label="Auto-apply"
-        >
-          <span className={`absolute top-1 h-6 w-6 rounded-full bg-white shadow transition ${profile?.agent_enabled ? "left-7" : "left-1"}`} />
-        </button>
-      </section>
-
       {setup && setupLeft > 0 && (
-        <section className="mt-5 card p-5">
+        <section className="mb-5 card p-5">
           <div className="flex items-center justify-between gap-3">
             <h2 className="font-bold">Get your agent ready <span className="font-medium text-muted">· {steps.length - setupLeft} of {steps.length} done</span></h2>
             <div className="h-2 w-32 overflow-hidden rounded-full bg-line-2"><div className="h-full rounded-full bg-gradient-to-r from-brand to-pink" style={{ width: `${((steps.length - setupLeft) / steps.length) * 100}%` }} /></div>
@@ -339,126 +257,174 @@ export default function AgentPage() {
         </section>
       )}
 
-      {/* Mission control: what's happening right now */}
-      <section className="mt-5 grid gap-4 lg:grid-cols-[1.4fr_1fr]">
-        <div className="card overflow-hidden" aria-live="polite">
-          {working === null ? (
-            <div className="space-y-3 p-5" aria-busy="true"><div className="skeleton h-4 w-32" /><div className="skeleton h-6 w-3/4" /><div className="skeleton h-12" /></div>
-          ) : liveNow[0] ? (() => {
-            const t = liveNow[0];
-            const st = stageOf(t);
-            const role = roleTitle(t);
-            return (
-              <div className="p-5">
-                <p className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-brand"><span className="live-dot" /> Applying right now</p>
-                <div className="mt-3 flex items-start gap-3">
-                  <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl text-base font-bold" style={tintFor(t.job.company)}>{initials(t.job.company)}</span>
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-lg font-bold">{t.job.title}</p>
-                    <p className="truncate text-sm text-muted">{t.job.company}{t.job.location ? ` · ${t.job.location}` : ""}{role ? ` · for your ${role} target` : ""}</p>
+      {/* 1 · Today, at a glance */}
+      <section className="card overflow-hidden" aria-labelledby="today-h" aria-live="polite">
+        <div className="flex flex-wrap items-start gap-4 p-5 sm:p-6">
+          <div className="min-w-0 flex-1">
+            <p className="text-xs font-bold uppercase tracking-wider text-muted">Today</p>
+            {working === null ? (
+              <div className="mt-2 space-y-2" aria-busy="true"><div className="skeleton h-7 w-2/3" /><div className="skeleton h-4 w-1/2" /></div>
+            ) : (
+              <>
+                <h2 id="today-h" className="mt-1 text-2xl font-bold tracking-tight">
+                  {now0 ? <>Applying to {now0.job.title} <span className="text-muted">at {now0.job.company}</span></> : appliedToday ? `${appliedToday} application${appliedToday > 1 ? "s" : ""} sent today` : profile?.agent_enabled ? "Your agent is looking for your best matches" : "Auto-apply is off"}
+                </h2>
+                <p className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1 text-sm text-muted">
+                  <span><b className="text-ink tabular-nums">{appliedToday}</b> sent today</span>
+                  <span><b className="text-ink tabular-nums">{upNext.length}</b> in line</span>
+                  <span className={needs.length ? "text-orange-ink" : ""}><b className="tabular-nums">{needs.length}</b> need you</span>
+                  <span><b className="text-ink tabular-nums">{week}</b> this week · <b className="text-ink tabular-nums">{totalApplied ?? "—"}</b> in total</span>
+                </p>
+              </>
+            )}
+          </div>
+          <div className="flex items-center gap-3">
+            <div className="text-right">
+              <p className="text-sm font-semibold">Auto-apply {profile?.agent_enabled ? <span className="text-green-ink">on</span> : <span className="text-muted">off</span>}</p>
+              <Link href="/app/settings#agent-mode" className="text-xs text-muted hover:text-brand-ink">{profile?.autonomy === "fully_automatic" ? "Fully automatic" : profile?.autonomy === "approve_all" ? "You approve each one" : "You approve important ones"} · up to {limit}/day</Link>
+            </div>
+            <button role="switch" aria-checked={Boolean(profile?.agent_enabled)} onClick={() => toggleAuto(!profile?.agent_enabled)} aria-label="Auto-apply"
+              className={`relative h-8 w-14 shrink-0 rounded-full transition ${profile?.agent_enabled ? "bg-green" : ready ? "bg-[#cfd4de]" : "bg-[#e6e8ef]"}`}>
+              <span className={`absolute top-1 h-6 w-6 rounded-full bg-white shadow transition ${profile?.agent_enabled ? "left-7" : "left-1"}`} />
+            </button>
+          </div>
+        </div>
+
+        {/* Daily limit */}
+        <div className="px-5 pb-4 sm:px-6">
+          <div className="flex items-center justify-between text-xs text-muted"><span>{usedToday} of {limit} applications used today</span>{profile?.agent_enabled && setup && (() => {
+            const runs = todaysRuns(setup.schedule, now);
+            const nextRun = runs.find((r) => r.state === "next");
+            return <Link href="/app/settings#schedule" className="hover:text-brand-ink">{nextRun ? `Next run ${nextRun.label}` : inQuietHours(setup.schedule, now) ? "Quiet hours — resumes in the morning" : "Checks for new jobs every 10 min"}</Link>;
+          })()}</div>
+          <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-line-2"><div className="h-full rounded-full bg-gradient-to-r from-brand to-pink transition-all" style={{ width: `${Math.min(100, (usedToday / Math.max(1, limit)) * 100)}%` }} /></div>
+        </div>
+
+        {/* Applying now */}
+        {now0 && (() => {
+          const st = stageOf(now0);
+          return (
+            <div className="border-t border-line bg-canvas/40 px-5 py-4 sm:px-6">
+              <div className="grid grid-cols-4 gap-2">
+                {STAGES.map((label, i) => (
+                  <div key={label}>
+                    <div className={`h-1.5 rounded-full ${i < st ? "bg-brand" : i === st ? "animate-pulse bg-brand/60" : "bg-line-2"}`} />
+                    <p className={`mt-1.5 text-[11px] font-semibold ${i <= st ? "text-ink" : "text-subtle"}`}>{label}</p>
                   </div>
-                </div>
-                <div className="mt-5 grid grid-cols-4 gap-2">
-                  {STAGES.map((label, i) => (
-                    <div key={label}>
-                      <div className={`h-1.5 rounded-full ${i < st ? "bg-brand" : i === st ? "animate-pulse bg-brand/60" : "bg-line-2"}`} />
-                      <p className={`mt-1.5 text-[11px] font-semibold ${i <= st ? "text-ink" : "text-subtle"}`}>{label}</p>
-                    </div>
-                  ))}
-                </div>
-                <p className="mt-4 rounded-lg bg-canvas px-3 py-2 text-sm"><span className="font-semibold">Now:</span> {statusLine(t)} <span className="text-xs text-muted">· {timeAgo(t.updated_at)}</span></p>
-                {t.status === "waiting_code" && siteCode(t) && !codeNeedsYou(t, hasMailbox, now) && (
-                  <p className="mt-2 flex items-start gap-2 rounded-lg border border-brand/20 bg-brand-tint px-3 py-2 text-[13px] text-ink-2"><Mail size={15} className="mt-0.5 shrink-0 text-brand" /> {siteCode(t)!.system} emailed a security code to {siteCode(t)!.sentTo}. Your agent is reading it from your inbox and will submit in a few seconds — nothing to do.</p>
-                )}
-                {liveNow.length > 1 && <p className="mt-2 text-xs text-muted">+{liveNow.length - 1} more in progress</p>}
-              </div>
-            );
-          })() : upNext.length ? (
-            <div className="p-5">
-              <p className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-brand"><Loader2 size={13} className="animate-spin" /> {agentUp ? "Starting the next application" : "Waking up your agent"}</p>
-              <p className="mt-2 text-lg font-bold">{upNext[0].job.title} <span className="font-medium text-muted">at {upNext[0].job.company}</span></p>
-              <p className="mt-1 text-sm text-muted">
-                {agentUp
-                  ? "Your agent is opening the job now. It tailors the resume, fills the form on the official site and submits."
-                  : "Your agent's browser sleeps when there's nothing to do and takes about a minute to start. Nothing for you to do — it begins automatically."}
-              </p>
-              <div className="mt-4 flex flex-wrap items-center gap-3 text-xs text-muted">
-                <span className="rounded-full bg-canvas px-2.5 py-1 font-semibold text-ink-2">{upNext.length} in line · about {Math.max(1, Math.round(upNext.length * perJob))} min for all</span>
-                <span>Waiting {Math.max(0, Math.round(stuckFor / 60_000))} min</span>
-                {stuckFor > 4 * 60_000 && (
-                  <button className="btn-secondary min-h-8 text-xs" onClick={async () => { setToast("Starting your agent…"); await fetch("/api/agent/wake", { method: "POST" }).catch(() => null); void resync(); }}><RotateCcw size={13} /> Taking long — start now</button>
-                )}
-              </div>
-            </div>
-          ) : (
-            <div className="p-5">
-              <p className="text-xs font-bold uppercase tracking-wider text-muted">Right now</p>
-              <p className="mt-2 text-lg font-bold">{needs.length ? [answerable ? `${answerable} need${answerable > 1 ? "" : "s"} a quick answer` : "", onSite ? `${onSite} to finish on the company's site` : ""].filter(Boolean).join(" · ") : profile?.agent_enabled ? (usedToday >= limit ? "Today's applications are done" : "Looking for your next best matches") : "Nothing in line"}</p>
-              <p className="mt-1 text-sm text-muted">{needs.length ? (answerable ? "Answer below and your agent finishes and submits them right away." : "Your agent got as far as it could. The Vantage extension fills the rest while you press Submit.") : profile?.agent_enabled ? (usedToday >= limit ? `Your agent has used all ${limit} of today's applications. It picks up again tomorrow — or raise the limit in Settings.` : "Auto-apply checks for new matching jobs every few minutes and lines up the best ones here.") : retryable ? `Paste a job link above, switch on Auto-apply, or retry the ${retryable} job${retryable > 1 ? "s" : ""} that stopped before anything was sent (below).` : "Paste a job link above, or switch on Auto-apply."}</p>
-              {needs.length > 0 && <a href={answerable && askTasks.length ? "#answer-once" : "#needs-you"} className="btn-pink mt-3 min-h-9 text-[13px]">{answerable ? "Answer now" : "See them"}</a>}
-            </div>
-          )}
-          {upNext.length > 0 && (
-            <div className="border-t border-line bg-canvas/50 px-5 py-3">
-              <p className="mb-2 flex items-center justify-between text-xs font-semibold uppercase tracking-wide text-muted"><span>Up next · one at a time</span><span className="normal-case tracking-normal">~{Math.round(perJob)} min each</span></p>
-              <ol className="space-y-1.5">
-                {upNext.slice(0, 5).map((t, i) => (
-                  <li key={t.id} className="flex items-center gap-2 text-sm">
-                    <span className="w-5 text-xs font-bold text-subtle">#{i + 1}</span>
-                    <span className="min-w-0 flex-1 truncate"><span className="font-medium">{t.job.title}</span> <span className="text-muted">· {t.job.company}</span>{roleTitle(t) && <span className="text-subtle"> · {roleTitle(t)}</span>}</span>
-                    <span className="shrink-0 text-xs text-muted">{i === 0 && !liveNow.length ? "starting" : `~${etaMin(i)} min`}</span>
-                    {i > 0 && <button className="shrink-0 rounded-md px-2 py-1 text-xs font-semibold text-brand-ink hover:bg-brand-tint" onClick={async () => { const r = await patch(t.id, { action: "apply_now" }); setToast(r.ok ? `${t.job.company} moved to the front.` : r.error || "Couldn't move it."); void resync(); }}>Apply next</button>}
-                  </li>
                 ))}
-                {upNext.length > 5 && <li className="pl-7 text-xs text-muted">+{upNext.length - 5} more · all done in about {Math.round(upNext.length * perJob)} min</li>}
-              </ol>
+              </div>
+              <p className="mt-3 text-sm"><span className="font-semibold">Now:</span> {statusLine(now0)} <span className="text-xs text-muted">· {timeAgo(now0.updated_at)}</span></p>
+              {now0.status === "waiting_code" && siteCode(now0) && !codeNeedsYou(now0, hasMailbox, now) && (
+                <p className="mt-2 flex items-start gap-2 text-[13px] text-ink-2"><Mail size={15} className="mt-0.5 shrink-0 text-brand" /> {siteCode(now0)!.system} emailed a security code to {siteCode(now0)!.sentTo}. Your agent reads it from your inbox — nothing to do.</p>
+              )}
             </div>
-          )}
-        </div>
-        <div className="grid grid-cols-2 gap-3">
-          {[
-            { k: "Applied today", v: index ? appliedToday : "—", tone: "text-green-ink" },
-            { k: "This week", v: index ? week : "—", tone: "text-ink" },
-            { k: "Applied in total", v: totalApplied ?? "—", tone: "text-ink" },
-            { k: answerable ? "Need an answer" : onSite ? "Finish on site" : "In progress", v: index ? answerable || onSite || inQueue : "—", tone: needs.length ? "text-orange-ink" : "text-brand-ink" },
-          ].map((s) => (
-            <div key={s.k} className="card flex flex-col justify-between p-4">
-              <p className="text-xs font-medium text-muted">{s.k}</p>
-              <p className={`mt-1 text-3xl font-bold tracking-tight tabular-nums ${s.tone}`}>{s.v}</p>
-            </div>
-          ))}
-        </div>
+          );
+        })()}
+
+        {/* In line */}
+        {upNext.length > 0 && (
+          <div className="border-t border-line px-5 py-4 sm:px-6">
+            <p className="mb-2 flex items-center justify-between text-xs font-semibold uppercase tracking-wide text-muted">
+              <span>In line · one at a time</span>
+              {!now0 && <span className="normal-case tracking-normal">{agentUp ? "Starting the next one" : "Waking up your agent (about a minute)"}{stuckFor > 4 * 60_000 && <button className="ml-2 font-semibold text-brand-ink" onClick={async () => { setToast("Starting your agent…"); await fetch("/api/agent/wake", { method: "POST" }).catch(() => null); void resync(); }}>Start now</button>}</span>}
+            </p>
+            <ol className="space-y-1.5">
+              {upNext.slice(0, 4).map((t, i) => (
+                <li key={t.id} className="flex items-center gap-2 text-sm">
+                  <span className="w-5 text-xs font-bold text-subtle">{i + 1}</span>
+                  <span className="min-w-0 flex-1 truncate"><span className="font-medium">{t.job.title}</span> <span className="text-muted">· {t.job.company}</span></span>
+                  <span className="shrink-0 text-xs text-muted">{i === 0 && !now0 ? "next" : `~${etaMin(i)} min`}</span>
+                  {i > 0 && <button className="shrink-0 rounded-md px-2 py-1 text-xs font-semibold text-brand-ink hover:bg-brand-tint" onClick={async () => { const r = await patch(t.id, { action: "apply_now" }); setToast(r.ok ? `${t.job.company} moved to the front.` : r.error || "Couldn't move it."); void resync(); }}>Do next</button>}
+                </li>
+              ))}
+              {upNext.length > 4 && <li className="pl-7 text-xs text-muted">+{upNext.length - 4} more · about {Math.round(upNext.length * perJob)} min for all</li>}
+            </ol>
+          </div>
+        )}
       </section>
 
-      <MatchedWaiting
-        roles={roles}
-        index={index}
-        enabled={Boolean(profile?.agent_enabled)}
-        autonomy={profile?.autonomy}
-        limit={limit}
-        usedToday={usedToday}
-        refreshKey={pipeKey}
-        onRolesChanged={refresh}
-        onToast={setToast}
-      />
-
-      {askTasks.length > 0 && <AskOnce tasks={askTasks} onDone={(m) => { setToast(m); void resync(); }} />}
-
-      {needs.length > askTasks.length && (
-        <section className="mt-6">
-          <h2 id="needs-you" className="mb-3 flex scroll-mt-20 items-center gap-2 font-bold"><span className="live-dot" /> Needs you ({needs.length - askTasks.length})</h2>
-          <div className="space-y-3">
+      {/* 2 · What needs you */}
+      {needs.length > 0 && (
+        <section className="mt-8" aria-labelledby="needs-you">
+          <div className="mb-3 flex flex-wrap items-baseline gap-x-3 gap-y-1">
+            <h2 id="needs-you" className="scroll-mt-20 text-lg font-bold">Needs you</h2>
+            <p className="text-sm text-muted">
+              {[askTasks.length ? `${askTasks.length} wait${askTasks.length > 1 ? "" : "s"} on your answers` : "", otherNeeds.length ? `${otherNeeds.length} to check` : "", manualTasks.length ? `${manualTasks.length} to finish on the company's site` : ""].filter(Boolean).join(" · ")}
+            </p>
+          </div>
+          <div className="space-y-4">
+            {askTasks.length > 0 && <AskOnce tasks={askTasks} onDone={(m) => { setToast(m); void resync(); }} />}
             <AnimatePresence initial={false}>
-              {needs.filter((t) => !askTasks.includes(t)).map((t) => (
+              {otherNeeds.map((t) => (
                 <motion.div key={t.id} layout initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, height: 0 }}>
                   <NeedCard t={t} hasMailbox={hasMailbox} consent={Boolean(setup?.consent)} onOpen={openOnSite} onDone={(m) => { setToast(m); void resync(); }} />
                 </motion.div>
               ))}
             </AnimatePresence>
+            {manualTasks.length > 0 && <FinishOnSite tasks={manualTasks} onOpen={openOnSite} onDone={(m) => { setToast(m); void resync(); }} />}
           </div>
         </section>
       )}
 
+      {/* 3 · What the agent takes next, and why */}
+      <div className="mt-8">
+        <JobFunnel
+          data={pipe.data}
+          loading={pipe.loading}
+          failed={pipe.failed}
+          onReload={(fresh) => void pipe.load(fresh)}
+          roles={roles}
+          index={index}
+          enabled={Boolean(profile?.agent_enabled)}
+          limit={limit}
+          usedToday={usedToday}
+          onRolesChanged={refresh}
+          onToast={setToast}
+        />
+      </div>
+
+      {/* 4 · Apply to a specific job */}
+      <section className="mt-8 card p-5 sm:p-6" aria-labelledby="link-h">
+        <h2 id="link-h" className="flex items-center gap-2 font-bold"><Link2 size={17} className="text-brand" /> Apply to a specific job</h2>
+        <p className="mt-0.5 text-sm text-muted">Paste a job link from any company&apos;s careers site — Greenhouse, Lever, Ashby, Workday and most others. Vantage reads it first, then you choose.</p>
+        <form className="mt-3 flex flex-col gap-2 sm:flex-row" onSubmit={(e) => { e.preventDefault(); void readLink(); }}>
+          <input className="input flex-1" placeholder="https://…" value={link} onChange={(e) => { setLink(e.target.value); setPreview(null); }} aria-label="Job link" />
+          <button className="btn-primary whitespace-nowrap" disabled={busy || !link.trim()}>{busy ? <Loader2 size={16} className="animate-spin" /> : <Sparkles size={16} />} Read job</button>
+        </form>
+        {preview && (
+          <div className="mt-4 rounded-2xl border border-line bg-white p-4 sm:p-5">
+            <div className="flex flex-wrap items-start gap-3">
+              <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-sm font-bold" style={tintFor(preview.job.company)}>{initials(preview.job.company)}</span>
+              <div className="min-w-0 flex-1">
+                <p className="text-lg font-bold">{preview.job.title}</p>
+                <p className="text-sm text-muted">{[preview.job.company, preview.job.location, preview.job.remote ? "Remote" : null, preview.job.pay, preview.job.posted_at ? `posted ${timeAgo(preview.job.posted_at)}` : null].filter(Boolean).join(" · ")}</p>
+              </div>
+              <div className="text-right"><p className={`text-2xl font-bold ${preview.match.eligible ? "text-green-ink" : "text-red-ink"}`}>{preview.match.eligible ? `${preview.match.score}%` : "—"}</p><p className="text-xs text-muted">{preview.match.eligible ? "match" : "can't hire you"}</p></div>
+            </div>
+            <div className="mt-3 flex flex-wrap gap-1.5">
+              <Badge tone="gray">{preview.site.system}</Badge>
+              <Badge tone={preview.site.account ? "orange" : "green"}>{preview.site.account ? "Needs an account — your agent creates it" : "No account needed"}</Badge>
+              <Badge tone={preview.duplicate ? "red" : "green"}>{preview.duplicate ? "Applied before" : "Not applied before"}</Badge>
+              {preview.match.role && <Badge tone="blue">{preview.match.role.title}</Badge>}
+              {preview.match.blockers.map((b) => <Badge key={b} tone="red">{b}</Badge>)}
+              {preview.match.warnings.slice(0, 2).map((w) => <Badge key={w} tone="orange">{w}</Badge>)}
+            </div>
+            {preview.match.reasons.length > 0 && <p className="mt-3 text-sm text-ink-2"><b>Why it fits:</b> {preview.match.reasons.join(" · ")}</p>}
+            {preview.duplicate || preview.closed ? (
+              <p className="mt-3 text-sm font-semibold text-red-ink">{preview.closed ? `${preview.job.company} has closed this job.` : `${preview.duplicate} — it won't be sent again.`}</p>
+            ) : (
+              <div className="mt-4 flex flex-wrap gap-2">
+                <button className="btn-primary" disabled={busy} onClick={() => void applyLink("now")}><Sparkles size={16} /> Apply now</button>
+                <button className="btn-secondary" disabled={busy} onClick={() => void applyLink("next")}>Add to the line</button>
+                <button className="btn-ghost" disabled={busy} onClick={() => void applyLink("later")}>Save for later</button>
+                <a className="btn-ghost" href={preview.job.url} target="_blank" rel="noopener noreferrer">View posting <ExternalLink size={14} /></a>
+              </div>
+            )}
+          </div>
+        )}
+      </section>
+
+      {/* 5 · Everything your agent did */}
       <Activity
         index={index}
         version={version}
@@ -493,7 +459,9 @@ function tidy(n: AgentTask["needs"][number]): AgentTask["needs"][number] {
   const label = (again > 0 ? t.slice(0, again) : t).trim();
   const opts = n.options || [];
   const foreign = opts.length > 20 && opts.filter((o) => /\+\d{1,4}$/.test(o.trim())).length > opts.length / 2; // a phone country-code list
-  return { ...n, label, options: foreign ? undefined : cleanOptions(label, n.options) };
+  const opts2 = foreign ? undefined : cleanOptions(label, n.options);
+  // A yes/no question whose list the site didn't show yet: Yes / No buttons, not a text box.
+  return { ...n, label, options: opts2?.length ? opts2 : n.type !== "textarea" && isYesNoQuestion(label) ? ["Yes", "No"] : opts2 };
 }
 
 type SiteCode = { kind: "site_code"; system: string; company: string; sentTo: string; length: number | null; auto: boolean; purpose?: "application" | "account"; startedAt: string; expiresAt: string; error?: string };
@@ -558,7 +526,7 @@ function CodeCard({ t, hasMailbox, head, onDone }: { t: AgentTask; hasMailbox: b
           />
           <div className="pointer-events-none grid gap-1.5" style={{ gridTemplateColumns: `repeat(${sc ? len : 6}, minmax(0, 1fr))` }} aria-hidden>
             {Array.from({ length: sc ? len : Math.max(6, code.length) }).map((_, i) => (
-              <span key={i} className={`flex h-12 items-center justify-center rounded-lg border bg-surface font-mono text-lg font-bold ${i === code.length ? "border-brand ring-2 ring-brand/20" : code[i] ? "border-ink-2/30" : "border-line"}`}>{code[i] || ""}</span>
+              <span key={i} className={`flex h-12 items-center justify-center rounded-lg border bg-white font-mono text-lg font-bold ${i === code.length ? "border-brand ring-2 ring-brand/20" : code[i] ? "border-ink-2/30" : "border-line"}`}>{code[i] || ""}</span>
             ))}
           </div>
         </div>
@@ -789,12 +757,75 @@ function NeedCard({ t, hasMailbox, consent, onDone, onOpen }: { t: AgentTask; ha
 }
 
 
+/** Why the agent handed a job over, in a few plain words. */
+function handoverReason(t: AgentTask) {
+  const e = `${t.error || ""} ${t.step || ""}`;
+  if (t.submit_clicked_at) return "Submit was pressed but no confirmation showed — it may already be sent. Check your email before doing anything.";
+  if (/sign-in|create-account|account|log ?in|password/i.test(e)) return "The site's sign-in or account step needs you.";
+  if (/human check|captcha|security verification|cloudflare/i.test(e)) return "The site asked for a human check.";
+  if (/resume upload/i.test(e)) return "The site wouldn't take the resume upload.";
+  if (/verification|verify/i.test(e)) return "The site wants you to verify your email.";
+  if (/too long|slow/i.test(e)) return "The site was too slow for your agent.";
+  if (/18 or older/i.test(e)) return "Waiting since the age check — press Try again.";
+  if (/no longer available|closed/i.test(e)) return "The posting may have closed.";
+  return "A step your agent couldn't do by itself.";
+}
+
+/**
+ * Jobs your agent couldn't finish on its own: one row each, one clear action — open it on the company's site, where
+ * the Vantage extension fills every page in your Chrome and you press Submit.
+ */
+function FinishOnSite({ tasks, onOpen, onDone }: { tasks: AgentTask[]; onOpen: (t: AgentTask) => void; onDone: (m: string) => void }) {
+  const [busy, setBusy] = useState<string | null>(null);
+  const [all, setAll] = useState(false);
+  async function act(t: AgentTask, body: Record<string, unknown>, msg: string) {
+    setBusy(t.id);
+    const r = await patch(t.id, body);
+    setBusy(null);
+    onDone(r.ok ? msg : r.error || "Something went wrong.");
+  }
+  const list = all ? tasks : tasks.slice(0, 6);
+  return (
+    <div className="card overflow-hidden">
+      <div className="flex flex-wrap items-start gap-3 border-b border-line p-5">
+        <div className="min-w-0 flex-1">
+          <h3 className="font-bold">Finish on the company&apos;s site · {tasks.length}</h3>
+          <p className="mt-0.5 text-sm text-muted">Nothing was sent for these. <b className="text-ink">Open on site</b> opens the job in your Chrome — the Vantage extension fills every page with your tailored resume and saved answers, and you press Submit.</p>
+        </div>
+        <Link href="/app/extension" className="btn-ghost min-h-9 shrink-0 text-[13px]">Get the extension</Link>
+      </div>
+      <ul className="divide-y divide-line">
+        {list.map((t) => (
+          <li key={t.id} className="flex flex-wrap items-center gap-3 px-5 py-3.5">
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-sm font-bold" style={tintFor(t.job.company)}>{initials(t.job.company)}</span>
+            <div className="min-w-0 flex-1 basis-60">
+              <p className="truncate font-semibold">{t.job.title}</p>
+              <p className="truncate text-xs text-muted">{t.job.company} · {handoverReason(t)}</p>
+            </div>
+            <div className="flex shrink-0 items-center gap-1.5">
+              {t.submit_clicked_at ? (
+                <Link className="btn-secondary min-h-9 text-[13px]" href="/app/inbox">Check my inbox</Link>
+              ) : (
+                <button className="btn-primary min-h-9 text-[13px]" onClick={() => onOpen(t)}><ExternalLink size={14} /> Open on {t.job.company.length > 14 ? "site" : `${t.job.company}'s site`}</button>
+              )}
+              {!t.submit_clicked_at && <button className="btn-ghost min-h-9 px-2.5 text-[13px]" disabled={busy === t.id} onClick={() => void act(t, { action: "retry" }, `Your agent will try ${t.job.company} again.`)} title="Let your agent try again"><RotateCcw size={14} /> Retry</button>}
+              <button className="btn-ghost min-h-9 px-2.5 text-[13px] text-muted" disabled={busy === t.id} onClick={() => void act(t, { action: "cancel" }, "Dismissed — nothing was sent.")} aria-label={`Dismiss ${t.job.title} at ${t.job.company}`}><X size={14} /></button>
+            </div>
+          </li>
+        ))}
+      </ul>
+      {tasks.length > 6 && <button className="w-full border-t border-line py-2.5 text-sm font-semibold text-brand-ink hover:bg-canvas/60" onClick={() => setAll((v) => !v)}>{all ? "Show fewer" : `Show all ${tasks.length}`}</button>}
+    </div>
+  );
+}
+
 /** "Answer once, before applying": every question the waiting jobs asked, deduplicated, in one form. */
 function AskOnce({ tasks, onDone }: { tasks: AgentTask[]; onDone: (m: string) => void }) {
   const groups = useMemo(() => {
     const m = new Map<string, { n: AgentTask["needs"][number]; companies: string[] }>();
     for (const t of tasks) for (const raw of t.needs || []) {
       if (isCodeQuestion(raw.label || "")) continue; // codes are read from the mailbox, never saved as answers
+      if (isVoluntaryId(raw.label || "") && !raw.locked) continue; // voluntary self-ID: Vantage answers "decline" unless you set it in Settings
       const n = tidy(raw);
       const g = m.get(n.qkey || n.label);
       if (g) { if (!g.companies.includes(t.job.company)) g.companies.push(t.job.company); }
@@ -852,7 +883,7 @@ function AskOnce({ tasks, onDone }: { tasks: AgentTask[]; onDone: (m: string) =>
             </fieldset>
           ))}
         </div>
-        <div className="sticky bottom-3 mt-5 flex flex-wrap items-center gap-3 rounded-xl border border-line bg-surface p-3 shadow-sm">
+        <div className="sticky bottom-3 z-10 mt-5 flex flex-wrap items-center gap-3 rounded-xl border border-line bg-white p-3 shadow-[0_8px_24px_rgba(16,20,42,0.12)]">
           <p className="min-w-0 flex-1 text-sm"><b>{done} of {groups.length} answered.</b> <span className="text-muted">Jobs with every question answered go back in line right away.</span></p>
           <button className="btn-primary" disabled={busy || !done} onClick={() => void save()}>{busy ? <Loader2 size={16} className="animate-spin" /> : <Check size={16} />} Save answers and apply</button>
         </div>

@@ -251,9 +251,14 @@ export default function JobsPage() {
               ))}
               <button className="ml-auto text-sm font-semibold text-brand-ink" onClick={() => setShowBlocked(true)}>Show them</button>
               {(data.meta.hiddenBy?.["Don't confirm sponsorship"] || 0) > 0 && (
-                <Link href="/app/targets" className="text-sm font-semibold text-brand-ink">Change sponsorship filter</Link>
+                <Link href="/app/targets#visa" className="text-sm font-semibold text-brand-ink">Change sponsorship filter</Link>
               )}
             </div>
+          )}
+          {!query && results.length > 0 && (
+            <p className="rounded-xl bg-brand-soft px-3.5 py-2.5 text-sm text-ink-2">
+              Your agent applies to the strongest of these by itself — fresh, at your levels, one company at a time, within your daily limit. Use <b>Prepare application</b> on any job to send it right away. <Link href="/app/agent#funnel-h" className="font-semibold text-brand-ink">See which ones it takes and why →</Link>
+            </p>
           )}
         </div>
       )}

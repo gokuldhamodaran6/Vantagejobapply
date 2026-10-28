@@ -52,7 +52,7 @@ export type PilotCtx = {
 };
 
 const FIELD_KINDS = new Set(["text", "email", "tel", "url", "number", "date", "month", "textarea", "select", "combobox", "radio", "checkbox", "checkboxes", "file"]);
-const EEO = /\bgender\b|\bsex\b|\brace\b|ethnic|hispanic|latin[oax]|veteran|disabilit|pronoun|sexual orientation|transgender|lgbt/i;
+const EEO = /\bgender\b|\bsex\b|\brace\b|ethnic|hispanic|latin[oax]|veteran|disabilit|pronoun|sexual orientation|transgender|lgbt|^\s*i identify (as|my)|self[- ]identif|how do you identify/i;
 const REPEATED = /(work )?experience|employment|work history|job \d|position \d|education|school|degree \d|language \d|certification \d/i;
 
 /* ---------------- contact details: placeholders in, real values out ---------------- */

@@ -1,5 +1,5 @@
 import { json, loadUserContext } from "@/lib/server-user";
-import { isCodeQuestion } from "@/lib/agent/options";
+import { isCodeQuestion, isVoluntaryId } from "@/lib/agent/options";
 import { qkeyOf, sameMeaning, lockedKind } from "@/lib/agent/fields";
 import { wakeWorker } from "@/lib/agent/svc";
 
@@ -30,7 +30,8 @@ export async function POST(req: Request) {
     const needs = t.needs || [];
     if (!needs.length || needs.some((n) => n.live || n.kind === "consent")) continue; // live runs and site terms are answered on their own card
     // One-time code boxes are filled from the mailbox on the next run, never from saved answers.
-    if (!needs.every((n) => isCodeQuestion(n.label || "") || answered(n))) continue;
+    // Voluntary self-ID questions are answered "decline" by the agent itself unless you saved an answer.
+    if (!needs.every((n) => isCodeQuestion(n.label || "") || (isVoluntaryId(n.label || "") && !n.locked) || answered(n))) continue;
     const { data } = await ctx.supabase.from("agent_tasks").update({ status: "queued", needs: [], error: null, locked_at: null, step: "Back in line — you answered its questions" }).eq("id", t.id).eq("status", "needs_user").select("id");
     if (data?.length) freed++;
   }

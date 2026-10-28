@@ -1,0 +1,23 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Sign In</title></head><body>
+<header><button data-automation-id="utilityButtonSignIn">Sign In</button></header>
+<main id="m">
+  <h2>Sign In</h2>
+  <label for="e">Email Address *</label><input id="e" data-automation-id="email" type="text" autocomplete="email">
+  <label for="p">Password *</label><input id="p" data-automation-id="password" type="password">
+  <button data-automation-id="signInSubmitButton">Sign In</button>
+  <p>Don't have an account yet? <button data-automation-id="createAccountLink" id="ca">Create Account</button></p>
+</main>
+<script>
+  // Like Workday: the page ignores clicks until its scripts have loaded (about 2 s).
+  let ready = false; setTimeout(() => ready = true, 2000);
+  document.getElementById("ca").addEventListener("click", () => {
+    if (!ready) return;
+    document.getElementById("m").innerHTML = `<h2>Create Account</h2>
+      <label for="e2">Email Address *</label><input id="e2" data-automation-id="email" type="text">
+      <label for="p1">Password *</label><input id="p1" type="password">
+      <label for="p2">Verify New Password *</label><input id="p2" type="password">
+      <input type="checkbox" id="agree" data-automation-id="createAccountCheckbox"><label for="agree">I agree</label>
+      <div style="position:relative"><button data-automation-id="createAccountSubmitButton">Create Account</button>
+      <div role="button" aria-label="Create Account" data-automation-id="click_filter" style="position:absolute;inset:0"></div></div>`;
+  });
+</script></body></html>

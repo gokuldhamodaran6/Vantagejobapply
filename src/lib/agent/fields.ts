@@ -225,7 +225,7 @@ const RULES: Rule[] = [
   [/authori[sz]ed to work|legally (eligible|authori[sz]ed|permitted|able) to work|right to work|eligible to work|work authori[sz]ation/, "work_authorized"],
   [/visa status|immigration status|current (work )?status/, "work_status"],
   [/^location \(city\)|^location$|^current location|city, state|^your location/, "location"],
-  [/transgender|lgbt|sexual orientation|orientation\b/, "eeo_private"],
+  [/transgender|lgbt|sexual orientation|orientation\b|^i identify (as|my)|self[- ]identif|how do you identify/, "eeo_private"],
   [/(which|what) (cities|city|locations?|offices?)|cities .{0,40}(available|willing|open|work)|(available|willing|open) to work (in|from)|preferred (work )?(location|office)|office location|location preference/, "preferred_locations"],
   [/\bpreferred (first )?name|nick ?name/, "preferred_name"],
   [/\b(legal )?first name|given name|^first$|fname/, "first_name"],

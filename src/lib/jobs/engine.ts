@@ -291,6 +291,10 @@ export type PipelineRole = {
 export type Pipeline = {
   countries: string[];
   freshDays: number;
+  /** Open jobs whose titles match your targets (what Live jobs searched, before any of your rules). */
+  found?: number;
+  /** Why the rest of "found" don't show as matches: your visa setting, levels, fit, places or work arrangement. */
+  hidden?: Partial<Record<"Visa or eligibility" | "Above your levels" | "Not close enough to your targets" | "Outside your locations" | "Not your work arrangement", number>>;
   /** Distinct open jobs that match at least one active target (what Live jobs shows, summed over countries). */
   live: number;
   /** Already applied, queued or skipped by you. */
@@ -316,7 +320,7 @@ export async function pipelineForUser(
   const active = ctx.roles.filter((r) => r.active).slice(0, ctx.roleLimit);
   const countries = (ctx.prefs?.countries?.length ? ctx.prefs.countries : ["US"]).slice(0, Math.max(1, ctx.countryLimit));
   const freshDays = ctx.prefs?.max_days_old || 14;
-  const out: Pipeline = { countries, freshDays, live: 0, handled: 0, ready: 0, skipped: {}, roles: active.map((r) => ({ id: r.id, title: r.title, priority: r.priority, live: 0, ready: 0, planned: 0 })), upNext: [], computedAt: new Date().toISOString() };
+  const out: Pipeline = { countries, freshDays, found: 0, hidden: {}, live: 0, handled: 0, ready: 0, skipped: {}, roles: active.map((r) => ({ id: r.id, title: r.title, priority: r.priority, live: 0, ready: 0, planned: 0 })), upNext: [], computedAt: new Date().toISOString() };
   if (!active.length) return out;
   const byRole = new Map(out.roles.map((r) => [r.id, r]));
   const phrases = [...new Set(active.flatMap((r) => searchVariants(r.title, 10)))];
@@ -354,7 +358,15 @@ export async function pipelineForUser(
         byRole.get(r.id)!.live += 1;
         visible = true;
       }
-      if (!visible) continue;
+      out.found! += 1;
+      if (!visible) {
+        // Why Live jobs doesn't count it as a match (the first rule it fails, like the person's own filters).
+        const m = matchJob(job, { roles: active, prefs: ctx.prefs, auth: ctx.auth, sponsorsLoaded });
+        const why = !m.eligible ? "Visa or eligibility" : m.tooSenior ? "Above your levels" : !workModeOk(job, ctx.prefs) ? "Not your work arrangement"
+          : (m.roleFit ?? 0) < LIVE_MIN_FIT || m.score < 30 ? "Not close enough to your targets" : "Outside your locations";
+        out.hidden![why] = (out.hidden![why] || 0) + 1;
+        continue;
+      }
       out.live += 1;
       if (ctx.known.has(job.id) || ctx.known.has(`role:${roleKey(job.company, job.title)}`)) {
         out.handled += 1;

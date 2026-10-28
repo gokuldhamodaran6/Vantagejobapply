@@ -42,6 +42,26 @@ const FINAL_NEXT = /\b(apply|submit|send|finish|complete|confirm)\b/i;
 /** What the person saw in the review step, keyed the same way on the next run. */
 const normLabel = (l) => String(l || "").toLowerCase().replace(/\s+/g, " ").trim().slice(0, 300);
 
+/**
+ * Click like a person, then make sure it happened: a normal click, then a forced one (something sits on top, like a
+ * cookie bar), then the element's own click() (some sites swallow synthetic mouse events).
+ */
+async function hardClick(page, loc) {
+  const ok = await loc.click({ timeout: 5000 }).then(() => true, () => false);
+  if (ok) return true;
+  const forced = await loc.click({ force: true, timeout: 3000 }).then(() => true, () => false);
+  if (forced) return true;
+  return loc.evaluate((el) => { el.click(); return true; }).catch(() => false);
+}
+
+/** A short description of where the agent is, for messages the person reads. */
+async function whereAmI(page) {
+  const host = (() => { try { return new URL(page.url()).hostname.replace(/^www\./, ""); } catch { return "the site"; } })();
+  const h = (await page.locator("h1:visible, h2:visible, [data-automation-id='pageHeaderTitle']:visible").first().innerText({ timeout: 1500 }).catch(() => "")).replace(/\s+/g, " ").trim().slice(0, 60);
+  const pw = await page.locator("input[type=password]:visible").count().catch(() => 0);
+  return { host, title: h, kind: pw ? (pw >= 2 ? "create-account page" : "sign-in page") : h ? `"${h}" page` : "page" };
+}
+
 /** The worker is restarting for an update: never press Submit now (the run goes back in line by itself). */
 function pauseIfStopping(bundle) {
   if (bundle.shutdown) throw new Stop("paused", "Paused for a Vantage update");
@@ -135,6 +155,18 @@ export async function runTask(bundle, browser) {
         bundle.lastUrl = page.url();
       }
       const text = await pageText(page);
+      // Never spin on one page: if nothing has changed for several steps, stop and say exactly where.
+      // (what's typed counts as progress too, so a long form filled over several turns is never "stuck").
+      const typed = await page.evaluate(() => [...document.querySelectorAll("input, select, textarea")].reduce((n, el) => n + String(el.type === "checkbox" || el.type === "radio" ? (el.checked ? 1 : 0) : el.value || "").length, 0)).catch(() => 0);
+      const sig = `${page.url().split("#")[0]}|${text.length}|${text.slice(0, 400)}|${typed}`;
+      bundle.sameSteps = sig === bundle.lastSig ? (bundle.sameSteps || 0) + 1 : 0;
+      bundle.lastSig = sig;
+      if (bundle.sameSteps >= 7 && !bundle.submitPressed) {
+        const w = await whereAmI(page);
+        const buttons = await page.locator("button:visible, a[role='button']:visible, input[type='submit']:visible").allInnerTexts().catch(() => []);
+        await log(task.id, `Stuck on ${w.host} (${w.kind}) — buttons: ${buttons.map((b) => b.trim()).filter(Boolean).slice(0, 8).join(" / ")}`);
+        throw new Stop("manual", `Your agent got stuck on ${task.job.company}'s ${w.kind} — nothing was sent. Open it on ${task.job.company}'s site and the Vantage extension fills it while you press Submit.`);
+      }
       if (isConfirmation(page.url(), text)) {
         // A "thanks for applying" page counts only after this run pressed Submit; before that it means the site
         // thinks you already applied (or it's boilerplate) — never record it as an application by the agent.
@@ -370,7 +402,10 @@ export async function runTask(bundle, browser) {
       }
     }
     // Out of steps before Submit: in the in-app browser the person takes it from here (e.g. a sign-in page).
-    if (!bundle.submitPressed) throw new Stop("manual", "Your agent couldn't get past this page by itself — nothing was sent.");
+    if (!bundle.submitPressed) {
+      const w = await whereAmI(page);
+      throw new Stop("manual", `Your agent couldn't get past ${task.job.company}'s ${w.kind} by itself — nothing was sent.`);
+    }
     break;
     } catch (e) {
       if (!(e instanceof Stop) || !canHandOff(bundle, e, round)) throw e;
@@ -592,11 +627,22 @@ async function handleAccount(bundle, page, fields, allPasswords) {
     throw new Stop("manual", `Signing in to ${task.job.company}'s careers site didn't work. Your login is in Settings → Careers-site accounts; reset the password there if needed, then retry.`);
   }
   if (!creating && !cred) {
-    // Look for a "create account" path.
-    const link = page.getByText(/create (an |your )?account|sign up|register|new user/i).first();
+    // Look for a "create account" path (Workday's is a button under the sign-in form).
+    const wd = page.locator("[data-automation-id='createAccountLink']").first();
+    const link = (await wd.isVisible().catch(() => false)) ? wd : page.getByText(/create (an |your )?account|sign up|register|new user/i).first();
     if (await link.isVisible().catch(() => false)) {
-      await link.click().catch(() => {});
+      bundle.createTries = (bundle.createTries || 0) + 1;
+      if (bundle.createTries > 3) throw new Stop("manual", `${task.job.company}'s careers site didn't open its create-account form for your agent. Open the job and press "Create Account" once — the Vantage extension fills the rest.`);
+      await declineCookies(page).catch(() => false);
+      await log(task.id, `Opening ${task.job.company}'s create-account form (no saved login for this site yet)`, "Creating your account");
+      await hardClick(page, link);
       await settle(page);
+      // Some sites ignore the first click while their scripts load: if the form didn't change, click it the page's own way.
+      if ((await page.locator("input[type=password]:visible").count().catch(() => 0)) < 2) {
+        await sleep(1200);
+        if ((await page.locator("input[type=password]:visible").count().catch(() => 0)) < 2) await link.evaluate((el) => el.click()).catch(() => {});
+        await settle(page);
+      }
       return;
     }
     throw new Stop("manual", "This site wants a login the agent doesn't have yet. Open the job link and create the account once.");

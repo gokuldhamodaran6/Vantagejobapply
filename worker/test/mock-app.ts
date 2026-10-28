@@ -25,6 +25,7 @@ const tasks: T[] = [
   { id: "t-lever", ats: "lever", url: `${BASE}/fx/lever.html`, job: { title: "Account Executive", company: "Initrode", country: "US" }, status: "queued", log: [], userInput: {}, attempts: 0 },
   { id: "t-code", ats: "greenhouse", url: `${BASE}/fx/gh-code.html`, job: { title: "Senior Analyst", company: "Umbrella", country: "US" }, status: "queued", log: [], userInput: {}, attempts: 0 },
   { id: "t-acct", ats: "generic", url: `${BASE}/fx/acct-job.html`, job: { title: "Business Operations Manager", company: "Initech", country: "US" }, status: "queued", log: [], userInput: {}, attempts: 0 },
+  { id: "t-wdsign", ats: "workday", url: `${BASE}/fx/wd-signin.html`, job: { title: "Business Systems Analyst", company: "Nvidia", country: "US" }, status: "queued", log: [], userInput: {}, attempts: 0 },
   { id: "t-cap", ats: "generic", url: `${BASE}/fx/captcha.html`, job: { title: "Data Analyst", company: "Hooli", country: "US" }, status: "queued", log: [], userInput: {}, attempts: 0 },
 ];
 let codePolls = 0;
