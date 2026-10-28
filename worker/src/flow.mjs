@@ -8,6 +8,9 @@ import { pilotPage } from "./pilot.mjs";
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const TASK_BUDGET_MS = 9 * 60 * 1000; // active work, excluding time spent waiting for the user
 const HARD_CAP_MS = 25 * 60 * 1000; // everything included
+const WORKDAY_BUDGET_MS = 20 * 60 * 1000;
+const WORKDAY_HARD_CAP_MS = 35 * 60 * 1000;
+const isWorkdayRun = (task, page) => task?.ats === "workday" || /myworkdayjobs\.com|myworkdaysite\.com/i.test(`${task?.apply_url || ""} ${page?.url?.() || ""}`);
 
 /**
  * Kill switch. If an employer's site refuses the visitor (403/429/451 or a block page) or its form says automated
@@ -149,10 +152,13 @@ export async function runTask(bundle, browser) {
     // In the in-app browser a step the agent can't do goes to the person (who is watching) instead of ending the run.
     for (let round = 0; ; round++) {
     try {
-    for (let step = 0; step < (bundle.pilot ? 36 : 14); step++) {
+    // Workday applications are a 6–7 page wizard (sign-in, information, experience with dated entries, questions,
+    // disclosures, self-identify, review): they get more steps and time than a one-page Greenhouse form.
+    const long = isWorkdayRun(task, page);
+    for (let step = 0; step < (bundle.pilot ? (long ? 70 : 36) : 14); step++) {
       await holdIfYou(bundle, page);
       pauseIfStopping(bundle);
-      if (Date.now() - started - clock.waited > TASK_BUDGET_MS || Date.now() - started > (bundle.interactive ? 60 * 60 * 1000 : HARD_CAP_MS)) throw new Stop("failed", "Took too long on this site. You can finish it yourself from the job link.");
+      if (Date.now() - started - clock.waited > (long ? WORKDAY_BUDGET_MS : TASK_BUDGET_MS) || Date.now() - started > (bundle.interactive ? 60 * 60 * 1000 : long ? WORKDAY_HARD_CAP_MS : HARD_CAP_MS)) throw new Stop("failed", long ? "Took too long on this Workday site. Workday keeps what was saved — press Retry and your agent continues from there." : "Took too long on this site. You can finish it yourself from the job link.");
       // A new visit to a page (even one seen earlier in this run, like a sign-in page) is filled afresh.
       if (page.url() !== bundle.lastUrl) {
         bundle.visit = (bundle.visit || 0) + 1;
