@@ -157,6 +157,10 @@ export default function AgentPage() {
 
   const hasMailbox = Boolean(setup?.mailbox);
   const needs = live.filter((t) => NEEDS_YOU.includes(t.status) || (t.status === "waiting_code" && codeNeedsYou(t, hasMailbox, now)));
+  // The same count as the banner on every page: answers, codes, human checks and approvals. Jobs handed over to finish
+  // on the company's site are counted separately.
+  const onSite = needs.filter((t) => t.status === "manual").length;
+  const answerable = needs.length - onSite;
   // Jobs waiting only on questions: answered together, once (site terms and live runs keep their own cards).
   const askTasks = needs.filter((t) => t.status === "needs_user" && (t.needs || []).length > 0 && !(t.needs || []).some((n) => n.live || n.kind === "consent"));
   const today = new Date(new Date(now).setHours(0, 0, 0, 0)).getTime();
@@ -389,9 +393,9 @@ export default function AgentPage() {
           ) : (
             <div className="p-5">
               <p className="text-xs font-bold uppercase tracking-wider text-muted">Right now</p>
-              <p className="mt-2 text-lg font-bold">{needs.length ? `${needs.length} application${needs.length > 1 ? "s are" : " is"} paused for you` : profile?.agent_enabled ? (usedToday >= limit ? "Today's applications are done" : "Looking for your next best matches") : "Nothing in line"}</p>
-              <p className="mt-1 text-sm text-muted">{needs.length ? "Everything else is filled in. Answer below and your agent finishes and submits them right away." : profile?.agent_enabled ? (usedToday >= limit ? `Your agent has used all ${limit} of today's applications. It picks up again tomorrow — or raise the limit in Settings.` : "Auto-apply checks for new matching jobs every few minutes and lines up the best ones here.") : retryable ? `Paste a job link above, switch on Auto-apply, or retry the ${retryable} job${retryable > 1 ? "s" : ""} that stopped before anything was sent (below).` : "Paste a job link above, or switch on Auto-apply."}</p>
-              {needs.length > 0 && <a href="#needs-you" className="btn-pink mt-3 min-h-9 text-[13px]">Answer now</a>}
+              <p className="mt-2 text-lg font-bold">{needs.length ? [answerable ? `${answerable} need${answerable > 1 ? "" : "s"} a quick answer` : "", onSite ? `${onSite} to finish on the company's site` : ""].filter(Boolean).join(" · ") : profile?.agent_enabled ? (usedToday >= limit ? "Today's applications are done" : "Looking for your next best matches") : "Nothing in line"}</p>
+              <p className="mt-1 text-sm text-muted">{needs.length ? (answerable ? "Answer below and your agent finishes and submits them right away." : "Your agent got as far as it could. The Vantage extension fills the rest while you press Submit.") : profile?.agent_enabled ? (usedToday >= limit ? `Your agent has used all ${limit} of today's applications. It picks up again tomorrow — or raise the limit in Settings.` : "Auto-apply checks for new matching jobs every few minutes and lines up the best ones here.") : retryable ? `Paste a job link above, switch on Auto-apply, or retry the ${retryable} job${retryable > 1 ? "s" : ""} that stopped before anything was sent (below).` : "Paste a job link above, or switch on Auto-apply."}</p>
+              {needs.length > 0 && <a href={answerable && askTasks.length ? "#answer-once" : "#needs-you"} className="btn-pink mt-3 min-h-9 text-[13px]">{answerable ? "Answer now" : "See them"}</a>}
             </div>
           )}
           {upNext.length > 0 && (
@@ -416,7 +420,7 @@ export default function AgentPage() {
             { k: "Applied today", v: index ? appliedToday : "—", tone: "text-green-ink" },
             { k: "This week", v: index ? week : "—", tone: "text-ink" },
             { k: "Applied in total", v: totalApplied ?? "—", tone: "text-ink" },
-            { k: needs.length ? "Needs you" : "In progress", v: index ? needs.length || inQueue : "—", tone: needs.length ? "text-orange-ink" : "text-brand-ink" },
+            { k: answerable ? "Need an answer" : onSite ? "Finish on site" : "In progress", v: index ? answerable || onSite || inQueue : "—", tone: needs.length ? "text-orange-ink" : "text-brand-ink" },
           ].map((s) => (
             <div key={s.k} className="card flex flex-col justify-between p-4">
               <p className="text-xs font-medium text-muted">{s.k}</p>
@@ -811,7 +815,7 @@ function AskOnce({ tasks, onDone }: { tasks: AgentTask[]; onDone: (m: string) =>
     onDone(r?.ok ? `Saved ${d.saved} answer${d.saved === 1 ? "" : "s"} to your memory.${d.freed ? ` ${d.freed} job${d.freed > 1 ? "s are" : " is"} back in line — your agent is applying.` : ""}` : d.error || "Couldn't save.");
   }
   return (
-    <section className="mt-6" aria-labelledby="ask-once">
+    <section id="answer-once" className="mt-6 scroll-mt-20" aria-labelledby="ask-once">
       <div className="card border-orange/30 p-5 sm:p-6">
         <p className="text-xs font-bold uppercase tracking-wider text-orange-ink">Before your agent applies</p>
         <h2 id="ask-once" className="mt-1 text-xl font-bold">{groups.length} question{groups.length > 1 ? "s" : ""} — answer once, and {tasks.length} job{tasks.length > 1 ? "s go" : " goes"} through</h2>

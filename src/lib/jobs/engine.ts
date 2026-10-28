@@ -112,17 +112,22 @@ export type LiveStats = { open_jobs?: number; companies?: number; boards_live?: 
 
 const JOB_COLS = "id,source,country,title,company,location,remote,description,url,salary_min,salary_max,currency,category,contract_time,posted_at,sponsorship,sponsor_registered,restrictions";
 
+/** The crawler reads each employer every 15–30 minutes, so a ranked search stays good for 10 minutes. */
+const SEARCH_TTL = 10 * 60_000;
+// Each raw search is a few MB, so only the most recent few dozen are kept.
+const SEARCH_BUCKET = { bucket: "search", max: 30 };
+
 /**
- * The ranked search, shared for 3 minutes by every request asking the same thing (Live jobs and Your agent's match counts
+ * The ranked search, shared for 10 minutes by every request asking the same thing (Live jobs and Your agent's match counts
  * ask the same question). The "since" date is rounded to the hour so repeat requests match.
  */
 function cachedSearch(supabase: SupabaseClient, country: string, tsquery: string, since: string) {
   const hour = new Date(Math.floor(Date.parse(since) / 3_600_000) * 3_600_000).toISOString();
-  return memo(keyOf("search", country, tsquery, hour), 3 * 60_000, async () => {
+  return memo(keyOf("search", country, tsquery, hour), SEARCH_TTL, async () => {
     const r = await supabase.rpc("search_jobs2", { p_country: country, p_tsquery: tsquery, p_since: hour, p_limit: 900 });
     if (r.error) throw new Error(r.error.message);
     return { data: r.data, error: null as null | { message: string } };
-  });
+  }, SEARCH_BUCKET);
 }
 
 /**
@@ -133,7 +138,7 @@ export function sharedSearch(country: string, phrases: string[], run: (country: 
   const tsquery = titleTsQuery(phrases);
   const since = new Date(Date.now() - LIVE_MAX_DAYS * 864e5).toISOString();
   const hour = new Date(Math.floor(Date.parse(since) / 3_600_000) * 3_600_000).toISOString();
-  return memo(keyOf("search", country, tsquery, hour), 3 * 60_000, async () => ({ data: await run(country, tsquery, hour), error: null as null | { message: string } }));
+  return memo(keyOf("search", country, tsquery, hour), SEARCH_TTL, async () => ({ data: await run(country, tsquery, hour), error: null as null | { message: string } }), SEARCH_BUCKET);
 }
 
 export async function searchForUser(

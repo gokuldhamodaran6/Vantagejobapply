@@ -12,11 +12,12 @@ import type { Application, Job, MatchResult } from "@/lib/types";
 export default function Dashboard() {
   const router = useRouter();
   const { profile, roles, prefs, userId } = useMe();
-  const [apps, setApps] = useState<Application[]>([]);
+  const [apps, setApps] = useState<Application[] | null>(null);
   const [hasResume, setHasResume] = useState<boolean | null>(null);
   const [top, setTop] = useState<{ job: Job; match: MatchResult }[] | null>(null);
   const [ask, setAsk] = useState("");
-  const [agent, setAgent] = useState<{ status: string; job: { title: string; company: string }; updated_at: string }[]>([]);
+  const [agentRows, setAgent] = useState<{ status: string; job: { title: string; company: string }; updated_at: string }[] | null>(null);
+  const agent = agentRows || [];
 
   useEffect(() => {
     if (!userId) return;
@@ -32,10 +33,12 @@ export default function Dashboard() {
 
   const [now] = useState(() => Date.now());
   const weekAgo = now - 7 * 864e5;
-  const appliedWeek = apps.filter((a) => a.applied_at && Date.parse(a.applied_at) > weekAgo).length;
-  const replies = apps.filter((a) => ["in_review", "assessment", "interview", "offer", "rejected"].includes(a.status)).length;
-  const interviews = apps.filter((a) => a.status === "interview").length;
-  const toApply = apps.filter((a) => ["saved", "ready"].includes(a.status)).length;
+  const loaded = apps !== null && agentRows !== null;
+  const list = apps || [];
+  const appliedWeek = list.filter((a) => a.applied_at && Date.parse(a.applied_at) > weekAgo).length;
+  const replies = list.filter((a) => ["in_review", "assessment", "interview", "offer", "rejected"].includes(a.status)).length;
+  const interviews = list.filter((a) => a.status === "interview").length;
+  const toApply = list.filter((a) => ["saved", "ready"].includes(a.status)).length;
 
   const hour = new Date(now).getHours();
   const greet = hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening";
@@ -45,7 +48,7 @@ export default function Dashboard() {
     { done: roles.length > 0, label: "Add your target roles", href: "/app/targets" },
     { done: Boolean(hasResume), label: "Add your resume", href: "/app/resumes" },
     { done: (prefs?.companies?.length || 0) > 0, label: "Add target companies", href: "/app/targets#companies" },
-    { done: apps.some((a) => a.status !== "saved"), label: "Prepare your first application", href: "/app/jobs" },
+    { done: list.some((a) => a.status !== "saved") || agent.some((t) => t.status === "submitted"), label: "Prepare your first application", href: "/app/jobs" },
   ];
   const stepsLeft = steps.filter((s) => !s.done).length;
 
@@ -70,14 +73,17 @@ export default function Dashboard() {
         const done = agent.filter((t) => t.status === "submitted" && Date.parse(t.updated_at) >= today).length;
         const working = agent.find((t) => ["running", "waiting_code"].includes(t.status));
         const queued = agent.filter((t) => t.status === "queued").length;
-        const needs = agent.filter((t) => ["needs_user", "needs_human", "awaiting_approval", "manual"].includes(t.status)).length;
+        const answer = agent.filter((t) => ["needs_user", "needs_human", "awaiting_approval"].includes(t.status)).length;
+        const onSite = agent.filter((t) => t.status === "manual").length;
+        const needs = answer + onSite;
+        if (!loaded) return <div className="skeleton mb-6 h-[88px] rounded-2xl" />;
         return (
           <Link href="/app/agent" className="card group mb-6 flex flex-wrap items-center gap-4 overflow-hidden bg-gradient-to-r from-brand-soft via-white to-pink-tint/50 p-5 transition hover:border-brand">
             <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-brand to-pink text-white shadow-lg shadow-brand/20"><Sparkles size={22} /></span>
             <div className="min-w-0 flex-1">
               <p className="text-sm font-semibold text-brand-ink">Your agent</p>
               <p className="truncate text-lg font-bold">
-                {working ? `Applying to ${working.job.title} at ${working.job.company}…` : needs ? `${needs} application${needs > 1 ? "s" : ""} need${needs > 1 ? "" : "s"} you` : queued ? `${queued} application${queued > 1 ? "s" : ""} queued` : done ? `${done} applied today` : "Ready — paste a job link or pick from Live jobs"}
+                {working ? `Applying to ${working.job.title} at ${working.job.company}…` : needs ? [answer ? `${answer} need${answer > 1 ? "" : "s"} a quick answer` : "", onSite ? `${onSite} to finish on the company's site` : ""].filter(Boolean).join(" · ") : queued ? `${queued} application${queued > 1 ? "s" : ""} queued` : done ? `${done} applied today` : "Ready — paste a job link or pick from Live jobs"}
               </p>
               <p className="text-sm text-muted">{done} applied today · {queued} in queue · {profile?.autonomy === "fully_automatic" ? "fully automatic" : profile?.autonomy === "approve_all" ? "you approve each one" : "you approve important ones"}</p>
             </div>
@@ -95,7 +101,7 @@ export default function Dashboard() {
         ].map(([label, n, dot, tint], i) => (
           <motion.div key={label as string} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.05 }} className="card p-4 sm:p-5">
             <div className="flex items-center gap-2"><span className="flex h-7 w-7 items-center justify-center rounded-md" style={{ background: tint as string }}><span className="h-2 w-2 rounded-full" style={{ background: dot as string }} /></span><span className="text-sm font-medium text-ink-2">{label}</span></div>
-            <p className="mt-3 text-3xl font-bold tracking-tight">{n}</p>
+            {loaded ? <p className="mt-3 text-3xl font-bold tracking-tight tabular-nums">{n}</p> : <div className="skeleton mt-3 h-9 w-12" />}
           </motion.div>
         ))}
       </section>
@@ -143,8 +149,8 @@ export default function Dashboard() {
             <div className="flex items-center justify-between"><h2 id="roles-h" className="font-semibold">Your target roles</h2><Link href="/app/targets" className="text-sm font-semibold text-brand-ink">Edit</Link></div>
             <ul className="mt-3 space-y-2">
               {roles.map((r) => {
-                const n = apps.filter((a) => a.target_role_id === r.id && a.status !== "saved").length;
-                const iv = apps.filter((a) => a.target_role_id === r.id && a.status === "interview").length;
+                const n = list.filter((a) => a.target_role_id === r.id && a.status !== "saved").length;
+                const iv = list.filter((a) => a.target_role_id === r.id && a.status === "interview").length;
                 return (
                   <li key={r.id}>
                     <Link href="/app/applications" className="flex items-center justify-between rounded-lg border border-line px-3 py-2.5 hover:bg-canvas">
