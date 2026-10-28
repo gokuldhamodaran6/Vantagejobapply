@@ -93,11 +93,11 @@ export default function ExtensionPage() {
         ))}
       </section>
 
-      {ext?.installed && (!ext.version || ext.version.localeCompare("1.1.6", undefined, { numeric: true }) < 0) && (
+      {ext?.installed && (!ext.version || ext.version.localeCompare("1.1.5", undefined, { numeric: true }) < 0) && (
         <section className="mt-5 card border-brand/40 p-5">
           <p className="font-semibold">A new version of the extension is ready</p>
-          <p className="mt-1 text-sm text-muted">Version 1.1.6 works with Vantage's new, faster address, carries on by itself when you move to the next page, reads any dropdown (custom lists, Yes/No buttons, multi-pick lists, dates), finds the job title on any careers site (including iCIMS frames), and adds <b>Send to my Vantage list</b>. It also fills every page of multi-step forms and only records a job as applied after Submit is really pressed. Download it, unzip it over the old folder, then press the reload ↻ button on Vantage in <code className="rounded bg-canvas px-1">chrome://extensions</code>.</p>
-          <a href="/vantage-extension.zip" download className="btn-primary mt-3 min-h-9 text-[13px]"><Download size={15} /> Download version 1.1.6</a>
+          <p className="mt-1 text-sm text-muted">Version 1.1.5 carries on by itself when you move to the next page, reads any dropdown (custom lists, Yes/No buttons, multi-pick lists, dates), finds the job title on any careers site (including iCIMS frames), and adds <b>Send to my Vantage list</b>. It also fills every page of multi-step forms and only records a job as applied after Submit is really pressed. Download it, unzip it over the old folder, then press the reload ↻ button on Vantage in <code className="rounded bg-canvas px-1">chrome://extensions</code>.</p>
+          <a href="/vantage-extension.zip" download className="btn-primary mt-3 min-h-9 text-[13px]"><Download size={15} /> Download version 1.1.5</a>
         </section>
       )}
 

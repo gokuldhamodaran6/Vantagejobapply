@@ -1,5 +1,5 @@
 // Vantage extension — coordinates filling across the page's frames and talks to your Vantage account.
-const API = "https://vantage-app-aht2.onrender.com";
+const API = "https://vantagejobapply.onrender.com";
 
 const store = {
   get: async (k) => (await chrome.storage.local.get(k))[k],

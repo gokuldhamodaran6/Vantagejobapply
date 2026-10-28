@@ -26,7 +26,7 @@ export async function POST(req: Request) {
   const ver = req.headers.get("x-vantage-ext") || "1.0.0";
   // 1.1.0 could mark a job "Applied" from a sign-in or next-step page; 1.1.1 only does after a real Submit.
   if (ver.localeCompare("1.1.2", undefined, { numeric: true }) < 0) {
-    return extJson({ error: "Please update the Vantage extension: open vantage-app-aht2.onrender.com → Chrome extension → Download version 1.1.2, unzip it over the old folder, then press reload on Vantage in chrome://extensions. This version only records a job as applied after Submit is really pressed." }, 426);
+    return extJson({ error: "Please update the Vantage extension: open vantagejobapply.onrender.com → Chrome extension → Download version 1.1.2, unzip it over the old folder, then press reload on Vantage in chrome://extensions. This version only records a job as applied after Submit is really pressed." }, 426);
   }
   const b = (await req.json().catch(() => ({}))) as { url?: string; title?: string; titles?: string[]; company?: string; description?: string; location?: string; force?: boolean; queue?: boolean };
   const url = String(b.url || "").slice(0, 2000);

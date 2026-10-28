@@ -9,7 +9,7 @@ export async function emailAlerts(alerts: { key: string; message: string }[]): P
   const to = process.env.ALERT_EMAIL;
   if (!alerts.length) return { sent: false, reason: "nothing to send" };
   if (!key || !to) return { sent: false, reason: "email not configured (set RESEND_API_KEY and ALERT_EMAIL)" };
-  const site = (process.env.NEXT_PUBLIC_SITE_URL || "https://vantage-app-aht2.onrender.com").replace(/\/$/, "");
+  const site = (process.env.NEXT_PUBLIC_SITE_URL || "https://vantagejobapply.onrender.com").replace(/\/$/, "");
   const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!);
   const html = `<div style="font-family:system-ui,sans-serif;font-size:15px;color:#111">
     <p><b>Something in Vantage needs a look.</b></p>

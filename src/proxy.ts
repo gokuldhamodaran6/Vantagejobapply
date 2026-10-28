@@ -5,12 +5,6 @@ import { SUPABASE_PUBLISHABLE_KEY, SUPABASE_URL } from "@/lib/env";
 // Refreshes the Supabase session cookie and does optimistic route protection.
 // Real authorization is enforced by Row Level Security and server checks.
 export async function proxy(request: NextRequest) {
-  // Vantage moved (Oregon → Virginia, next to its database). On the old service MOVED_TO is set: pages forward to the
-  // new address; API calls keep working until the old extension is updated.
-  const moved = process.env.MOVED_TO?.replace(/\/$/, "");
-  if (moved && !request.nextUrl.pathname.startsWith("/api/") && request.method === "GET") {
-    return NextResponse.redirect(`${moved}${request.nextUrl.pathname}${request.nextUrl.search}`, 308);
-  }
   let response = NextResponse.next({ request });
 
   const supabase = createServerClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {

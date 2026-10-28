@@ -1,4 +1,4 @@
-const APP = "https://vantage-app-aht2.onrender.com";
+const APP = "https://vantagejobapply.onrender.com";
 const el = document.getElementById("app");
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 

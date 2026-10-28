@@ -31,7 +31,7 @@ export async function formQuestions(jobId: string): Promise<FormField[] | null> 
   return out;
 }
 
-const UA = "Mozilla/5.0 (compatible; VantageJobs/1.0; +https://vantage-app-aht2.onrender.com)";
+const UA = "Mozilla/5.0 (compatible; VantageJobs/1.0; +https://vantagejobapply.onrender.com)";
 const decode = (x: string) => x.replace(/&quot;/g, '"').replace(/&#39;|&#x27;/g, "'").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&nbsp;/g, " ").replace(/&amp;/g, "&");
 const text = (html: string) => decode(html.replace(/<[^>]+>/g, " ")).replace(/\s+/g, " ").trim();
 
