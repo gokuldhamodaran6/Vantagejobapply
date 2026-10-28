@@ -1,0 +1,326 @@
+<title>Vantage Extension-First Plan</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@75..100,500..800&family=Public+Sans:ital,wght@0,400;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: proposal document — honest verdict, the journey as a horizontal flow, a feature map, three screen mockups, then phases and decisions. */
+:root{
+  --bg:#f5f6f8; --panel:#ffffff; --ink:#111725; --ink-2:#3a4357; --muted:#677086; --line:#dce0e7;
+  --accent:#1f5fbf; --accent-tint:#e7eefb; --ok:#1b8a5a; --ok-tint:#e3f3eb; --warn:#b56f0a; --warn-tint:#fbf0de; --bad:#c23b3b; --bad-tint:#fae8e8;
+  --new:#6a4fc4; --new-tint:#efebfb;
+  --display:"Archivo","Arial Narrow",system-ui,sans-serif; --body:"Public Sans",system-ui,-apple-system,"Segoe UI",sans-serif; --mono:"JetBrains Mono",ui-monospace,Menlo,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#0e121a; --panel:#151b26; --ink:#e9edf4; --ink-2:#c3cad8; --muted:#8c96aa; --line:#283244;
+  --accent:#6ea3ff; --accent-tint:#18263f; --ok:#43c08a; --ok-tint:#123024; --warn:#e8a640; --warn-tint:#33270f; --bad:#f0706f; --bad-tint:#3a1a1c;
+  --new:#a796ff; --new-tint:#231d3f; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0e121a; --panel:#151b26; --ink:#e9edf4; --ink-2:#c3cad8; --muted:#8c96aa; --line:#283244;
+  --accent:#6ea3ff; --accent-tint:#18263f; --ok:#43c08a; --ok-tint:#123024; --warn:#e8a640; --warn-tint:#33270f; --bad:#f0706f; --bad-tint:#3a1a1c;
+  --new:#a796ff; --new-tint:#231d3f; color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font-family:var(--body);font-size:16px;line-height:1.55;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:0 64px}
+.wrap{max-width:1100px;margin:0 auto}
+h1,h2,h3,h4{font-family:var(--display);font-stretch:85%;text-wrap:balance;line-height:1.12;margin:0}
+h1{font-size:clamp(2rem,5vw,3.1rem);font-weight:800}
+h2{font-size:clamp(1.4rem,3vw,1.95rem);font-weight:750}
+h3{font-size:1.12rem;font-weight:700}
+p{margin:0}
+.eyebrow{font-family:var(--mono);font-size:.74rem;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.lede{font-size:1.1rem;color:var(--ink-2);max-width:70ch}
+header.top{padding-block:40px 28px;display:grid;gap:14px;border-bottom:1px solid var(--line)}
+section{padding-block:40px;border-bottom:1px solid var(--line);display:grid;gap:18px}
+.prose{max-width:72ch;display:grid;gap:12px;color:var(--ink-2)}
+.prose b{color:var(--ink)}
+.pill{display:inline-block;font-family:var(--mono);font-size:.7rem;font-weight:600;padding:2px 8px;border-radius:999px;white-space:nowrap}
+.p-ok{background:var(--ok-tint);color:var(--ok)} .p-warn{background:var(--warn-tint);color:var(--warn)} .p-bad{background:var(--bad-tint);color:var(--bad)} .p-new{background:var(--new-tint);color:var(--new)} .p-acc{background:var(--accent-tint);color:var(--accent)}
+.verdicts{display:grid;gap:10px}
+.v{display:grid;grid-template-columns:120px minmax(0,1fr);gap:16px;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px 18px}
+.v h3{margin-bottom:4px}
+.v p{color:var(--ink-2)}
+@media (max-width:640px){.v{grid-template-columns:minmax(0,1fr)}}
+.callout{border-left:3px solid var(--accent);background:var(--accent-tint);padding:12px 16px;border-radius:0 8px 8px 0;max-width:82ch}
+/* journey */
+.flow{overflow-x:auto;padding-bottom:6px}
+.flow-inner{display:grid;grid-template-columns:repeat(6,minmax(170px,1fr));gap:0;min-width:1040px}
+.stage{position:relative;padding:0 10px}
+.stage .head{background:var(--ink);color:var(--bg);border-radius:10px;padding:10px 12px;display:grid;gap:2px;position:relative}
+.stage:not(:last-child) .head::after{content:"";position:absolute;right:-16px;top:50%;transform:translateY(-50%);border:8px solid transparent;border-left-color:var(--ink);z-index:1}
+.stage .head .n{font-family:var(--mono);font-size:.7rem;opacity:.75}
+.stage .head b{font-family:var(--display);font-size:1.05rem;font-stretch:85%}
+.lane-l{font-family:var(--mono);font-size:.7rem;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin:12px 0 6px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:8px 10px;font-size:.84rem;color:var(--ink-2);display:grid;gap:4px;margin-bottom:6px}
+.card .t{display:flex;gap:6px;align-items:baseline;justify-content:space-between}
+.card .t span:first-child{color:var(--ink);font-weight:600}
+.where{font-size:.8rem;color:var(--muted);border-top:1px dashed var(--line);padding-top:6px;margin-top:2px}
+/* map table */
+.tbl{overflow-x:auto;border:1px solid var(--line);border-radius:10px;background:var(--panel)}
+.tbl table{min-width:820px}
+table{border-collapse:collapse;width:100%;font-size:.9rem}
+th,td{text-align:left;vertical-align:top;padding:11px 14px;border-bottom:1px solid var(--line)}
+th{font-family:var(--mono);font-size:.7rem;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);font-weight:600;background:var(--bg)}
+tr:last-child td{border-bottom:0}
+td b{color:var(--ink)}
+tr.grp td{background:var(--bg);font-family:var(--display);font-stretch:85%;font-weight:700;font-size:1rem;color:var(--ink)}
+/* mockups */
+.mocks{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px}
+@media (max-width:980px){.mocks{grid-template-columns:minmax(0,1fr)}}
+.mock{display:grid;gap:8px;min-width:0}
+.mock .cap{font-size:.86rem;color:var(--muted)}
+.screen{border:1px solid var(--line);border-radius:12px;background:var(--panel);overflow:hidden;font-size:.82rem;box-shadow:0 10px 30px rgba(15,20,40,.08)}
+.bar{display:flex;gap:6px;align-items:center;padding:8px 10px;border-bottom:1px solid var(--line);background:var(--bg);font-family:var(--mono);font-size:.68rem;color:var(--muted)}
+.bar i{width:8px;height:8px;border-radius:50%;background:var(--line);display:inline-block}
+.sc{padding:12px;display:grid;gap:8px}
+.row{display:flex;justify-content:space-between;gap:8px;align-items:center}
+.meter{height:6px;border-radius:4px;background:var(--line);overflow:hidden}
+.meter span{display:block;height:100%;background:var(--ok)}
+.btn{display:inline-flex;justify-content:center;align-items:center;border-radius:8px;padding:7px 10px;font-weight:600;font-size:.8rem;border:1px solid var(--line);color:var(--ink);background:var(--panel)}
+.btn.pri{background:var(--accent);border-color:var(--accent);color:#fff}
+.chip{display:inline-block;border:1px solid var(--line);border-radius:999px;padding:1px 8px;font-size:.72rem;color:var(--ink-2);margin:2px 2px 0 0}
+.chip.miss{border-color:var(--warn);color:var(--warn)}
+.chip.hit{border-color:var(--ok);color:var(--ok)}
+.split{display:grid;grid-template-columns:1.2fr 1fr}
+.split .site{padding:12px;display:grid;gap:7px;border-right:1px solid var(--line)}
+.fake{height:22px;border-radius:5px;border:1px solid var(--line);background:var(--bg);padding:3px 7px;font-size:.72rem;color:var(--ink-2);overflow:hidden;white-space:nowrap}
+.fake.f{border-color:var(--ok);background:var(--ok-tint)}
+.lbl{font-size:.68rem;color:var(--muted)}
+.ext{padding:12px;display:grid;gap:8px;background:var(--bg)}
+.tl{display:grid;gap:8px}
+.tl .e{display:grid;grid-template-columns:44px minmax(0,1fr);gap:8px;align-items:start}
+.tl .d{font-family:var(--mono);font-size:.68rem;color:var(--muted);padding-top:2px}
+.tl .b{border-left:2px solid var(--line);padding-left:8px}
+.phases{display:grid;gap:12px}
+.phase{display:grid;grid-template-columns:160px minmax(0,1fr);gap:18px;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:18px 20px}
+.phase ul{margin:6px 0 0;padding-left:18px;display:grid;gap:5px;color:var(--ink-2)}
+.phase .t{font-family:var(--mono);font-size:.78rem;color:var(--muted)}
+@media (max-width:640px){.phase{grid-template-columns:minmax(0,1fr)}}
+.pos{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
+.pos div{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px;display:grid;gap:6px;align-content:start}
+.pos div.us{border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent)}
+.pos ul{margin:0;padding-left:16px;font-size:.88rem;color:var(--ink-2);display:grid;gap:3px}
+@media (max-width:900px){.pos{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media (max-width:520px){.pos{grid-template-columns:minmax(0,1fr)}}
+.src{font-size:.85rem;color:var(--muted);display:grid;gap:4px}
+a{color:var(--accent)}
+ol.dec{margin:0;padding-left:20px;display:grid;gap:10px;max-width:80ch;color:var(--ink-2)}
+ol.dec b{color:var(--ink)}
+</style>
+
+<div class="wrap">
+<header class="top">
+  <p class="eyebrow">Vantage · product proposal · 28 Oct 2026 · awaiting your approval</p>
+  <h1>Extension-first Vantage</h1>
+  <p class="lede">Find the job in Vantage. Get a resume and cover letter written for that job, in that country's format. Open the company's site, where the extension fills the form in your own browser and you press Submit. From then on your inbox keeps everything up to date: applications you send anywhere, interview invites and your calendar. Honest feedback first, then the user flow, what we have and what we'd build, and how the screens would look.</p>
+</header>
+
+<section aria-labelledby="h-fb">
+  <p class="eyebrow">1 · Honest feedback</p>
+  <h2 id="h-fb">Mostly the right call. Three parts need changing before we market them.</h2>
+  <div class="verdicts">
+    <div class="v"><div><span class="pill p-ok">Agree</span></div><div><h3>Make the extension the main way to apply</h3><p>Your numbers back this up: the cloud agent sent 19 of 61 applications and 0 of 17 on Workday. The products that work at scale (Simplify, Jobright's autofill) run in the person's own browser. There it has your internet connection and sign-ins, bot checks rarely appear, you clear any that do, and you press Submit. It's also cheaper: no cloud browsers to pay for, which the free server can't scale anyway. It's also safer legally, because you are applying, with help.</p></div></div>
+    <div class="v"><div><span class="pill p-ok">Agree</span></div><div><h3>A different resume for every role</h3><p>This is where Vantage can beat the free autofill tools. Most of the engine exists already: per-job tailoring, a cover letter in your chosen tone, a match check and four layouts that every ATS can read. What's missing is the country format, the Harvard writing rules applied to every bullet, and an honest check of which skills are matched and which are missing.</p></div></div>
+    <div class="v"><div><span class="pill p-bad">Change</span></div><div><h3>Don't promise "100% ATS match"</h3><p>It would mislead people and hurt them. Applicant tracking systems almost never reject on their own: in a 2025 study of 25 US recruiters, 92% said their system doesn't auto-reject for formatting or missing keywords. The real filters are knockout questions (work authorisation, location, licences) and a human reading fast. A "100%" score can only be reached by stuffing keywords or claiming skills you don't have. Recruiters spot the first, and the second is lying on an application. <b>What we can honestly promise:</b> "Written for this job. Readable by every ATS. Covers 14 of 16 key skills. Here are the 2 you don't have." Gaps are shown, never invented.</p></div></div>
+    <div class="v"><div><span class="pill p-warn">Adjust</span></div><div><h3>"Harvard standard" is a writing style, not a format for every role</h3><p>Harvard's career office guide is excellent for bullets: start with an action verb, quantify results, no "I", no photo, no age, reverse-chronological order. But it is written for students: education first, one page. For experienced people, experience comes first and two pages are normal. And the country matters more than Harvard. The US and Canada use a resume on Letter paper with no photo. The UK uses a "CV" on A4 with a personal statement. Germany and much of the EU often expect a photo and personal details. Vantage should pick the format from the job's country and apply the Harvard rules to the writing everywhere.</p></div></div>
+    <div class="v"><div><span class="pill p-warn">Adjust</span></div><div><h3>Autofill alone won't sell; Simplify gives it away free</h3><p>The extension must be fast and must handle Workday's multi-page form. But autofill on its own is a commodity. Vantage's story is all three in one: the right resume for this job, applying in seconds, and an inbox that keeps your job search organised. Simplify does autofill, Teal does resumes ($29 a month for AI), and Huntr does tracking with Gmail. None of the three does all of it with an interview calendar.</p></div></div>
+    <div class="v"><div><span class="pill p-ok">Agree, strongest idea</span></div><div><h3>The inbox runs your tracker and calendar</h3><p>Vantage already reads your job email: it sorts receipts, rejections and interviews and finds interview times. The next step is turning each email into an action. A "thanks for applying" email creates the application, even if you applied on LinkedIn or Indeed. An invite adds the interview to your calendar with prep notes. "Shortlisted" moves the card forward. <b>Two honest limits:</b> connecting Gmail with one click (Google sign-in) needs Google's yearly security assessment, which takes weeks and costs money, so we start with the app-password connection that works today. And a calendar link that you subscribe to once updates Google Calendar only every few hours, while adding the event directly is instant but needs a Google permission.</p></div></div>
+    <div class="v"><div><span class="pill p-warn">Adjust</span></div><div><h3>Streaks: reward good applications, not volume</h3><p>A streak that counts applications teaches people to spam. Employers notice that, and our own rule stops at 3 applications per company per month. Count tailored applications, follow-ups sent and interview prep done. Show a weekly goal ("5 tailored applications") instead of a daily count.</p></div></div>
+    <div class="v"><div><span class="pill p-acc">Your call</span></div><div><h3>What happens to the cloud auto-apply agent</h3><p>My recommendation: take it off the main menu and out of marketing, keep the code, and leave it as an off-by-default beta that only works on Greenhouse, Lever and Ashby, where it sent 9 of 16. Fully removing it is also fine. Decision 1 at the bottom of this page.</p></div></div>
+  </div>
+</section>
+
+<section aria-labelledby="h-flow">
+  <p class="eyebrow">2 · The user flow</p>
+  <h2 id="h-flow">One job, from finding it to the offer</h2>
+  <p class="prose">Each column is a stage. Cards show what the person does and what Vantage does. The last line of each card says where it happens: in the app, in the extension, or automatically from the inbox.</p>
+  <div class="flow"><div class="flow-inner" id="flow"></div></div>
+</section>
+
+<section aria-labelledby="h-map">
+  <p class="eyebrow">3 · Mapping</p>
+  <h2 id="h-map">What we have, what we improve, what's new</h2>
+  <div class="tbl"><table>
+    <thead><tr><th style="width:24%">Feature</th><th style="width:12%">Status</th><th style="width:34%">Today</th><th>Change</th></tr></thead>
+    <tbody id="map"></tbody>
+  </table></div>
+</section>
+
+<section aria-labelledby="h-mock">
+  <p class="eyebrow">4 · How it looks</p>
+  <h2 id="h-mock">Three screens</h2>
+  <div class="mocks">
+    <div class="mock">
+      <div class="screen" aria-label="Mockup: job page in Vantage with tailored resume ready">
+        <div class="bar"><i></i><i></i><i></i> vantage · Jobs</div>
+        <div class="sc">
+          <div class="row"><b>Senior Business Analyst</b><span class="pill p-ok">Fresh · 2 days</span></div>
+          <div style="color:var(--muted)">PayPal · Austin, TX · Workday · Sponsors visas</div>
+          <div class="row"><span>Your resume for this job</span><b>14 of 16 skills</b></div>
+          <div class="meter"><span style="width:87%"></span></div>
+          <div><span class="chip hit">SQL</span><span class="chip hit">Tableau</span><span class="chip hit">Stakeholder mgmt</span><span class="chip hit">A/B testing</span><span class="chip miss">Looker? (you decide)</span><span class="chip miss">Payments domain</span></div>
+          <div style="color:var(--muted)">US resume · Letter · 1 page · no photo · Harvard checks pass</div>
+          <div class="row" style="gap:6px"><span class="btn">Preview resume</span><span class="btn">Cover letter</span><span class="btn pri">Apply on PayPal's site →</span></div>
+        </div>
+      </div>
+      <p class="cap"><b>In the app.</b> Every job shows its match before you apply. Missing skills are questions you answer, never things we invent.</p>
+    </div>
+    <div class="mock">
+      <div class="screen" aria-label="Mockup: Vantage extension filling a Workday form">
+        <div class="bar"><i></i><i></i><i></i> paypal.wd1.myworkdayjobs.com</div>
+        <div class="split">
+          <div class="site">
+            <b>My Experience</b>
+            <span class="lbl">Job title</span><div class="fake f">Senior Analyst</div>
+            <span class="lbl">Company</span><div class="fake f">Kaar Tech</div>
+            <span class="lbl">From · To</span><div class="fake f">11/2023 · 12/2024</div>
+            <span class="lbl">Resume</span><div class="fake f">Gokul_Dhamodaran_PayPal_SBA.pdf</div>
+            <span class="btn" style="justify-self:start">Save and Continue</span>
+          </div>
+          <div class="ext">
+            <div class="row"><b>Vantage</b><span class="pill p-ok">Page 3 of 7</span></div>
+            <div style="color:var(--ink-2)">Filled 11 fields in 2 s with your PayPal resume.</div>
+            <div style="color:var(--muted)">Press Save and Continue; I'll fill the next page.</div>
+            <span class="btn">Change something</span>
+            <div style="font-size:.72rem;color:var(--muted)">You press Submit at the end. I record it in your tracker.</div>
+          </div>
+        </div>
+      </div>
+      <p class="cap"><b>In the extension, on the company's site.</b> It fills page by page in seconds, uploads the resume made for this job, and records the application when you submit.</p>
+    </div>
+    <div class="mock">
+      <div class="screen" aria-label="Mockup: application timeline built from inbox">
+        <div class="bar"><i></i><i></i><i></i> vantage · Applications</div>
+        <div class="sc">
+          <div class="row"><b>PayPal · Senior Business Analyst</b><span class="pill p-new">Interview</span></div>
+          <div class="tl">
+            <div class="e"><span class="d">Oct 28</span><div class="b">Applied with the extension · resume v3 (PayPal)</div></div>
+            <div class="e"><span class="d">Oct 28</span><div class="b">Email: “Thank you for applying” · auto-confirmed</div></div>
+            <div class="e"><span class="d">Nov 2</span><div class="b">Email: “You've been shortlisted” · moved to In review</div></div>
+            <div class="e"><span class="d">Nov 4</span><div class="b"><b>Recruiter screen, Thu 6 Nov, 10:00 CT</b> · added to your calendar · prep notes ready</div></div>
+          </div>
+          <div class="row"><span style="color:var(--muted)">This week: 4 of 5 tailored applications</span><span class="pill p-ok">3-week streak</span></div>
+        </div>
+      </div>
+      <p class="cap"><b>Automatic, from the inbox.</b> Applications you send anywhere, LinkedIn and Indeed included, show up here from the confirmation email.</p>
+    </div>
+  </div>
+</section>
+
+<section aria-labelledby="h-pos">
+  <p class="eyebrow">5 · Can we market it?</p>
+  <h2 id="h-pos">Yes, as the one tool that does all three</h2>
+  <div class="pos">
+    <div><span class="pill p-acc">Simplify</span><ul><li>Autofill in your browser, free</li><li>Light tracking</li><li>Basic per-job tailoring at most</li></ul></div>
+    <div><span class="pill p-acc">Teal</span><ul><li>Resume builder and match check</li><li>Job tracker</li><li>No form autofill; AI features cost $29 a month</li></ul></div>
+    <div><span class="pill p-acc">Huntr</span><ul><li>Kanban tracker</li><li>Gmail email tracking</li><li>No autofill</li></ul></div>
+    <div class="us"><span class="pill p-ok">Vantage</span><ul><li>Resume and letter written for each job, in the country's format</li><li>Autofill in your browser, including Workday</li><li>Inbox keeps applications and interviews up to date, wherever you applied</li><li>895,000 live jobs, with ghost-job and visa filters</li></ul></div>
+  </div>
+  <div class="callout"><b>Suggested line:</b> “The right resume for every job, applied in seconds, and an inbox that runs your job search.” Claims we can prove: it's tailored to each job, readable by every ATS, and you stay in control of Submit. Claims we can't: “100% ATS”, “guaranteed interviews”.</div>
+  <p class="src">Competitor features as of 2026 come from comparison articles, some of them written by competitors. I'll check each one against the products themselves before any of it goes on the website.</p>
+</section>
+
+<section aria-labelledby="h-ph">
+  <p class="eyebrow">6 · Build order, after your approval</p>
+  <h2 id="h-ph">Four phases, about 2 weeks</h2>
+  <div class="phases" id="phases"></div>
+</section>
+
+<section aria-labelledby="h-dec">
+  <p class="eyebrow">7 · Decisions for you</p>
+  <h2 id="h-dec">Three choices before I build</h2>
+  <ol class="dec">
+    <li><b>The cloud auto-apply agent:</b> (a) off-by-default beta, Greenhouse, Lever and Ashby only (recommended), or (b) remove it from the app.</li>
+    <li><b>Calendar:</b> (a) start with a calendar link you subscribe to once, which works with Google, Apple and Outlook and updates every few hours (recommended), then add instant Google Calendar sync later, or (b) build instant Google sync first. That needs Google's permission review, which takes 1 to 3 weeks.</li>
+    <li><b>Streak:</b> (a) a weekly goal of tailored applications and follow-ups (recommended), or (b) a daily applications streak.</li>
+  </ol>
+</section>
+
+<section aria-labelledby="h-src" style="border-bottom:0">
+  <p class="eyebrow">Sources</p>
+  <h2 id="h-src" style="font-size:1.2rem">Facts used on this page</h2>
+  <div class="src">
+    <span>Vantage's own runs, 26–28 Oct 2026: 19 of 61 tried applications sent; Workday 0 of 17; Greenhouse, Lever and Ashby 9 of 16.</span>
+    <span><a href="https://itbrief.co.uk/story/study-reveals-ats-rarely-auto-rejects-cvs-debunks-75-myth" target="_blank" rel="noopener">IT Brief: Enhancv study, 25 US recruiters, 92% say their ATS doesn't auto-reject (Nov 2025)</a></span>
+    <span><a href="https://fae.uprrp.edu/enlace/wp-content/uploads/sites/17/2022/08/undergrad_resumes_and_cover_letters.pdf" target="_blank" rel="noopener">Harvard Office of Career Services: resumes and cover letters guide (copy)</a></span>
+    <span><a href="https://topcv.co.uk/career-advice/international-cv-differences" target="_blank" rel="noopener">TopCV: how CVs differ from country to country</a></span>
+    <span><a href="https://hppr-blog.vercel.app/p/teal-vs-huntr-vs-simplify-vs-hppr-ai" target="_blank" rel="noopener">Teal vs Huntr vs Simplify comparison (written by a competitor)</a></span>
+    <span><a href="https://simplify.jobs/copilot" target="_blank" rel="noopener">Simplify Copilot</a></span>
+    <span><a href="https://developer.nylas.com/docs/cookbook/use-cases/build/google-oauth-scopes/" target="_blank" rel="noopener">Nylas: Gmail restricted scopes need Google's yearly security assessment</a></span>
+  </div>
+</section>
+</div>
+
+<script>
+(function(){
+const W={app:"In the app",ext:"In the extension",mail:"Automatic · inbox"};
+const stages=[
+ ["Discover","Find the right jobs",[
+   ["Live job feed","You search or get a daily list; filters for visa, freshness and ghost jobs.","app","have"],
+   ["Badge on each job","“Easy with extension” on systems we fill well (Workday, Greenhouse, Lever, Ashby…).","app","new"],
+   ["Save from any site","On LinkedIn or a company page, the extension's Save adds the job to Vantage.","ext","improve"]]],
+ ["Prepare","A resume for this job",[
+   ["Country format, chosen for you","US resume, UK CV, Canada, Germany and others: length, paper size, photo and personal details set by the job's country.","app","new"],
+   ["Harvard-style writing check","Every bullet starts with a strong verb, has a number where possible, no “I”, no repeats.","app","new"],
+   ["Honest match","“14 of 16 key skills”; missing ones become yes/no questions for you; nothing invented.","app","improve"],
+   ["Cover letter","Opening, why this company, one or two proof points, close. One page, same font as the resume.","app","improve"]]],
+ ["Apply","On the company's site",[
+   ["One click to the real form","Opens the company's own careers page with the resume already made.","app","improve"],
+   ["Fill in seconds, page by page","Fixed handlers for Workday, Greenhouse, Lever, Ashby and iCIMS; AI only for unusual questions.","ext","improve"],
+   ["You press Submit","The extension spots the confirmation page and records the application with the exact resume sent.","ext","have"]]],
+ ["Track","Nothing to update by hand",[
+   ["Applied anywhere? Tracked.","A “thanks for applying” email from LinkedIn, Indeed or any company creates the application.","mail","new"],
+   ["Status from email","Shortlisted, assessment, rejection: each moves the card and is logged.","mail","improve"],
+   ["Follow-up nudge","No reply in 10 days? A short follow-up draft, ready to send yourself.","app","new"]]],
+ ["Interview","On your calendar, prepared",[
+   ["Invite → calendar","Time, link and interviewer read from the email and put on your calendar, with a reminder.","mail","improve"],
+   ["Scheduling links","Calendly or GoodTime links surfaced with one tap to book.","mail","have"],
+   ["Prep pack","Company brief, likely questions for this role, and the resume you sent.","app","new"]]],
+ ["Momentum","Keep going, wisely",[
+   ["Weekly goal","For example, 5 tailored applications and 2 follow-ups; the streak counts weeks you hit it.","app","new"],
+   ["Your funnel","Applied, replied, interviewed, offered, by role and by resume version.","app","improve"],
+   ["Offer","Compare offers; mark the role won.","app","have"]]],
+];
+const st={have:["Have","p-ok"],improve:["Improve","p-warn"],new:["New","p-new"]};
+const f=document.getElementById("flow");
+stages.forEach((s,i)=>{const d=document.createElement("div");d.className="stage";
+  d.innerHTML=`<div class="head"><span class="n">${String(i+1)} of 6</span><b>${s[0]}</b><span style="font-size:.78rem;opacity:.85">${s[1]}</span></div>`+
+  s[2].map(c=>`<div class="card"><div class="t"><span>${c[0]}</span><span class="pill ${st[c[3]][1]}">${st[c[3]][0]}</span></div><div>${c[1]}</div><div class="where">${W[c[2]]}</div></div>`).join("");
+  f.appendChild(d);});
+
+const map=[
+ ["grp","Find jobs"],
+ ["Job feed (895,000+ live jobs, visa, freshness, ghost filters)","have","Works; shows each job's system","Add “Easy with extension” badge; Apply button opens the company site, not the agent"],
+ ["grp","Resume and cover letter"],
+ ["Per-job tailoring","have","Tailors bullets and summary to a job; 4 ATS-safe layouts","Every Apply makes a fresh version; the file is named for the company and role; history kept"],
+ ["Country formats","new","One format for all","US, Canada, UK and Ireland, Australia and NZ, Germany and Austria, India, EU (Europass-style), UAE: length, paper size, section names, spelling, optional photo and personal details (off unless you turn them on)"],
+ ["Harvard writing rules","improve","“Fix my resume” checks dates and titles","Bullet linter: action verb first, a number where possible, no pronouns, no repeated verbs, short phrases; one-click rewrite that keeps facts"],
+ ["Match report","improve","Keyword score","“14 of 16 skills”, with evidence for each match; gaps become questions; no invented skills; parse check of the PDF"],
+ ["Cover letter","have","Tones and a lint check","Harvard structure, one page, matches the resume's font"],
+ ["grp","Apply"],
+ ["Chrome extension autofill","improve","Fills one page at a time with server help; Workday is slow","Fixed handlers for Workday's 7 pages, Greenhouse, Lever, Ashby and iCIMS; resume and letter fetched before the page opens; target under 3 seconds per page"],
+ ["Submit recording","have","Detects the confirmation page; “I submitted it” button","Saves the exact resume and letter sent with the application"],
+ ["Cloud auto-apply agent","improve","Main feature today; 19 of 61 sent","Off-by-default beta, or removed (Decision 1)"],
+ ["grp","Inbox and calendar"],
+ ["Job email reading (app password)","have","Sorts receipts, interviews, rejections; reads codes","Also creates applications from any site's receipts (LinkedIn, Indeed, company)"],
+ ["Interview events","have","Parses times and calendar files; Interviews page; one-off .ics download","Calendar link you subscribe to once, kept up to date; reminders; prep pack"],
+ ["Google Calendar instant sync","new","—","Phase 2 (needs Google's permission review)"],
+ ["grp","Motivation"],
+ ["Weekly goal and streak","new","—","Counts tailored applications and follow-ups"],
+ ["Funnel by resume version","improve","Application stats","Shows which resume version gets replies"],
+];
+const tb=document.getElementById("map");
+map.forEach(r=>{const tr=document.createElement("tr");
+  if(r[0]==="grp"){tr.className="grp";tr.innerHTML=`<td colspan="4">${r[1]}</td>`;}
+  else tr.innerHTML=`<td><b>${r[0]}</b></td><td><span class="pill ${st[r[1]][1]}">${st[r[1]][0]}</span></td><td>${r[2]}</td><td>${r[3]}</td>`;
+  tb.appendChild(tr);});
+
+const phases=[
+ ["A · Apply flow","Days 1–4",["Jobs → “Tailor & apply” → company site with the extension; agent moved per Decision 1","Extension: fixed handlers for Workday's 7 pages, plus Greenhouse, Lever, Ashby and iCIMS; files fetched ahead; under 3 s per page","Records the exact resume and letter sent","Tested on saved copies of 15 real application forms"]],
+ ["B · Resume engine","Days 3–7",["Country formats chosen from the job's country","Harvard bullet linter and one-click rewrite that keeps facts","Honest match report: skills with evidence, gaps as questions","Cover letter in Harvard structure"]],
+ ["C · Inbox autopilot","Days 6–10",["Applications created from any site's confirmation email","Status moves from shortlisted, assessment and rejection emails","Calendar link you subscribe to once, with reminders; prep pack per interview","Follow-up nudges"]],
+ ["D · Momentum and launch","Days 10–14",["Weekly goal and streak; funnel by resume version","Landing page, Chrome Web Store listing and demo video on the new story","Instant Google Calendar sync starts Google's review"]],
+];
+const ph=document.getElementById("phases");
+phases.forEach(p=>{const d=document.createElement("div");d.className="phase";
+  d.innerHTML=`<div><h3>${p[0]}</h3><span class="t">${p[1]}</span></div><ul>${p[2].map(x=>`<li>${x}</li>`).join("")}</ul>`;ph.appendChild(d);});
+})();
+</script>
