@@ -10,11 +10,13 @@ import { extractKeywords, resumeText, scoreResume } from "@/lib/ats";
 import { searchVariants } from "@/lib/jobs/roles";
 import { RESUME_STYLES } from "@/lib/resume/styles";
 import { autoFix, checkResume } from "@/lib/resume/check";
+import { harvardScore, lintBullets } from "@/lib/resume/harvard";
+import { COUNTRY_FORMATS, DEFAULT_FORMAT, FORMAT_CODES, formatFor, formatLine, pagesFor } from "@/lib/resume/country";
 import type { Resume, ResumeContent, ResumeStyle } from "@/lib/types";
 
 export default function ResumeEditor({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
-  const { roles, profile } = useMe();
+  const { roles, profile, prefs } = useMe();
   const [r, setR] = useState<Resume | null>(null);
   const [c, setC] = useState<ResumeContent | null>(null);
   const [keywords, setKeywords] = useState<string[]>([]);
@@ -22,6 +24,7 @@ export default function ResumeEditor({ params }: { params: Promise<{ id: string 
   const [dirty, setDirty] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [tab, setTab] = useState<"edit" | "preview">("edit");
+  const [country, setCountry] = useState<string | null>(null);
 
   useEffect(() => {
     supabaseBrowser().from("resumes").select("*").eq("id", id).single().then(({ data }) => {
@@ -58,6 +61,12 @@ export default function ResumeEditor({ params }: { params: Promise<{ id: string 
 
   const report = useMemo(() => (c ? scoreResume(c, keywords) : null), [c, keywords]);
   const problems = useMemo(() => checkResume(c, profile?.full_name || undefined), [c, profile?.full_name]);
+  // Harvard bullet checks, live as the person types.
+  const bulletIssues = useMemo(() => lintBullets(c), [c]);
+  const harvard = useMemo(() => harvardScore(c, bulletIssues), [c, bulletIssues]);
+  // Country format: the person's first target country unless they pick another.
+  const countryCode = (country || prefs?.countries?.[0] || "US").toUpperCase();
+  const fmt = formatFor(countryCode);
 
   if (!r || !c) return <div className="skeleton h-[600px]" />;
 
@@ -78,7 +87,7 @@ export default function ResumeEditor({ params }: { params: Promise<{ id: string 
     const w = window.open("", "_blank", "width=900,height=1000");
     if (!paper || !w) return setToast("Allow pop-ups to download your PDF.");
     const styles = Array.from(document.querySelectorAll('link[rel="stylesheet"], style')).map((n) => n.outerHTML).join("");
-    w.document.write(`<!doctype html><html><head><title>${(c!.name || "Resume").replace(/</g, "")}</title>${styles}<style>@page{margin:12mm}body{background:#fff}.resume-paper{max-width:none!important;padding:0!important}</style></head><body>${paper.outerHTML.replace(/<mark[^>]*>|<\/mark>/g, "")}</body></html>`);
+    w.document.write(`<!doctype html><html><head><title>${(c!.name || "Resume").replace(/</g, "")}</title>${styles}<style>@page{size:${fmt.paper === "a4" ? "A4" : "letter"};margin:12mm}body{background:#fff}.resume-paper{max-width:none!important;padding:0!important;aspect-ratio:auto!important}</style></head><body>${paper.outerHTML.replace(/<mark[^>]*>|<\/mark>/g, "")}</body></html>`);
     w.document.close();
     setTimeout(() => {
       w.focus();
@@ -104,7 +113,7 @@ export default function ResumeEditor({ params }: { params: Promise<{ id: string 
           <select aria-label="Resume style" className="input h-10 w-[130px] py-0 text-sm" value={r.style || "classic"} onChange={(e) => { setR({ ...r, style: e.target.value as ResumeStyle }); setDirty(true); }}>
             {(Object.keys(RESUME_STYLES) as ResumeStyle[]).map((s) => <option key={s} value={s}>{RESUME_STYLES[s].label}</option>)}
           </select>
-          <a className="btn-secondary" href={`/api/resume/${r.id}/pdf?style=${r.style || "classic"}`} onClick={(e) => { if (dirty) { e.preventDefault(); setToast("Save your changes first, then download."); } }}><Download size={16} /> Download PDF</a>
+          <a className="btn-secondary" href={`/api/resume/${r.id}/pdf?style=${r.style || "classic"}&country=${encodeURIComponent(fmt.code)}`} onClick={(e) => { if (dirty) { e.preventDefault(); setToast("Save your changes first, then download."); } }}><Download size={16} /> Download PDF</a>
           <button className="btn-ghost" onClick={printPdf}>Print</button>
           <button className="btn-primary" onClick={save} disabled={!dirty}>{dirty ? "Save" : "Saved"}</button>
         </div>
@@ -199,6 +208,58 @@ export default function ResumeEditor({ params }: { params: Promise<{ id: string 
             </section>
           )}
 
+          <section className="card space-y-2 p-5">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <h2 className="font-semibold">Country format</h2>
+              <select aria-label="Country format" className="input h-10 w-[220px] py-0 text-sm" value={fmt.code} onChange={(e) => setCountry(e.target.value)}>
+                {FORMAT_CODES.map((code) => <option key={code} value={code}>{COUNTRY_FORMATS[code].name}</option>)}
+                <option value={DEFAULT_FORMAT.code}>{DEFAULT_FORMAT.name}</option>
+              </select>
+            </div>
+            <p className="text-sm font-medium text-ink-2">{formatLine({ ...fmt, pages: pagesFor(fmt, c) })}</p>
+            <p className="text-sm text-muted">{fmt.note}</p>
+            {fmt.referencesNote && <p className="text-xs text-muted">{fmt.referencesNote}</p>}
+          </section>
+
+          <section id="r-harvard" className={`card p-5 ${harvard.total && harvard.ok === harvard.total ? "bg-green-tint/40" : ""}`}>
+            {(() => {
+              const hard = bulletIssues.filter((x) => !x.soft);
+              const noNumber = bulletIssues.filter((x) => x.kind === "metric").length;
+              const go = (x: (typeof bulletIssues)[number]) => {
+                const el = document.getElementById(`r-${x.section}-${x.index}`);
+                el?.scrollIntoView({ behavior: "smooth", block: "center" });
+                el?.querySelector<HTMLElement>("textarea")?.focus({ preventScroll: true });
+              };
+              if (!harvard.total) return <><h2 className="font-semibold">Harvard checks</h2><p className="text-sm text-muted">Add bullets to your experience and they&apos;re checked here as you type.</p></>;
+              return (
+                <>
+                  {hard.length === 0 ? (
+                    <p className="flex items-center gap-2 font-semibold"><CheckCircle2 size={18} className="text-green-ink" aria-hidden /> All {harvard.total} bullets pass Harvard&apos;s checks</p>
+                  ) : (
+                    <>
+                      <h2 className="font-semibold">Harvard checks</h2>
+                      <p className="text-sm text-muted">{harvard.ok} of {harvard.total} bullets pass: action verb first, no I/my/we, varied verbs, one short phrase each.</p>
+                      <ul className="mt-3 space-y-2 text-sm">
+                        {hard.slice(0, 8).map((x, i) => (
+                          <li key={`${x.where}-${x.kind}-${i}`} className="flex items-start gap-2">
+                            <span className="mt-1.5 size-1.5 shrink-0 rounded-full bg-orange" aria-hidden />
+                            <span className="min-w-0 flex-1">
+                              <span className="font-medium">{x.where}</span> — <span className="text-ink-2">{x.text}</span>
+                              <span className="block text-muted">{x.tip}</span>
+                            </span>
+                            <button className="shrink-0 text-xs font-semibold text-brand-ink hover:underline" onClick={() => go(x)}>Go to it</button>
+                          </li>
+                        ))}
+                      </ul>
+                      {hard.length > 8 && <p className="mt-2 text-xs text-muted">+{hard.length - 8} more. Fix these first and the rest will show.</p>}
+                    </>
+                  )}
+                  {noNumber > 0 && <p className="mt-3 text-sm text-muted">Tip: {noNumber} bullet{noNumber > 1 ? "s have" : " has"} no number. Add a real figure where you know one (how many, how much, % change). Never guess.</p>}
+                </>
+              );
+            })()}
+          </section>
+
           <section id="r-contact" className="card space-y-3 p-5">
             <h2 className="font-semibold">Contact</h2>
             <div className="grid gap-3 sm:grid-cols-2">
@@ -250,7 +311,7 @@ export default function ResumeEditor({ params }: { params: Promise<{ id: string 
           <section className="card space-y-4 p-5">
             <div className="flex items-center justify-between"><h2 className="font-semibold">Projects</h2><button className="btn-ghost min-h-8 text-xs" onClick={() => up({ projects: [...(c.projects || []), { name: "", bullets: [""] }] })}><Plus size={14} /> Project</button></div>
             {(c.projects || []).map((p, i) => (
-              <div key={i} className="rounded-xl border border-line p-3.5">
+              <div key={i} id={`r-projects-${i}`} className="scroll-mt-24 rounded-xl border border-line p-3.5">
                 <div className="grid gap-2 sm:grid-cols-2">
                   <input className="input" aria-label="Project name" placeholder="Project name" value={p.name} onChange={(e) => up({ projects: c.projects!.map((x, j) => (j === i ? { ...x, name: e.target.value } : x)) })} />
                   <input className="input" aria-label="Tech" placeholder="Tools used" value={p.tech || ""} onChange={(e) => up({ projects: c.projects!.map((x, j) => (j === i ? { ...x, tech: e.target.value } : x)) })} />
@@ -278,7 +339,7 @@ export default function ResumeEditor({ params }: { params: Promise<{ id: string 
         <div className={tab === "edit" ? "hidden lg:block" : ""}>
           <div className="sticky top-6 overflow-hidden rounded-xl border border-line bg-[#e9ebf0] p-3 sm:p-5">
             <div className="max-h-[calc(100vh-120px)] overflow-y-auto shadow-lg">
-              <ResumePaper style={r.style || "classic"} c={{ ...c, experience: c.experience?.map((e) => ({ ...e, bullets: e.bullets.filter((b) => b.trim()) })) }} highlight={showKw ? report?.matched || [] : []} />
+              <ResumePaper style={r.style || "classic"} country={fmt.code} c={{ ...c, experience: c.experience?.map((e) => ({ ...e, bullets: e.bullets.filter((b) => b.trim()) })) }} highlight={showKw ? report?.matched || [] : []} />
             </div>
           </div>
         </div>

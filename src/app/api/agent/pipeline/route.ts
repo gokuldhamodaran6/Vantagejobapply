@@ -17,7 +17,7 @@ export async function GET(req: Request) {
   const dayStart = new Date(limitDayStart()).toISOString();
   const [tasks, apps, today, perEmployer] = await Promise.all([
     ctx.supabase.from("agent_tasks").select("job_id,job,status,submit_clicked_at").limit(10000),
-    ctx.supabase.from("applications").select("job_id,job,applied_at").limit(10000),
+    ctx.supabase.from("applications").select("job_id,job,applied_at").eq("user_id", ctx.user.id).limit(10000),
     // Same rule as the agent: applications it actually started since midnight UTC (never ones you filled in your browser).
     ctx.supabase.from("agent_tasks").select("id", { count: "exact", head: true }).gte("created_at", dayStart).neq("status", "extension").not("started_at", "is", null),
     recentByEmployer(ctx.supabase),

@@ -3,7 +3,10 @@ import Link from "next/link";
 import { Suspense, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { motion } from "motion/react";
-import { ArrowUp, Loader2, MapPin, Send } from "lucide-react";
+import { ArrowUp, ArrowUpRight, Loader2, MapPin } from "lucide-react";
+import { PrepareDrawer } from "@/components/prepare-drawer";
+import { matchJob } from "@/lib/jobs/match";
+import type { Job, MatchResult } from "@/lib/types";
 import { LogoMark } from "@/components/brand";
 import { useMe } from "@/lib/me";
 import { supabaseBrowser } from "@/lib/supabase/client";
@@ -12,19 +15,20 @@ import type { Change, JobCard } from "@/lib/assistant";
 
 type Msg = { role: "user" | "assistant"; content: string; data?: { apps?: { id: string; title: string; company: string; status: string; when: string | null }[]; changes?: Change[]; jobs?: JobCard[] }; done?: boolean };
 
-const PROMPTS = ["What's my agent doing?", "What did you apply to today?", "Find product manager jobs in Texas", "Any interviews this week?", "Also target Product Analyst roles", "How do I improve my interview rate?"];
+const PROMPTS = ["Which applications need a follow-up?", "What did I apply to this week?", "Find product manager jobs in Texas", "Any interviews this week?", "Also target Product Analyst roles", "How do I improve my interview rate?"];
 
 function rich(text: string) {
   return text.split(/(\*\*[^*]+\*\*)/g).map((p, i) => (p.startsWith("**") ? <strong key={i}>{p.slice(2, -2)}</strong> : p));
 }
 
 function Chat() {
-  const { userId, refresh } = useMe();
+  const { userId, refresh, roles, prefs, auth } = useMe();
+  const [prep, setPrep] = useState<{ job: Job; match: MatchResult } | null>(null);
+  const [opening, setOpening] = useState<string | null>(null);
   const params = useSearchParams();
   const [msgs, setMsgs] = useState<Msg[]>([]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
-  const [applied, setApplied] = useState<string[]>([]);
   const bottom = useRef<HTMLDivElement>(null);
   const sentInitial = useRef(false);
 
@@ -72,25 +76,22 @@ function Chat() {
     refresh();
   }
 
-  async function applyJobs(jobs: JobCard[]) {
-    setBusy(true);
-    let ok = 0;
-    const errs: string[] = [];
-    for (const j of jobs) {
-      const r = await fetch("/api/agent/tasks", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ jobId: j.id }) }).catch(() => null);
-      if (r?.ok) ok++;
-      else errs.push(`${j.company}: ${((await r?.json().catch(() => ({}))) as { error?: string })?.error || "couldn't start"}`);
-    }
-    setBusy(false);
-    setApplied((a) => [...a, ...jobs.map((j) => j.id)]);
-    setMsgs((m) => [...m, { role: "assistant", content: `${ok ? `On it — preparing a tailored resume and cover letter and applying to **${ok}** job${ok > 1 ? "s" : ""}. Follow along on **Your agent**.` : ""}${errs.length ? `\n${errs.join("\n")}` : ""}` }]);
+  /** Open a job from the chat in the Tailor & apply drawer. */
+  async function openJob(j: JobCard) {
+    setOpening(j.id);
+    const r = await fetch(`/api/jobs/${encodeURIComponent(j.id)}`).catch(() => null);
+    const d = r?.ok ? await r.json().catch(() => null) : null;
+    setOpening(null);
+    const job = d?.job as Job | undefined;
+    if (!job) return setMsgs((m) => [...m, { role: "assistant", content: `Couldn't open ${j.title} at ${j.company} — it may have closed.` }]);
+    setPrep({ job, match: matchJob(job, { roles, prefs, auth }) });
   }
 
   return (
     <div className="mx-auto flex min-h-[calc(100vh-140px)] max-w-3xl flex-col">
       <div className="mb-4">
-        <h1 className="text-[26px] font-bold tracking-tight">Ask your agent</h1>
-        <p className="mt-1 text-[15px] text-muted">Ask anything about your search, find jobs, or tell your agent what to target. Big changes are shown to you before they happen.</p>
+        <h1 className="text-[26px] font-bold tracking-tight">Ask Vantage</h1>
+        <p className="mt-1 text-[15px] text-muted">Ask anything about your search, find jobs, or change what you&apos;re targeting. Big changes are shown to you before they happen.</p>
       </div>
 
       <div className="flex-1 space-y-5 pb-6">
@@ -131,10 +132,9 @@ function Chat() {
                           <p className="flex items-center gap-1 truncate text-xs text-muted">{j.company}{j.location ? <><MapPin size={11} /> {j.location}</> : null} · {j.score}% match</p>
                         </div>
                         <a href={j.url} target="_blank" rel="noopener noreferrer" className="text-xs font-semibold text-brand-ink">View</a>
-                        <button className="btn-primary min-h-8 text-xs" disabled={busy || applied.includes(j.id)} onClick={() => applyJobs([j])}>{applied.includes(j.id) ? "Queued" : <><Send size={13} /> Apply</>}</button>
+                        <button className="btn-primary min-h-8 text-xs" disabled={opening === j.id} onClick={() => void openJob(j)}>{opening === j.id ? <Loader2 size={13} className="animate-spin" /> : <ArrowUpRight size={13} />} Tailor &amp; apply</button>
                       </div>
                     ))}
-                    {m.data.jobs.length > 1 && <button className="btn-pink" disabled={busy || m.data.jobs.every((j) => applied.includes(j.id))} onClick={() => applyJobs(m.data!.jobs!.filter((j) => !applied.includes(j.id)))}>Apply to all {m.data.jobs.length} with my agent</button>}
                   </div>
                 )}
                 {!!m.data?.changes?.length && !m.done && (
@@ -156,15 +156,16 @@ function Chat() {
           <textarea
             rows={1}
             className="max-h-40 min-h-11 flex-1 resize-none bg-transparent px-2 py-2.5 text-[15px] outline-none placeholder:text-subtle"
-            placeholder="Ask about an application, or tell your agent what to target…"
+            placeholder="Ask about an application, or change what you're targeting…"
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(input); } }}
-            aria-label="Message your agent"
+            aria-label="Message Vantage"
           />
           <button className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-brand text-white disabled:opacity-40" disabled={!input.trim() || busy} aria-label="Send"><ArrowUp size={18} /></button>
         </div>
       </form>
+      <PrepareDrawer item={prep} onClose={() => setPrep(null)} onSaved={(msg) => setMsgs((m) => [...m, { role: "assistant", content: msg }])} />
     </div>
   );
 }

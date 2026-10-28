@@ -2,13 +2,15 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
-import { Check, Copy, ExternalLink, FileText, Loader2, Send, Sparkles, X } from "lucide-react";
+import { ArrowUpRight, Check, Copy, FileText, Loader2, Puzzle, Sparkles, X } from "lucide-react";
+import { askExtension, canOpenFromSite, extensionState, type ExtState } from "@/lib/ext-client";
 import { LETTER_TONES, RESUME_STYLES } from "@/lib/resume/styles";
 import { supabaseBrowser } from "@/lib/supabase/client";
 import { useMe, track } from "@/lib/me";
 import { workAuthAnswers } from "@/lib/answers";
 import { money, timeAgo } from "@/lib/format";
 import { Badge } from "@/components/ui";
+import { MatchReport, type MatchReportFormat, type MatchReportHarvard, type MatchReportMatch } from "@/components/match-report";
 import type { Job, LetterTone, MatchResult, ResumeContent, ResumeStyle } from "@/lib/types";
 
 type Tailored = {
@@ -23,6 +25,9 @@ type Tailored = {
   report: { score: number; matched: string[]; missing: string[] };
   baseResumeId: string;
   baseName?: string;
+  match?: MatchReportMatch;
+  harvard?: MatchReportHarvard;
+  format?: MatchReportFormat;
 };
 
 export function PrepareDrawer({ item, onClose, onSaved }: { item: { job: Job; match: MatchResult } | null; onClose: () => void; onSaved: (msg: string) => void }) {
@@ -30,17 +35,24 @@ export function PrepareDrawer({ item, onClose, onSaved }: { item: { job: Job; ma
   const [job, setJob] = useState<Job | null>(null);
   const [tailored, setTailored] = useState<Tailored | null>(null);
   const [cover, setCover] = useState("");
-  const [busy, setBusy] = useState<"" | "tailor" | "save" | "agent">("");
+  const [busy, setBusy] = useState<"" | "tailor" | "save" | "apply">("");
+  const [ext, setExt] = useState<ExtState | null>(null);
+  const [opened, setOpened] = useState<{ company: string; viaExt: boolean } | null>(null);
   const [tone, setTone] = useState<LetterTone | null>(null);
   const [style, setStyle] = useState<ResumeStyle | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
 
   useEffect(() => {
+    if (item) void extensionState().then(setExt);
+  }, [item]);
+
+  useEffect(() => {
     setJob(item?.job || null);
     setTailored(null);
     setCover("");
     setError(null);
+    setOpened(null);
     if (item) {
       fetch(`/api/jobs/${encodeURIComponent(item.job.id)}`).then(async (r) => {
         if (r.ok) setJob((await r.json()).job);
@@ -52,18 +64,22 @@ export function PrepareDrawer({ item, onClose, onSaved }: { item: { job: Job; ma
   const j = job || item.job;
   const answers = workAuthAnswers(j.country, auth.find((a) => a.country === j.country));
 
-  async function tailor() {
+  async function tailor(): Promise<Tailored | null> {
     setBusy("tailor");
     setError(null);
     const r = await fetch("/api/tailor", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ jobId: j.id, roleId: item!.match.role?.id || null, tone: tone || undefined, style: style || undefined }) }).catch(() => null);
     const d = r ? await r.json().catch(() => ({})) : { error: "Network error. Try again." };
     setBusy("");
-    if (!r?.ok) return setError(d.error || "Couldn't tailor your resume. Try again.");
+    if (!r?.ok) {
+      setError(d.error || "Couldn't write your resume for this job. Try again.");
+      return null;
+    }
     setTailored(d);
     setCover(d.coverLetter);
     setTone(d.tone);
     setStyle(d.style);
     track("tailor_view", { job: j.id });
+    return d as Tailored;
   }
 
   async function save(status: "saved" | "ready" | "applied") {
@@ -81,7 +97,7 @@ export function PrepareDrawer({ item, onClose, onSaved }: { item: { job: Job; ma
     const now = new Date().toISOString();
     // Never move an application backwards or wipe its history: if it's already tracked, only add what's new.
     const ORDER = ["saved", "ready", "applied", "in_review", "assessment", "interview", "offer", "rejected", "withdrawn"];
-    const { data: existing } = await supabase.from("applications").select("id,status,events,applied_at").eq("job_id", j.id).maybeSingle();
+    const { data: existing } = await supabase.from("applications").select("id,status,events,applied_at").eq("user_id", userId).eq("job_id", j.id).maybeSingle();
     if (existing) {
       const cur = String(existing.status);
       const forward = ORDER.indexOf(status) > ORDER.indexOf(cur) && !["rejected", "withdrawn"].includes(cur);
@@ -123,20 +139,42 @@ export function PrepareDrawer({ item, onClose, onSaved }: { item: { job: Job; ma
     if (status !== "ready") onClose();
   }
 
-  async function applyWithAgent() {
-    setBusy("agent");
+  /**
+   * Tailor & apply: write the resume and cover letter for this job (if not done yet), save them, then open the
+   * company's own application. With the extension installed it opens the page and fills it; the person presses Submit.
+   */
+  async function tailorAndApply(force = false) {
     setError(null);
-    const r = await fetch("/api/agent/tasks", {
+    const ready = Boolean(ext?.connected && canOpenFromSite(ext.version));
+    // Without the extension, open the tab now (inside the click) so the browser doesn't block it.
+    const win = ready ? null : window.open("", "_blank");
+    if (win) win.document.write("<p style='font:16px system-ui;padding:24px'>Preparing your application…</p>");
+    const t = tailored || (await tailor());
+    if (!t) { win?.close(); return; }
+    setBusy("apply");
+    const r = await fetch("/api/apply", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ jobId: j.id, roleId: item!.match.role?.id || null, tone: tailored?.tone || tone || undefined, style: tailored?.style || style || undefined, resume: tailored?.resume, coverLetter: tailored ? cover : undefined, atsScore: tailored?.report.score }),
+      body: JSON.stringify({ jobId: j.id, roleId: item!.match.role?.id || null, resume: t.resume, coverLetter: cover || t.coverLetter, style: t.style, tone: t.tone, atsScore: t.report?.score, force }),
     }).catch(() => null);
     const d = r ? await r.json().catch(() => ({})) : { error: "Network error. Try again." };
     setBusy("");
-    if (!r?.ok) return setError(d.error || "Couldn't start your agent.");
-    track("agent_apply", { job: j.id });
-    onSaved(`Your agent is applying to ${j.company} — follow it on the Agent page`);
-    onClose();
+    if (!r?.ok) {
+      win?.close();
+      setError(d.duplicate ? `${d.error} Open it anyway?` : d.error || "Couldn't open this application.");
+      return;
+    }
+    track("apply_open", { job: j.id, ext: ready });
+    if (ready) {
+      const sent = await askExtension({ type: "apply", taskId: d.taskId, url: d.url, job: d.job }, 4000);
+      if (sent?.ok) return setOpened({ company: j.company, viaExt: true });
+      // The extension didn't answer: open the page normally.
+      window.open(d.url, "_blank", "noopener");
+      return setOpened({ company: j.company, viaExt: false });
+    }
+    if (win) win.location.href = d.url;
+    else window.open(d.url, "_blank", "noopener");
+    setOpened({ company: j.company, viaExt: false });
   }
 
   function copy(text: string, key: string) {
@@ -182,11 +220,11 @@ export function PrepareDrawer({ item, onClose, onSaved }: { item: { job: Job; ma
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
                   <p className="font-semibold">Resume and cover letter for this job</p>
-                  <p className="text-sm text-muted">Rewritten from your verified experience only.</p>
+                  <p className="text-sm text-muted">Written for this job from your real experience. Nothing is invented; gaps are shown, not filled.</p>
                 </div>
-                <button className="btn-primary" onClick={tailor} disabled={busy !== ""}>
+                <button className="btn-secondary" onClick={() => void tailor()} disabled={busy !== ""}>
                   {busy === "tailor" ? <Loader2 size={16} className="animate-spin" /> : <Sparkles size={16} />}
-                  {tailored ? "Tailor again" : "Tailor for this job"}
+                  {tailored ? "Write again" : "Preview first"}
                 </button>
               </div>
               <div className="mt-4 grid gap-3 sm:grid-cols-2">
@@ -211,30 +249,13 @@ export function PrepareDrawer({ item, onClose, onSaved }: { item: { job: Job; ma
               {error && <p role="alert" className="mt-3 rounded-lg bg-red-tint px-3 py-2 text-sm text-red-ink">{error}{error.includes("resume first") && <> · <Link href="/app/resumes" className="font-semibold underline">Add resume</Link></>}</p>}
               {tailored && (
                 <div className="mt-4 space-y-4">
-                  <div className="flex items-center gap-3 rounded-lg bg-canvas p-3">
-                    <span className="text-2xl font-bold">{tailored.report.score}</span>
-                    <div className="text-sm">
-                      <p className="font-semibold">ATS match score</p>
-                      <p className="text-muted">{tailored.report.matched.length} of {tailored.keywords.length} keywords from the posting appear · {RESUME_STYLES[tailored.style]?.label || "Classic"} style · {LETTER_TONES[tailored.tone]?.label || "Confident"} letter{tailored.ai ? "" : " · basic writer (add an AI key for recruiter-grade writing)"}</p>
-                    </div>
-                  </div>
-                  {tailored.analysis?.length > 0 && (
-                    <div>
-                      <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted">What they want · your evidence</p>
-                      <ul className="space-y-1.5 text-sm">
-                        {tailored.analysis.map((a) => (
-                          <li key={a.requirement} className="flex gap-2">
-                            <span className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[11px] font-bold ${a.evidence ? "bg-green-tint text-green-ink" : "bg-orange-tint text-orange-ink"}`}>{a.evidence ? "✓" : "–"}</span>
-                            <span><span className="font-medium">{a.requirement}</span>{a.evidence ? <span className="text-muted"> — {a.evidence}</span> : <span className="text-muted"> — not in your history (left out, never invented)</span>}</span>
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
+                  {tailored.match && tailored.harvard && tailored.format ? (
+                    <MatchReport match={tailored.match} harvard={tailored.harvard} format={tailored.format} />
+                  ) : (
+                    <p className="rounded-lg bg-canvas p-3 text-sm text-muted">{tailored.report.matched.length} of {tailored.keywords.length} key terms from the posting appear in your resume.</p>
                   )}
+                  <p className="text-xs text-muted">{RESUME_STYLES[tailored.style]?.label || "Classic"} layout · {LETTER_TONES[tailored.tone]?.label || "Confident"} letter{tailored.ai ? "" : " · basic writer (add an AI key for recruiter-grade writing)"}</p>
                   {tailored.letterIssues?.length > 0 && <p className="rounded-lg bg-orange-tint px-3 py-2 text-xs text-orange-ink">Worth a quick edit: {tailored.letterIssues.slice(0, 3).join("; ")}</p>}
-                  {tailored.report.missing.length > 0 && (
-                    <p className="text-sm text-muted">In the posting but not in your history (not added): {tailored.report.missing.slice(0, 8).join(", ")}</p>
-                  )}
                   <div>
                     <div className="mb-1.5 flex items-center justify-between">
                       <label className="label mb-0" htmlFor="cover">Cover letter</label>
@@ -272,18 +293,32 @@ export function PrepareDrawer({ item, onClose, onSaved }: { item: { job: Job; ma
             )}
           </div>
 
-          <div className="flex flex-wrap items-center gap-2 border-t border-line bg-white px-5 py-4">
-            <button className="btn-pink" onClick={applyWithAgent} disabled={busy !== ""}>
-              {busy === "agent" ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />} Apply with agent
-            </button>
-            <a href={j.url} target="_blank" rel="noopener noreferrer" className="btn-secondary" onClick={() => save("ready")}>
-              Apply myself <ExternalLink size={15} />
-            </a>
-            <button className="btn-ghost" onClick={() => save("applied")} disabled={busy !== ""}><Check size={16} /> I applied</button>
-            <button className="btn-ghost" onClick={() => save("saved")} disabled={busy !== ""}>Save</button>
-            {tailored && (
-              <span className="ml-auto inline-flex items-center gap-1.5 text-xs text-muted"><FileText size={14} /> Tailored resume saves to Resumes</span>
+          <div className="border-t border-line bg-white px-5 py-4">
+            {opened ? (
+              <div className="mb-3 rounded-xl bg-green-tint px-4 py-3 text-sm text-green-ink" role="status">
+                {opened.viaExt
+                  ? <>Opened {opened.company}&apos;s application in a new tab. The Vantage extension is filling it with this resume and cover letter. Check each page, then press Submit there; it&apos;s recorded in Applications automatically.</>
+                  : <>Opened {opened.company}&apos;s application in a new tab. It&apos;s in Applications as Ready. <Link href="/app/extension" className="font-semibold underline">{ext?.installed ? "Update the Chrome extension" : "Add the Chrome extension"}</Link> to have Vantage fill it for you next time.</>}
+              </div>
+            ) : (
+              ext && !(ext.connected && canOpenFromSite(ext.version)) && (
+                <p className="mb-3 flex items-start gap-2 text-xs text-muted">
+                  <Puzzle size={14} className="mt-0.5 shrink-0" aria-hidden />
+                  <span>{!ext.installed ? "Add the Vantage Chrome extension" : !ext.connected ? "Connect the Vantage Chrome extension" : "Update the Vantage Chrome extension"} and it fills {j.company}&apos;s form for you. <Link href="/app/extension" className="font-semibold text-brand-ink">Set it up</Link></span>
+                </p>
+              )
             )}
+            <div className="flex flex-wrap items-center gap-2">
+              <button className="btn-primary" onClick={() => void tailorAndApply(Boolean(error?.endsWith("Open it anyway?")))} disabled={busy !== ""}>
+                {busy === "tailor" || busy === "apply" ? <Loader2 size={16} className="animate-spin" /> : <ArrowUpRight size={16} />}
+                {busy === "tailor" ? "Writing your resume…" : busy === "apply" ? `Opening ${j.company}…` : error?.endsWith("Open it anyway?") ? "Open it anyway" : tailored ? `Apply on ${j.company}'s site` : "Tailor & apply"}
+              </button>
+              <button className="btn-ghost" onClick={() => save("applied")} disabled={busy !== ""}><Check size={16} /> I applied</button>
+              <button className="btn-ghost" onClick={() => save("saved")} disabled={busy !== ""}>Save for later</button>
+              {tailored && (
+                <span className="ml-auto inline-flex items-center gap-1.5 text-xs text-muted"><FileText size={14} /> Saved to Resumes as “{j.title} — {j.company}”</span>
+              )}
+            </div>
           </div>
         </motion.aside>
       </motion.div>

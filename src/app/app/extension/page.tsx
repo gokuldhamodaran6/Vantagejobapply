@@ -4,37 +4,10 @@ import { Check, Download, Loader2, MousePointerClick, PenLine, ShieldCheck, Tras
 import { PageHeader } from "@/components/app-shell";
 import { Toast } from "@/components/ui";
 import { timeAgo } from "@/lib/format";
+import { askExtension, canOpenFromSite } from "@/lib/ext-client";
 
-/**
- * The extension's IDs: the download from Vantage has a fixed ID (from the public key in its manifest); the Chrome Web
- * Store gives its copy its own ID, set in NEXT_PUBLIC_EXT_STORE_ID once it's published. Whichever is installed answers.
- */
-const EXT_IDS = [process.env.NEXT_PUBLIC_EXT_STORE_ID, "emeljhngmongcbfjioceeegbfamjdbpn"].filter((x): x is string => Boolean(x));
 type Key = { id: string; label: string; created_at: string; last_used_at: string | null };
-type ChromeRuntime = { sendMessage: (id: string, msg: unknown, cb: (r: unknown) => void) => void; lastError?: { message?: string } };
-const runtime = (): ChromeRuntime | null => (globalThis as unknown as { chrome?: { runtime?: ChromeRuntime } }).chrome?.runtime || null;
-
-type Reply = { ok?: boolean; connected?: boolean; version?: string } | null;
-function askOne(id: string, msg: unknown): Promise<Reply> {
-  const rt = runtime();
-  if (!rt?.sendMessage) return Promise.resolve(null);
-  return new Promise((resolve) => {
-    try {
-      rt.sendMessage(id, msg, (r) => resolve(rt.lastError ? null : (r as Reply) || null));
-    } catch {
-      resolve(null);
-    }
-    setTimeout(() => resolve(null), 1500);
-  });
-}
-/** Ask every known copy; the first that answers (the one installed) wins. */
-async function ask(msg: unknown): Promise<Reply> {
-  for (const id of EXT_IDS) {
-    const r = await askOne(id, msg);
-    if (r) return r;
-  }
-  return null;
-}
+const ask = (msg: unknown) => askExtension(msg);
 
 export default function ExtensionPage() {
   const [ext, setExt] = useState<{ installed: boolean; connected: boolean; version?: string } | null>(null);
@@ -77,11 +50,11 @@ export default function ExtensionPage() {
   const step = !ext?.installed ? 1 : !ext.connected ? 2 : 3;
   return (
     <>
-      <PageHeader title="Vantage for Chrome" subtitle="Fill any job application in one click — on the company's own page, with your answers and a resume written for that job. You check it, then press Submit yourself — or ask Vantage to press it for you." />
+      <PageHeader title="Vantage for Chrome" subtitle="Press Tailor & apply on any job in Vantage: the company's application opens and the extension fills every page with your answers and the resume written for that job. You check it and press Submit." />
 
       <section className="grid gap-4 lg:grid-cols-3">
         {[
-          { icon: MousePointerClick, title: "One click on any careers site", body: "Workday, Greenhouse, Lever, Ashby, iCIMS, Amazon and company sites. It reads every page like a person — dropdowns, nested lists, work history, uploads — and moves through each step until only Submit is left." },
+          { icon: MousePointerClick, title: "Fills in seconds, page by page", body: "Workday, Greenhouse, Lever, Ashby, iCIMS, Amazon and company sites. Contact details and saved answers go in instantly; dropdowns, work history and uploads follow, step by step, until only Submit is left." },
           { icon: PenLine, title: "Tailored for this job", body: "Vantage writes a resume and cover letter for the posting, uploads them, and answers “why are you a fit” questions in your voice." },
           { icon: Zap, title: "Tracked automatically", body: "When you submit, the job lands in Applications. Replies and interview invites from the company appear in your Inbox and Interviews." },
         ].map((c) => (
@@ -93,11 +66,11 @@ export default function ExtensionPage() {
         ))}
       </section>
 
-      {ext?.installed && (!ext.version || ext.version.localeCompare("1.1.5", undefined, { numeric: true }) < 0) && (
+      {ext?.installed && !canOpenFromSite(ext.version) && (
         <section className="mt-5 card border-brand/40 p-5">
-          <p className="font-semibold">A new version of the extension is ready</p>
-          <p className="mt-1 text-sm text-muted">Version 1.1.5 carries on by itself when you move to the next page, reads any dropdown (custom lists, Yes/No buttons, multi-pick lists, dates), finds the job title on any careers site (including iCIMS frames), and adds <b>Send to my Vantage list</b>. It also fills every page of multi-step forms and only records a job as applied after Submit is really pressed. Download it, unzip it over the old folder, then press the reload ↻ button on Vantage in <code className="rounded bg-canvas px-1">chrome://extensions</code>.</p>
-          <a href="/vantage-extension.zip" download className="btn-primary mt-3 min-h-9 text-[13px]"><Download size={15} /> Download version 1.1.5</a>
+          <p className="font-semibold">Update the extension to use Tailor &amp; apply</p>
+          <p className="mt-1 text-sm text-muted">Version 1.2.0 opens the company&apos;s application straight from Vantage and starts filling it as soon as the page loads, with the resume and cover letter already written. Download it, unzip it over the old folder, then press the reload ↻ button on Vantage in <code className="rounded bg-canvas px-1">chrome://extensions</code>.</p>
+          <a href="/vantage-extension.zip" download className="btn-primary mt-3 min-h-9 text-[13px]"><Download size={15} /> Download version 1.2.0</a>
         </section>
       )}
 
@@ -131,8 +104,8 @@ export default function ExtensionPage() {
           <li className="flex gap-3">
             <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-sm font-bold ${step === 3 ? "bg-brand text-white" : "bg-line-2 text-ink-2"}`}>3</span>
             <div>
-              <p className="font-semibold">Open a job and click “Apply with Vantage”</p>
-              <p className="mt-1 text-sm text-muted">Or click the Vantage icon in your toolbar. Anything new it asks you once, then remembers. Likely ghost jobs are flagged in red before you spend time on them.</p>
+              <p className="font-semibold">Press Tailor &amp; apply on a job in Vantage</p>
+              <p className="mt-1 text-sm text-muted">The company&apos;s application opens and fills itself. On a job you found elsewhere, click “Apply with Vantage” on the page or the Vantage icon in your toolbar. Anything new it asks you once, then remembers.</p>
             </div>
           </li>
         </ol>

@@ -1,4 +1,4 @@
-import { tailorForJob } from "@/lib/tailor";
+import { matchFrom, tailorForJob } from "@/lib/tailor";
 import { scoreResume } from "@/lib/ats";
 import { pickArm, STYLE_ARMS, styleStats, TONE_ARMS } from "@/lib/resume/learn";
 import { json, loadUserContext } from "@/lib/server-user";
@@ -38,14 +38,17 @@ export async function POST(req: Request) {
   let tone = body.tone;
   let style = body.style;
   if (!tone || !style) {
-    const { data: apps } = await ctx.supabase.from("applications").select("status,resume_style,letter_tone");
+    const { data: apps } = await ctx.supabase.from("applications").select("status,resume_style,letter_tone").eq("user_id", ctx.user.id);
     const st = styleStats((apps as { status: string; resume_style: string | null; letter_tone: string | null }[]) || []);
     tone ||= pickArm(st.tones, TONE_ARMS, "confident");
     style ||= pickArm(st.styles, STYLE_ARMS, (base.style as ResumeStyle) || "classic");
   }
 
-  const result = await runWithAi({ userId: ctx.user.id, feature: "tailor" }, () => tailorForJob(base.content as ResumeContent, { title: job.title, company: job.company, description: job.description, country: job.country, location: job.location }, ctx.profile.full_name || "", tone));
+  const result = await runWithAi({ userId: ctx.user.id, feature: "tailor" }, () => tailorForJob(base.content as ResumeContent, { title: job.title, company: job.company, description: job.description, country: job.country, location: job.location }, ctx.profile.full_name || "", tone, job.country || "US"));
   const report = scoreResume(result.resume, result.keywords);
+  // Honest coverage of the job's key skills, with evidence from the person's own (untailored) resume.
+  const match = matchFrom(result.analysis, result.keywords, base.content as ResumeContent);
+  const harvard = { issues: result.harvard.issues.slice(0, 20).map(({ where, text, tip }) => ({ where, text, tip })), ok: result.harvard.ok, total: result.harvard.total };
   await ctx.supabase.from("usage_events").insert({ user_id: ctx.user.id, type: "tailor", meta: { job: job.id, ai: result.ai, tone, style } });
-  return json({ ...result, report, style, baseResumeId: base.id, baseName: base.name });
+  return json({ ...result, report, style, baseResumeId: base.id, baseName: base.name, format: result.format, harvard, match });
 }

@@ -1,7 +1,7 @@
 "use client";
 import Link from "next/link";
 import { motion } from "motion/react";
-import { Bot, Briefcase, CalendarCheck, FileCheck2, Inbox, Search, Target } from "lucide-react";
+import { Bot, Briefcase, CalendarCheck, FileCheck2, Inbox, Puzzle, Search, Target } from "lucide-react";
 
 const STEPS = [
   {
@@ -17,8 +17,8 @@ const STEPS = [
     body: "Live jobs are checked against your status: sponsor registers, employer history and the posting's own wording. Jobs that say they can't hire you are filtered out.",
   },
   {
-    title: "Apply with a resume built for the role",
-    body: "Each target role gets its own ATS-ready resume and cover letter, written only from experience you confirmed.",
+    title: "Tailor & apply in seconds",
+    body: "Each job gets its own resume and cover letter, written only from experience you confirmed. The Chrome extension fills the company's form; you press Submit.",
   },
 ];
 
@@ -28,7 +28,7 @@ export function HowItWorks() {
       <div className="mx-auto max-w-6xl px-4 sm:px-6">
         <div className="max-w-2xl">
           <h2 className="text-3xl font-bold tracking-tight sm:text-4xl">From signup to interview in four steps</h2>
-          <p className="mt-4 text-lg text-muted">Set it up once. Vantage keeps working while you sleep.</p>
+          <p className="mt-4 text-lg text-muted">Set it up once. Then every application takes minutes, and your inbox keeps score.</p>
         </div>
         <ol className="mt-14 grid gap-px overflow-hidden rounded-2xl border border-line bg-line sm:grid-cols-2 lg:grid-cols-4">
           {STEPS.map((s, i) => (
@@ -46,8 +46,8 @@ export function HowItWorks() {
 
 function ChatDemo() {
   const lines = [
-    { me: true, t: "What did you apply to today?" },
-    { me: false, t: "9 jobs across your 3 target roles. 6 are waiting on the company, 2 sent confirmations, 1 needs a quick check from you." },
+    { me: true, t: "Which applications need a follow-up?" },
+    { me: false, t: "Two: Northwind (applied 12 days ago, no reply) and Maple Ledger. A short follow-up for each is ready to copy." },
     { me: true, t: "Also target Product Analyst roles in London, fintech only." },
     { me: false, t: "Done — 27 matching jobs are open now. I've drafted a Product Analyst resume for you to review." },
   ];
@@ -87,11 +87,11 @@ function AtsDemo() {
             whileInView={{ strokeDashoffset: 2 * Math.PI * 32 * 0.06 }}
             viewport={{ once: true }} transition={{ duration: 1.2, ease: "easeOut" }}
           />
-          <text x="38" y="44" textAnchor="middle" fontSize="18" fontWeight="700" fill="#0e1525">94</text>
+          <text x="38" y="44" textAnchor="middle" fontSize="16" fontWeight="700" fill="#0e1525">15/16</text>
         </svg>
         <div>
-          <p className="font-semibold">ATS match score</p>
-          <p className="text-sm text-muted">Data Analyst resume, version 7</p>
+          <p className="font-semibold">Key skills covered</p>
+          <p className="text-sm text-muted">Data Analyst at Northwind · the one gap is shown, never invented</p>
         </div>
       </div>
       <div className="mt-4 grid grid-cols-2 gap-2">
@@ -106,9 +106,10 @@ function AtsDemo() {
 }
 
 const SMALL = [
+  { icon: Puzzle, title: "Apply in your browser", body: "The Chrome extension fills Workday, Greenhouse, Lever, Ashby and most careers sites in seconds. You check it and press Submit." },
   { icon: Search, title: "Live jobs, minutes old", body: "Straight from employers' official careers sites — never middleman job boards — refreshed continuously." },
   { icon: Target, title: "Targets in one place", body: "Roles, levels, industries, cities with a custom radius, salary floor and must-apply companies." },
-  { icon: Briefcase, title: "Every application tracked", body: "One board for every job — filter by target role, company or industry." },
+  { icon: Briefcase, title: "Every application tracked", body: "Applied on LinkedIn, Indeed or a company site? The confirmation email adds it to your board automatically." },
   { icon: Inbox, title: "Emails linked to jobs", body: "Connect a job-only inbox and replies, codes and invites attach to the right application." },
   { icon: CalendarCheck, title: "Interviews in one calendar", body: "Interview invites from your job email show up in Interviews, ready to add to your calendar." },
 ];
@@ -125,7 +126,7 @@ export function Features() {
           <div className="card p-7">
             <div className="flex items-center gap-3">
               <span className="flex h-10 w-10 items-center justify-center rounded-lg bg-pink-tint text-pink-ink"><Bot size={20} /></span>
-              <h3 className="text-xl font-semibold">Ask your agent anything</h3>
+              <h3 className="text-xl font-semibold">Ask Vantage anything</h3>
             </div>
             <p className="mt-3 text-[15px] text-muted">Check status, change targets, or prep for an interview — in plain words. Big changes are always shown to you first.</p>
             <div className="mt-6 rounded-xl border border-line p-4"><ChatDemo /></div>

@@ -68,7 +68,7 @@ export async function answer(
   message: string,
 ): Promise<Reply> {
   const [{ data }, { data: taskData }, { data: inbox }] = await Promise.all([
-    supabase.from("applications").select("*").order("updated_at", { ascending: false }).limit(300),
+    supabase.from("applications").select("*").eq("user_id", ctx.userId).order("updated_at", { ascending: false }).limit(300),
     supabase.from("agent_tasks").select("status,step,job,updated_at").neq("mode", "dry_run").order("updated_at", { ascending: false }).limit(200),
     supabase.from("inbox_messages").select("kind,subject,company,received_at").in("kind", ["interview", "offer", "assessment", "rejection", "received"]).order("received_at", { ascending: false }).limit(30),
   ]);
@@ -79,18 +79,10 @@ export async function answer(
   if (intent.findJobs) return findJobs(supabase, ctx, intent.findJobs.title, intent.findJobs.place);
 
   if (intent.asksAgent && !intent.changes.length) {
-    const by = (s: string[]) => tasks.filter((t) => s.includes(t.status));
-    const running = by(["running", "waiting_code"]);
-    const needs = by(["needs_user", "needs_human", "awaiting_approval", "manual"]);
-    const queued = by(["queued"]);
     const today = tasks.filter((t) => t.status === "submitted" && Date.parse(t.updated_at) >= new Date(new Date().setHours(0, 0, 0, 0)).getTime());
     const parts = [
-      running.length ? `Applying now: **${running.map((t) => `${t.job.title} at ${t.job.company}`).join(", ")}**.` : "Not applying to anything this second.",
-      `${queued.length} in the queue, ${today.length} submitted today.`,
-      needs.length ? `**${needs.length} need you** (answers, a human check, an approval or a site to finish) — open Your agent.` : "Nothing needs you right now.",
-      /^\s*(apply|apply now|start applying|go|apply for me)\s*[.!]?\s*$/i.test(message)
-        ? "With Auto-apply on, your agent works through your best new matches by itself — Your agent → “Up next for auto-apply” lists them. To apply to one job right now, paste its link on Your agent or press “Apply with agent” in Live jobs."
-        : "",
+      `${today.length} submitted today with the Chrome extension.`,
+      "To apply, open a job in Live jobs and press **Tailor & apply**: Vantage writes a resume and cover letter for it and the extension fills the company's form. You press Submit.",
     ].filter(Boolean);
     return { text: parts.join(" ") };
   }
@@ -172,7 +164,7 @@ export async function answer(
       `You are Vantage, ${ctx.name ? `${ctx.name}'s` : "the user's"} personal job-search agent — warm, sharp and concise, like a great recruiter friend.
 Answer using ONLY this live account data (never invent applications, companies or numbers): ${JSON.stringify(summary)}
 You can: explain status, suggest next moves (which roles to add, which companies to target, how to improve interview odds), draft short messages (follow-ups, thank-you notes) and give interview prep tailored to their applications.
-The user can also tell you: "find marketing jobs in Texas", "also target Product Analyst roles", "add Stripe to my companies", "what's my agent doing?".
+The user can also tell you: "find marketing jobs in Texas", "also target Product Analyst roles", "add Stripe to my companies", "what did I apply to this week?".
 Immigration: give general guidance only and point to the official source for ${COUNTRIES.filter((c) => (ctx.prefs?.countries || []).includes(c.code)).map((c) => c.name).join(", ") || "their country"}. Use **bold** for key facts. Keep it under 180 words unless they ask for a draft.`,
       [{ role: "user", content: message }],
       900,
@@ -181,7 +173,7 @@ Immigration: give general guidance only and point to the official source for ${C
     if (out) return { text: out };
   }
   return {
-    text: "I can find jobs (“Find product manager jobs in Texas”), tell you what I'm doing (“What's my agent doing?”), what I applied to (“What did you apply to today?”), check a company (“Any news from Kestrel Bank?”), list interviews, explain visa rules (“UK sponsorship rules”), or change your targets (“Also target Product Analyst roles”, “Add Monzo and Wise to my companies”).",
+    text: "I can find jobs (“Find product manager jobs in Texas”), tell you what I'm doing (“What did I apply to this week?”), what I applied to (“What did you apply to today?”), check a company (“Any news from Kestrel Bank?”), list interviews, explain visa rules (“UK sponsorship rules”), or change your targets (“Also target Product Analyst roles”, “Add Monzo and Wise to my companies”).",
   };
 }
 

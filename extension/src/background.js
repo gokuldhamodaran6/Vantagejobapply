@@ -341,19 +341,6 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
       const tabId = msg.tabId || sender.tab?.id;
       if (tabId) await run(tabId);
       reply({ ok: true });
-    } else if (msg.type === "queue") {
-      // "Send to my Vantage list": read the job on this tab and hand it to the cloud agent (Up next).
-      const tabId = msg.tabId;
-      try {
-        await inject(tabId);
-        const info = await top(tabId, () => window.__vp?.info() || window.__vantage?.info());
-        if (!info) return reply({ error: "Couldn't read this page. Open the job's own page and try again." });
-        if (info.signIn) return reply({ error: "This is a sign-in page. Open the job's own page and try again." });
-        const r = await api("/api/ext/start", { method: "POST", body: { ...info, queue: true } });
-        reply(r);
-      } catch (e) {
-        reply({ error: String(e.message || e) });
-      }
     } else if (msg.type === "panel" && sender.tab?.id) {
       await onPanel(sender.tab.id, msg);
       reply({ ok: true });
@@ -387,14 +374,48 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, reply) => {
     store.get("token").then((t) => reply({ ok: true, connected: Boolean(t), version: chrome.runtime.getManifest().version }));
     return true;
   }
+  if (msg?.type === "apply") {
+    // "Tailor & apply" on the Vantage website: the resume and cover letter for this job are already written. Open the
+    // company's application in a new tab and start filling it as soon as it loads. The person presses Submit.
+    openAndFill(msg).then(reply, (e) => reply({ ok: false, error: String(e?.message || e) }));
+    return true;
+  }
   if (msg?.type !== "connect" || !/^vx_[A-Za-z0-9_-]{20,}$/.test(msg.token || "")) return reply({ ok: false });
   store.set("token", msg.token).then(() => reply({ ok: true }));
   return true;
 });
 
+async function openAndFill(msg) {
+  if (!(await store.get("token"))) return { ok: false, error: "Connect the extension to your Vantage account first." };
+  // Only https careers pages (plain http only for the extension's own local tests).
+  const local = Boolean(await store.get("apiBase")) && /^http:\/\/127\.0\.0\.1:/.test(String(msg.url || ""));
+  if (!/^[0-9a-f-]{36}$/i.test(String(msg.taskId || "")) || !(/^https:\/\//i.test(String(msg.url || "")) || local)) return { ok: false, error: "Bad request" };
+  const tab = await chrome.tabs.create({ url: msg.url, active: true });
+  const job = msg.job && typeof msg.job === "object" ? { title: String(msg.job.title || ""), company: String(msg.job.company || "") } : null;
+  await store.setTab(tab.id, { taskId: msg.taskId, job, url: msg.url, at: Date.now(), base: { job }, history: [], autostart: true });
+  return { ok: true };
+}
+
+/** A tab opened by "Tailor & apply": start filling once the company's page has loaded (once). */
+async function maybeAutostart(tabId) {
+  const t = await store.tab(tabId);
+  if (!t?.autostart || t.started) return;
+  await store.setTab(tabId, { ...t, started: true, autostart: false });
+  await sleep(1200); // let the careers site finish drawing the form
+  await inject(tabId);
+  const info = await top(tabId, () => window.__vp?.info() || window.__vantage?.info()).catch(() => null);
+  if (info?.signIn) {
+    await markWaiting(tabId);
+    return showPanel(tabId, { ...t.base, steps: steps(1), note: "Sign in on this page first (Vantage never types your passwords). Vantage carries on by itself when the application opens.", noteTone: "ok", buttons: [{ text: "Continue", action: "continue" }] });
+  }
+  await showPanel(tabId, { ...t.base, steps: steps(1), note: "Your resume and cover letter for this job are ready. Filling the form…", noteTone: "ok", buttons: [{ text: "Pause", action: "pause", ghost: true }] });
+  return run(tabId, { resume: true });
+}
+
 // After a full page load that follows a Submit press in a tab we filled, look for the "thank you for applying" page.
 chrome.tabs.onUpdated.addListener(async (tabId, info) => {
   if (info.status !== "complete") return;
+  maybeAutostart(tabId).catch(() => {});
   // A new page in a tab where Vantage is waiting for the person: carry on filling it.
   maybeResume(tabId).catch(() => {});
   const t = await store.tab(tabId);

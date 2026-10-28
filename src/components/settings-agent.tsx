@@ -1,11 +1,10 @@
 "use client";
 import { useCallback, useEffect, useState } from "react";
-import { Check, Clock, Copy, Eye, EyeOff, KeyRound, Loader2, Lock, Mail, Plus, ShieldCheck, Trash2, X } from "lucide-react";
+import { Check, Copy, Eye, EyeOff, KeyRound, Loader2, Lock, Mail, ShieldCheck, Trash2 } from "lucide-react";
 import { supabaseBrowser } from "@/lib/supabase/client";
 import { useMe } from "@/lib/me";
 import { timeAgo } from "@/lib/format";
 import { Toggle } from "@/components/ui";
-import { cleanSchedule, label12, todaysRuns, type AutoSchedule } from "@/lib/agent/schedule";
 
 const PROVIDERS = [
   { id: "gmail", label: "Gmail", steps: ["Create a new Gmail just for job hunting (e.g. yourname.careers@gmail.com).", "In that Gmail: Google Account → Security → turn on 2-Step Verification.", "Open myaccount.google.com/apppasswords, name it “Vantage”, and copy the 16-letter code."] },
@@ -44,7 +43,7 @@ export function JobEmailCard({ onToast }: { onToast: (m: string) => void }) {
     load();
   }
   async function disconnect() {
-    if (!window.confirm("Disconnect this job email? Your agent won't be able to read verification codes.")) return;
+    if (!window.confirm("Disconnect this job email? Vantage will stop tracking replies and interviews from it.")) return;
     await fetch("/api/mail", { method: "DELETE" });
     load();
   }
@@ -56,7 +55,7 @@ export function JobEmailCard({ onToast }: { onToast: (m: string) => void }) {
         <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-brand-tint text-brand"><Mail size={19} /></span>
         <div className="min-w-0 flex-1">
           <h2 className="text-lg font-bold">Job email</h2>
-          <p className="text-sm text-muted">A separate inbox just for applications. Your agent signs up on careers sites with it, reads verification codes, and sorts every reply. Employers only ever see a normal personal email.</p>
+          <p className="text-sm text-muted">The inbox you apply with. Vantage reads replies from employers to keep Applications up to date: confirmations (wherever you applied), interview invites for your calendar, and rejections. It never sends email.</p>
         </div>
       </div>
       {acct === undefined && <div className="skeleton mt-4 h-24" />}
@@ -124,7 +123,7 @@ export function ApplicationProfileCard({ onToast }: { onToast: (m: string) => vo
   async function save() {
     const row = { ...ap, user_id: userId, updated_at: new Date().toISOString() };
     const { error } = await supabaseBrowser().from("applicant_profiles").upsert(row, { onConflict: "user_id" });
-    onToast(error ? error.message : "Application profile saved — your agent uses it on every form");
+    onToast(error ? error.message : "Application profile saved — Vantage uses it on every form");
   }
   const F = ({ k, label, ph, type = "text" }: { k: string; label: string; ph?: string; type?: string }) => (
     <label className="block text-sm font-semibold">{label}<input className="input mt-1.5" type={type} value={v(k)} placeholder={ph} onChange={(e) => set(k, e.target.value)} /></label>
@@ -137,7 +136,7 @@ export function ApplicationProfileCard({ onToast }: { onToast: (m: string) => vo
   return (
     <section id="application-profile" className="card scroll-mt-24 p-5 sm:p-6">
       <h2 className="text-lg font-bold">Application profile</h2>
-      <p className="text-sm text-muted">Filled in once. Your agent copies these exactly into every application form — nothing is guessed.</p>
+      <p className="text-sm text-muted">Filled in once. The extension copies these exactly into every application form — nothing is guessed.</p>
       <div className="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {F({ k: "first_name", label: "Legal first name" })}
         {F({ k: "last_name", label: "Legal last name" })}
@@ -172,7 +171,7 @@ export function ApplicationProfileCard({ onToast }: { onToast: (m: string) => vo
       </details>
       <label className="mt-5 flex items-start gap-3 rounded-xl bg-brand-soft p-4 text-sm">
         <input type="checkbox" className="mt-1" checked={ap.agent_consent === true} onChange={(e) => set("agent_consent", e.target.checked)} />
-        <span><b>Let my agent accept employers&apos; privacy notices and confirm my information is accurate</b> on my behalf. It only uses facts from my resume, this profile and answers I&apos;ve given. Never marketing texts.</span>
+        <span><b>Let Vantage tick employers&apos; privacy notices and “my information is accurate” boxes</b> on my behalf. It only uses facts from my resume, this profile and answers I&apos;ve given. Never marketing texts.</span>
       </label>
       <button className="btn-primary mt-5" onClick={save}>Save application profile</button>
     </section>
@@ -219,7 +218,7 @@ export function SavedAnswersCard() {
   return (
     <section id="answers" className="card scroll-mt-24 p-5 sm:p-6">
       <h2 className="text-lg font-bold">Your answers</h2>
-      <p className="text-sm text-muted">What your agent has learned from you. Ordinary questions are reused whenever a company asks the same thing — even in other words. Statements in your name (visa, legal, voluntary questions) are used only for the exact same question.</p>
+      <p className="text-sm text-muted">What Vantage has learned from you. Ordinary questions are reused whenever a company asks the same thing — even in other words. Statements in your name (visa, legal, voluntary questions) are used only for the exact same question.</p>
       <p className="mt-2 flex items-start gap-2 rounded-xl bg-canvas p-3 text-xs text-muted"><Lock size={14} className="mt-0.5 shrink-0" aria-hidden /> <span><b className="text-ink">Private answers stay private.</b> Work permit, legal and voluntary (gender, race, veteran, disability) answers are never shown to the AI. Vantage types them into the form itself — the AI only learns that the question is handled.</span></p>
       {rows === null && <div className="skeleton mt-4 h-20" />}
       {rows?.length === 0 && <p className="mt-4 rounded-xl bg-canvas p-4 text-sm text-muted">None yet. When a form asks something only you know, it appears on the Agent page — answer once and it lands here.</p>}
@@ -297,11 +296,11 @@ export function VaultCard({ onToast }: { onToast: (m: string) => void }) {
         <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-pink-tint text-pink-ink"><KeyRound size={19} /></span>
         <div>
           <h2 className="text-lg font-bold">Careers-site accounts</h2>
-          <p className="text-sm text-muted">Logins your agent created on employers&apos; sites, each with its own strong password. Only you can reveal them, after confirming it&apos;s you; they&apos;re encrypted and never shown to staff or the AI.</p>
+          <p className="text-sm text-muted">Logins Vantage created on employers&apos; sites earlier, each with its own strong password. Only you can reveal them, after confirming it&apos;s you; they&apos;re encrypted and never shown to staff or the AI.</p>
         </div>
       </div>
       {rows === null && <div className="skeleton mt-4 h-20" />}
-      {rows?.length === 0 && <p className="mt-4 rounded-xl bg-canvas p-4 text-sm text-muted">No accounts yet. Sites like Workday need one — your agent creates it with your job email the first time.</p>}
+      {rows?.length === 0 && <p className="mt-4 rounded-xl bg-canvas p-4 text-sm text-muted">No saved logins. When a site like Workday needs an account, create it on the page; Vantage never types your passwords.</p>}
       <ul className="mt-4 divide-y divide-line">
         {rows?.map((r) => (
           <li key={r.id} className="flex flex-wrap items-center gap-3 py-3">
@@ -327,82 +326,3 @@ export function VaultCard({ onToast }: { onToast: (m: string) => void }) {
   );
 }
 
-/* --------------------------- Auto-apply schedule --------------------------- */
-const PRESET = ["08:30", "12:30", "18:30"];
-export function ScheduleCard({ onToast }: { onToast: (m: string) => void }) {
-  const { userId } = useMe();
-  const tz = typeof Intl !== "undefined" ? Intl.DateTimeFormat().resolvedOptions().timeZone : "UTC";
-  const [mode, setMode] = useState<"day" | "times">("day");
-  const [times, setTimes] = useState<string[]>(PRESET);
-  const [quiet, setQuiet] = useState(false); // shows what is saved: nothing saved = no quiet hours
-  const [from, setFrom] = useState(22);
-  const [to, setTo] = useState(7);
-  const [add, setAdd] = useState("15:00");
-  const [busy, setBusy] = useState(false);
-  const [nowMs] = useState(() => Date.now());
-  useEffect(() => {
-    if (!userId) return;
-    supabaseBrowser().from("profiles").select("auto_schedule").eq("id", userId).maybeSingle().then(({ data }) => {
-      const sc = cleanSchedule((data as { auto_schedule: AutoSchedule } | null)?.auto_schedule || null);
-      if (!sc) return;
-      if (sc.times?.length) { setMode("times"); setTimes(sc.times); }
-      setQuiet(Boolean(sc.quiet));
-      if (sc.quiet) { setFrom(sc.quiet.from); setTo(sc.quiet.to); }
-    });
-  }, [userId]);
-  async function save() {
-    setBusy(true);
-    const sc = cleanSchedule({ tz, times: mode === "times" ? times : [], quiet: quiet ? { from, to } : null });
-    const { error } = await supabaseBrowser().from("profiles").update({ auto_schedule: sc }).eq("id", userId!);
-    setBusy(false);
-    onToast(error ? `Couldn't save: ${error.message}` : sc?.times?.length ? `Saved — your agent looks for new jobs at ${sc.times.map(label12).join(", ")} (${tz}).` : "Saved — your agent looks for new jobs through the day.");
-  }
-  const hours = Array.from({ length: 24 }, (_, h) => h);
-  const h12 = (h: number) => label12(`${String(h).padStart(2, "0")}:00`);
-  const preview = mode === "times" ? todaysRuns({ tz, times, quiet: null }, nowMs) : [];
-  return (
-    <section id="schedule" className="card scroll-mt-24 p-5 sm:p-6">
-      <h2 className="flex items-center gap-2 text-lg font-bold"><Clock size={18} className="text-brand" aria-hidden /> When auto-apply runs</h2>
-      <p className="text-sm text-muted">When your agent looks for new matches and lines them up. Jobs you add yourself start right away.</p>
-      <div className="mt-4 grid gap-3 md:grid-cols-2">
-        {([["day", "Through the day", "Checks for new jobs every 10 minutes and spreads your daily limit out."], ["times", "At set times", "Runs only at the times you pick, in your time zone. Your daily limit is split between them."]] as const).map(([k, t, b]) => (
-          <button key={k} type="button" onClick={() => setMode(k)} aria-pressed={mode === k} className={`rounded-xl border p-4 text-left transition ${mode === k ? "border-brand bg-brand-tint/50 ring-2 ring-brand/15" : "border-line hover:bg-canvas"}`}>
-            <span className="block text-sm font-semibold">{t}</span><span className="mt-0.5 block text-xs text-muted">{b}</span>
-          </button>
-        ))}
-      </div>
-      {mode === "times" && (
-        <div className="mt-4 rounded-xl border border-line p-4">
-          <p className="text-sm font-semibold">Run times <span className="font-normal text-muted">· {tz}</span></p>
-          <div className="mt-2 flex flex-wrap items-center gap-2">
-            {times.map((t) => (
-              <span key={t} className="inline-flex min-h-9 items-center gap-1.5 rounded-full bg-brand-tint pl-3 pr-1.5 text-sm font-semibold text-brand-ink">
-                {label12(t)}
-                <button type="button" className="rounded-full p-1 hover:bg-brand/10" aria-label={`Remove ${label12(t)}`} onClick={() => setTimes(times.filter((x) => x !== t))}><X size={13} /></button>
-              </span>
-            ))}
-            {times.length < 6 && (
-              <span className="inline-flex items-center gap-1.5">
-                <input type="time" className="input min-h-9 w-[130px] py-0 text-sm" value={add} onChange={(e) => setAdd(e.target.value)} aria-label="Add a run time" />
-                <button type="button" className="btn-secondary min-h-9 text-[13px]" onClick={() => add && setTimes([...new Set([...times, add])].sort())}><Plus size={14} /> Add</button>
-              </span>
-            )}
-          </div>
-          {preview.length > 0 && <p className="mt-3 text-xs text-muted">Today: {preview.map((r) => `${r.label} ${r.state === "done" ? "(done)" : r.state === "next" ? "(next)" : ""}`).join(" · ")}</p>}
-        </div>
-      )}
-      <div className="mt-3 rounded-xl border border-line p-4">
-        <label className="flex items-center gap-3 text-sm font-semibold"><Toggle checked={quiet} onChange={setQuiet} label="Quiet hours" /> Quiet hours — no new applications overnight</label>
-        {quiet && (
-          <div className="mt-3 flex flex-wrap items-center gap-2 text-sm">
-            <span className="text-muted">From</span>
-            <select className="input min-h-9 w-auto py-0 text-sm" value={from} onChange={(e) => setFrom(Number(e.target.value))} aria-label="Quiet hours start">{hours.map((h) => <option key={h} value={h}>{h12(h)}</option>)}</select>
-            <span className="text-muted">to</span>
-            <select className="input min-h-9 w-auto py-0 text-sm" value={to} onChange={(e) => setTo(Number(e.target.value))} aria-label="Quiet hours end">{hours.map((h) => <option key={h} value={h}>{h12(h)}</option>)}</select>
-          </div>
-        )}
-      </div>
-      <button className="btn-primary mt-5" disabled={busy || (mode === "times" && !times.length)} onClick={() => void save()}>{busy ? <Loader2 size={16} className="animate-spin" /> : <Check size={16} />} Save schedule</button>
-    </section>
-  );
-}

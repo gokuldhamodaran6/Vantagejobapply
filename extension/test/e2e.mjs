@@ -97,10 +97,22 @@ let [sw] = ctx.serviceWorkers();
 if (!sw) sw = await ctx.waitForEvent("serviceworker");
 console.log("extension id", sw.url().split("/")[2]);
 await sw.evaluate(() => chrome.storage.local.set({ token: "vx_testtoken_0123456789abcdef", apiBase: "http://127.0.0.1:4300" }));
-const page = await ctx.newPage();
-await page.goto("http://127.0.0.1:4300/fx/" + (process.argv[2] || "greenhouse.html"));
-await page.waitForTimeout(800);
-await sw.evaluate(async () => { const [t] = await chrome.tabs.query({ url: "http://127.0.0.1:4300/*" }); await run(t.id); });
+let page;
+if (process.env.OPEN_FROM_SITE) {
+  // "Tailor & apply" on the website: the extension opens the company's page itself and starts filling once it loads.
+  const opened = ctx.waitForEvent("page");
+  const r = await sw.evaluate((u) => openAndFill({ taskId: "00000000-0000-4000-8000-000000000001", url: u, job: { title: "Senior Analyst", company: "Umbrella" } }), "http://127.0.0.1:4300/fx/" + (process.argv[2] || "greenhouse.html"));
+  console.log("openAndFill:", JSON.stringify(r));
+  page = await opened;
+  await page.waitForLoadState("load");
+  await page.waitForTimeout(4500);
+  console.log("started without /api/ext/start:", !calls.includes("/api/ext/start"));
+} else {
+  page = await ctx.newPage();
+  await page.goto("http://127.0.0.1:4300/fx/" + (process.argv[2] || "greenhouse.html"));
+  await page.waitForTimeout(800);
+  await sw.evaluate(async () => { const [t] = await chrome.tabs.query({ url: "http://127.0.0.1:4300/*" }); await run(t.id); });
+}
 await page.waitForTimeout(1500);
 if (process.env.FAKE_PILOT) {
   const st = await page.evaluate(() => window.__state && { page: window.__state.page, values: window.__state.values, files: window.__state.files, work: window.__state.work.length, trap: window.__state.trapped || null });

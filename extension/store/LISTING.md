@@ -7,7 +7,7 @@ Everything needed to publish the extension under **your own** Chrome Web Store d
 
 | File | Use |
 | --- | --- |
-| `vantage-extension-store-<version>.zip` | Upload this (Package → Upload new package). Built by `node extension/build.mjs`; same as the download in Vantage but without the `key` field, which the store refuses. |
+| `vantage-extension-store-<version>.zip (now 1.2.0)` | Upload this (Package → Upload new package). Built by `node extension/build.mjs`; same as the download in Vantage but without the `key` field, which the store refuses. |
 | `screenshot-1-fill-here.png` (1280×800) | Store screenshot 1 |
 | `screenshot-2-filled.png` (1280×800) | Store screenshot 2 |
 | `promo-tile-440x280.png` | Small promo tile |
@@ -20,19 +20,19 @@ Re-render the images with `node extension/store/shots.mjs` (made-up applicant "P
 **Name:** Vantage — Fill job applications
 
 **Summary (≤132 characters):**
-Fills job applications on company careers sites with your profile, saved answers and a tailored resume. You press Submit.
+Applies on company careers sites with a resume written for each job. Fills every page; you press Submit.
 
 **Category:** Workflow & Planning (or Tools) · **Language:** English
 
 **Description:**
 
-> Vantage fills job applications for you on companies' own careers sites — Greenhouse, Lever, Ashby, Workday, iCIMS, SmartRecruiters, Workable and most others.
+> The right resume for every job, applied in seconds. Press Tailor & apply on a job in Vantage: Vantage writes a resume and cover letter for that job (in the right format for its country), opens the company's own application, and this extension fills it — Greenhouse, Lever, Ashby, Workday, iCIMS, SmartRecruiters, Workable and most others.
 >
-> • One click fills every page: contact details, work history, education, questions you've answered before, and a resume and cover letter tailored to that job.
+> • Fills every page: contact details, work history, education, questions you've answered before, and the resume and cover letter written for that job.
 > • Answer a new question once — Vantage remembers it, and recognises it next time even when another company words it differently.
 > • You stay in control: you check every page and press Submit yourself (or tell Vantage to press it). Nothing is sent without you.
 > • Private answers stay private: work-authorisation and voluntary equal-opportunity answers are typed by Vantage itself and never shown to AI.
-> • Every application is added to your Vantage tracker automatically.
+> • Every application is added to your Vantage tracker automatically, and replies and interview invites from the company are tracked from your job email.
 >
 > Requires a Vantage account (https://vantagejobapply.onrender.com). Vantage never types your own passwords, never solves CAPTCHAs, and stops on sites that ask applicants not to use automated tools.
 

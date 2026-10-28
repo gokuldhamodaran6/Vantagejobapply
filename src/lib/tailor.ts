@@ -3,6 +3,8 @@ import { aiConfigured, claude, extractJson } from "@/lib/ai";
 import { extractKeywords, resumeText, scoreResume } from "@/lib/ats";
 import { parseResumeText } from "@/lib/resume/parse";
 import { LETTER_TONES } from "@/lib/resume/styles";
+import { formatFor, pagesFor, type CountryFormat } from "@/lib/resume/country";
+import { HARVARD_PROMPT, harvardScore, lintBullets, type HarvardSummary } from "@/lib/resume/harvard";
 import type { LetterTone, ResumeContent } from "@/lib/types";
 
 /* ------------------------------------------------------------------ */
@@ -33,6 +35,17 @@ const BANNED = [
   "ever-evolving", "unwavering", "spearheaded a culture", "i am confident that i", "look no further", "game-changer", "cutting-edge", "seamlessly",
   "rest assured", "embark", "journey", "realm", "elevate", "foster a culture", "aligns perfectly", "resonates deeply", "honed", "invaluable",
 ];
+
+/** Country rules for the writer: spelling, profile, length, and what never goes on a resume. */
+export function formatPrompt(fmt: CountryFormat, c?: ResumeContent): string {
+  const pages = pagesFor(fmt, c);
+  return `COUNTRY FORMAT: ${fmt.label} (${fmt.name})
+- Spelling: ${fmt.spelling === "us" ? "US spelling (organize, color, center, analyze)." : fmt.spellingNote || "UK/Commonwealth spelling (organise, colour, centre, analyse)."}
+- ${fmt.personalStatement ? `Top of the ${fmt.docName}: a short personal statement in "summary" (2–4 lines, no pronouns): who they are in the target role's language, their strongest proven skills, and what they bring. Facts from the resume only.` : "Summary: 2–3 lines, no pronouns, facts from the resume only."}
+- Length: aim for ${pages === 1 ? "1 page" : "no more than 2 pages"} on ${fmt.paper === "a4" ? "A4" : "US Letter"}.
+- Never add a photo, date of birth, age, nationality, marital status, gender, religion or a "References available on request" line.
+- Keep every date exactly as written.`;
+}
 
 /* ------------------------------------------------------------------ */
 /* Structuring an uploaded/pasted resume                               */
@@ -90,6 +103,8 @@ export async function roleResume(
 Rewrite the candidate's master resume into a resume targeted at ${role.title} roles (${role.levels.join("/")} level) in ${country}.
 ${TRUTH}
 ${RESUME_CRAFT}
+${HARVARD_PROMPT}
+${formatPrompt(formatFor(country), master)}
 Use these keywords from live ${role.title} job postings ONLY where the resume genuinely supports them: ${marketKeywords.join(", ")}.${switching ? `
 CAREER MOVE: the candidate is moving into ${role.title} from a related or different field. Write it the way the best recruiters position career switchers:
 - Headline and summary bridge their proven results to what a ${role.title} does; lead with transferable strengths, never pretend they already held the title.
@@ -128,20 +143,29 @@ export type TailorResult = {
   tone: LetterTone;
   analysis: { requirement: string; evidence: string | null }[];
   letterIssues: string[];
+  /** The job country's resume/CV rules the writer followed. */
+  format: CountryFormat & { pages: 1 | 2 };
+  /** Harvard bullet checks run on the tailored resume (no AI). */
+  harvard: HarvardSummary;
 };
 
 type JobIn = { title: string; company: string; description: string | null; country: string; location?: string | null };
 
-export async function tailorForJob(base: ResumeContent, job: JobIn, candidateName: string, tone: LetterTone = "confident"): Promise<TailorResult> {
+export async function tailorForJob(base: ResumeContent, job: JobIn, candidateName: string, tone: LetterTone = "confident", country: string = job.country): Promise<TailorResult> {
   const keywords = extractKeywords(`${job.title} ${job.title} ${job.description || ""}`, 22);
   const name = base.name || candidateName;
+  const fmt = formatFor(country || job.country);
+  const format = { ...fmt, pages: pagesFor(fmt, base) };
+  const checked = (resume: ResumeContent) => harvardScore(resume, lintBullets(resume));
   if (aiConfigured()) {
     const out = await claude(
       `You are an elite recruiter and resume writer. Tailor this candidate's resume to ONE specific job so it passes ATS screening and makes the hiring manager want to call — then write the cover letter.
 ${TRUTH}
 ${RESUME_CRAFT}
+${HARVARD_PROMPT}
+${formatPrompt(fmt, base)}
 STEP 1 — Analyse the job: list its 6–8 most important requirements. For each, quote the strongest supporting evidence from the resume, or null if none.
-STEP 2 — Tailor the resume: mirror the job's exact wording for skills and responsibilities the resume genuinely shows; move the most relevant bullets to the top of each role; sharpen the headline and summary for this job. Keep it to one page for under 8 years of experience.
+STEP 2 — Tailor the resume: mirror the job's exact wording for skills and responsibilities the resume genuinely shows; move the most relevant bullets to the top of each role; sharpen the headline and summary for this job. Keep it to ${format.pages === 1 ? "one page" : "two pages at most"}.
 STEP 3 — Write the cover letter (${tone}: ${LETTER_TONES[tone].guide})
 - 220–320 words, 4 short paragraphs. Greeting: "Dear ${job.company} Hiring Team,".
 - P1 (2–3 sentences): name the role; one specific, non-generic reason this company/role (use a concrete detail from the posting: product, problem, customer, mission) and the candidate's headline credential.
@@ -149,7 +173,7 @@ STEP 3 — Write the cover letter (${tone}: ${LETTER_TONES[tone].guide})
 - P3: what they would bring/do in this role, tied to 1–2 responsibilities in the posting. Optionally one line on a transferable strength.
 - P4 (1–2 sentences): confident close and invitation to talk. No begging, no "I hope".
 - Sign off "Sincerely," then "${name}" on the next line (for "warm" tone use "Best regards,").
-- Write like a sharp human professional: varied sentence length, plain words, no clichés, no exclamation marks, at most one dash in the whole letter, never start more than two sentences with "I". Never mention AI, tools, visas or salary. ${job.country === "US" ? "US spelling." : "UK/Commonwealth spelling."}
+- Write like a sharp human professional: varied sentence length, plain words, no clichés, no exclamation marks, at most one dash in the whole letter, never start more than two sentences with "I". Never mention AI, tools, visas or salary. ${fmt.spelling === "us" ? "US spelling." : fmt.spellingNote || "UK/Commonwealth spelling."}
 - Banned phrases: ${BANNED.slice(0, 26).join("; ")}.
 Return ONLY JSON: {"analysis":[{"requirement":string,"evidence":string|null}],"resume": ${SCHEMA},"coverLetter":string}`,
       [
@@ -177,12 +201,64 @@ Return ONLY JSON: {"analysis":[{"requirement":string,"evidence":string|null}],"r
           issues = lintLetter(letter, job.company);
         }
       }
-      return { resume: guard(base, j.resume), coverLetter: letter, keywords, ai: true, tone, analysis: (j.analysis || []).slice(0, 8), letterIssues: issues };
+      const resume = guard(base, j.resume);
+      return { resume, coverLetter: letter, keywords, ai: true, tone, analysis: (j.analysis || []).slice(0, 8), letterIssues: issues, format, harvard: checked(resume) };
     }
   }
   const resume = ruleRoleResume(base, job.title, keywords);
   const letter = ruleLetter(resume, job, keywords, tone);
-  return { resume, coverLetter: letter, keywords, ai: false, tone, analysis: [], letterIssues: lintLetter(letter, job.company) };
+  return { resume, coverLetter: letter, keywords, ai: false, tone, analysis: [], letterIssues: lintLetter(letter, job.company), format, harvard: checked(resume) };
+}
+
+/* ------------------------------------------------------------------ */
+/* Honest match: which key skills the person's own history covers      */
+/* ------------------------------------------------------------------ */
+
+export type JobMatch = {
+  /** Key skills with evidence from the person's own resume. Never more than total. */
+  covered: number;
+  total: number;
+  skills: { skill: string; evidence: string | null }[];
+};
+
+const clip = (q: string) => (q.length > 110 ? `${q.slice(0, q.lastIndexOf(" ", 105) > 40 ? q.lastIndexOf(" ", 105) : 105)}…` : q);
+
+/** A short phrase from the person's own resume that shows this skill, or null. */
+export function evidenceFor(skill: string, c: ResumeContent): string | null {
+  const k = skill.toLowerCase().trim();
+  if (!k) return null;
+  const escaped = k.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const re = new RegExp(`(^|[^a-z0-9])${escaped}([^a-z0-9]|$)`, "i");
+  const hit = [
+    ...(c.experience || []).flatMap((e) => e.bullets || []),
+    ...(c.projects || []).flatMap((p) => p.bullets || []),
+    ...(c.skills || []).map((g) => `${g.group}: ${g.items.join(", ")}`),
+    ...(c.certifications || []),
+    ...(c.education || []).map((e) => [e.degree, e.school, e.details].filter(Boolean).join(", ")),
+    c.summary || "",
+    c.headline || "",
+  ].find((t) => t && re.test(t));
+  return hit ? clip(hit.replace(/\s+/g, " ").trim()) : null;
+}
+
+/**
+ * Build the match from the job's key requirements. With an AI analysis, its evidence is kept only when it really
+ * comes from the person's own resume; otherwise it falls back to the posting's keywords. Nothing is ever
+ * counted as covered without evidence, so the score can't be inflated.
+ */
+export function matchFrom(analysis: { requirement: string; evidence: string | null }[], keywords: string[], own: ResumeContent): JobMatch {
+  const src = norm(resumeText(own));
+  const skills = analysis.length
+    ? analysis.filter((a) => a?.requirement?.trim()).slice(0, 8).map((a) => {
+        const q = (a.evidence || "").replace(/^["“']|["”']$/g, "").trim();
+        // The AI's quote must be (nearly) word-for-word from the resume; else look for our own phrase.
+        const real = q && coverage(q, src) >= 0.7 ? clip(q) : null;
+        if (real || !a.evidence) return { skill: a.requirement.trim(), evidence: real };
+        const terms = [a.requirement, ...extractKeywords(a.requirement, 6)];
+        return { skill: a.requirement.trim(), evidence: terms.map((t) => evidenceFor(t, own)).find(Boolean) ?? null };
+      })
+    : [...new Set(keywords.map((k) => k.trim()).filter(Boolean))].slice(0, 10).map((k) => ({ skill: k, evidence: evidenceFor(k, own) }));
+  return { covered: skills.filter((s) => s.evidence).length, total: skills.length, skills };
 }
 
 /* ------------------------------------------------------------------ */

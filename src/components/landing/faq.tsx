@@ -16,15 +16,15 @@ const FAQ = [
   },
   {
     q: "Will Vantage lie on my application to get me through?",
-    a: "No. Eligibility questions — work authorization, sponsorship, citizenship, criminal record, pay history — are only ever answered with your own answer to that exact question; anything worded differently comes to you. Resumes are written only from experience you've confirmed, and your first application on each kind of careers site waits for your review.",
+    a: "No. Eligibility questions — work authorization, sponsorship, citizenship, criminal record, pay history — are only ever answered with your own answer to that exact question; anything worded differently comes to you. Resumes are written only from experience you've confirmed. You check every application and press Submit yourself.",
   },
   {
     q: "Does my resume pass ATS software?",
     a: "Each resume uses the single-column, standard-heading format that applicant tracking systems parse reliably, and is checked against the keywords in your target jobs. No tool can guarantee a pass, but these are the factors that decide it.",
   },
   {
-    q: "Does the agent apply for me automatically?",
-    a: "The agent prepares each application for you — tailored resume, cover letter and truthful answers — and opens the employer's official form. It fills and submits the form on the employer's official site within the rules you set: approve every application, approve only important ones, or fully automatic — 20 a day by default. It hands human checks (like CAPTCHAs) to you and stops on any site that doesn't allow automated applications. Vantage doesn't promise interviews; it gives every application its best, honest shot.",
+    q: "How do I apply?",
+    a: "Press Tailor & apply on a job. Vantage writes a resume and cover letter for that job, opens the employer's official application, and the Vantage Chrome extension fills it in seconds — page by page, attaching the resume made for this job. You check it and press Submit (or tell Vantage to press it); it's recorded in your Applications. Vantage never submits without your say-so, never types your passwords and never tries to get around security checks. It doesn't promise interviews; it gives every application its best, honest shot.",
   },
   {
     q: "Is this immigration advice?",

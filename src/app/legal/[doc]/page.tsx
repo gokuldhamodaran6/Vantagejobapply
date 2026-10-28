@@ -30,10 +30,10 @@ const DOCS: Record<string, Doc> = {
           "Work authorisation: your status in each country you target and whether you need visa sponsorship. We use this only to filter jobs and to prepare truthful answers for you.",
           "Job-search preferences: target roles, levels, skills, countries, cities, industries, companies and salary floor.",
           "Resumes and cover letters you paste, write or generate, and the applications you save or track, including notes and interview details.",
-          "Messages you send to “Ask your agent”.",
-          "Your application profile (address, phone, links, salary expectation, optional equal-opportunity answers — which default to “decline”) and answers you give your agent so it can reuse them.",
-          "If you connect a job email: its address and an app password, which we encrypt. Your agent reads new messages in that mailbox to find verification codes and employer replies. It keeps only job-search messages — from careers sites, or about an application you made — and ignores everything else (it isn't stored and isn't sent to AI). For job messages we keep the sender, subject, stage, a short excerpt, any code or link, and the message text for 30 days; after 30 days the message text is deleted. Disconnecting the mailbox deletes the job messages we stored from it.",
-          "Logins your agent creates on employers' careers sites (email and a generated password), encrypted with a key unique to you, and a record of any site terms or privacy notices accepted on your behalf (the wording and links shown).",
+          "Messages you send to “Ask Vantage”.",
+          "Your application profile (address, phone, links, salary expectation, optional equal-opportunity answers — which default to “decline”) and answers you give Vantage so it can reuse them.",
+          "If you connect a job email: its address and an app password, which we encrypt. Vantage reads new messages in that mailbox to find employer replies, application confirmations and interview invites. It keeps only job-search messages — from careers sites, or about an application you made — and ignores everything else (it isn't stored and isn't sent to AI). For job messages we keep the sender, subject, stage, a short excerpt, any code or link, and the message text for 30 days; after 30 days the message text is deleted. Disconnecting the mailbox deletes the job messages we stored from it.",
+          "Logins Vantage created on employers' careers sites earlier (email and a generated password), encrypted with a key unique to you, and a record of any site terms or privacy notices accepted on your behalf (the wording and links shown).",
           "A screenshot of each application's confirmation page, as proof it was submitted.",
         ],
       },
@@ -66,15 +66,15 @@ const DOCS: Record<string, Doc> = {
         p: ["We share personal information only with service providers that help us run Vantage, under contracts that limit how they can use it:"],
         list: [
           "Supabase — database and sign-in.",
-          "Render — application hosting, including the browser your agent uses to apply.",
-          "AI providers (Anthropic, and Google's Gemini where configured) — when AI features are used, your professional history from your resume, the job text, the open-ended questions on an application form, and job-search emails we need to classify are sent to generate tailored documents and answers. We remove contact details from resumes sent for form answers. Passwords and app passwords are never sent to an AI provider. When your agent fills an application form, the AI that places answers into the form's fields sees the questions on that form and the exact answers you gave for them — including work-authorisation, sponsorship and equal-opportunity answers — so it can put each in the right field; it never chooses those answers itself. Your immigration details are otherwise kept out of AI features. Nothing sent is used to train the providers' models.",
+          "Render — application hosting.",
+          "AI providers (Anthropic, and Google's Gemini where configured) — when AI features are used, your professional history from your resume, the job text, the open-ended questions on an application form, and job-search emails we need to classify are sent to generate tailored documents and answers. We remove contact details from resumes sent for form answers. Passwords and app passwords are never sent to an AI provider. When the Chrome extension fills an application form, the AI that places answers into the form's fields sees the questions on that form and the exact answers you gave for them — including work-authorisation, sponsorship and equal-opportunity answers — so it can put each in the right field; it never chooses those answers itself. Your immigration details are otherwise kept out of AI features. Nothing sent is used to train the providers' models.",
           "Email delivery provider — to send sign-in and account emails.",
         ],
       },
       {
         h: "Employers and job applications",
         p: [
-          "Vantage works only with employers' official job postings. When you choose “Apply with agent”, or turn on automatic applying, your agent submits your application on the employer's own careers site on your behalf, using your resume, cover letter, application profile and answers you've confirmed. The employer then receives that application and its privacy policy applies. Your agent never applies to a job you haven't approved directly or through the autonomy setting you chose, and you can pause it at any time. By default, your first application on each kind of careers site waits for you to review every answer before it is submitted. Answers to eligibility questions (citizenship, right to work, sponsorship, criminal record, pay history, clearances, age) are only ever your own answer to that exact question. If an employer's site refuses automated access or asks applicants not to use automated tools, Vantage stops applying there and hands those jobs to you.",
+          "Vantage works only with employers' official job postings. When you press Tailor & apply, Vantage writes a resume and cover letter for that job and opens the employer's own application in your browser, where the Vantage Chrome extension fills it with your resume, cover letter, application profile and answers you've confirmed. You check it, and the application is submitted only when you press Submit or ask the extension to. The employer then receives that application and its privacy policy applies. Answers to eligibility questions (citizenship, right to work, sponsorship, criminal record, pay history, clearances, age) are only ever your own answer to that exact question.",
         ],
       },
       {
@@ -113,7 +113,7 @@ const DOCS: Record<string, Doc> = {
       {
         h: "Security",
         p: [
-          "Data is encrypted in transit and at rest by our providers. Access to your data is restricted by row-level security so each account can only read its own records. Mailbox app passwords and careers-site passwords are additionally encrypted with AES-256 using a key derived for your account; they are decrypted only on our servers when your agent needs them or when you choose to reveal one (after confirming your identity), every reveal is logged, and they are never shown to our staff or sent to AI providers. No system is perfectly secure, so please use a strong, unique password.",
+          "Data is encrypted in transit and at rest by our providers. Access to your data is restricted by row-level security so each account can only read its own records. Mailbox app passwords and careers-site passwords are additionally encrypted with AES-256 using a key derived for your account; they are decrypted only on our servers when Vantage needs them to read your job email or when you choose to reveal one (after confirming your identity), every reveal is logged, and they are never shown to our staff or sent to AI providers. No system is perfectly secure, so please use a strong, unique password.",
         ],
       },
       {
@@ -150,10 +150,10 @@ const DOCS: Record<string, Doc> = {
         ],
       },
       {
-        h: "Your agent applies on your behalf",
+        h: "You apply, Vantage helps",
         p: [
-          "Vantage is software you control. When you use “Apply with agent” or automatic applying, you authorise Vantage to complete and submit applications for you on employers' official careers sites, and to create accounts there using your job email. It accepts a site's terms or privacy notice only if you allowed it, and keeps a record of what was accepted. Everything submitted is submitted in your name and you remain responsible for it, so keep your profile, resume and saved answers accurate. By default your first application on each kind of careers site waits for your review before it is sent.",
-          "Your agent never tries to defeat security checks such as CAPTCHAs, doesn't hide that it's automated, and uses no proxy rotation or stealth tools; it hands human checks to you. If an employer's site refuses automated access or asks applicants not to use automated tools, Vantage stops applying there for everyone and you can apply yourself. By default your agent sends at most 20 applications a day and no more than 3 to the same employer in 30 days; you can opt in to more. You can pause your agent or require approval for every application at any time in Settings.",
+          "Vantage is software you control. The Chrome extension fills application forms in your own browser on employers' official careers sites; you review each page and the application is submitted only when you press Submit or ask the extension to. It ticks a site's privacy notice or “my information is accurate” box only if you allowed it in Settings. It never types your passwords: if a site needs you to sign in or create an account, you do that on the page. Everything submitted is submitted in your name and you remain responsible for it, so keep your profile, resume and saved answers accurate.",
+          "Vantage never tries to defeat security checks such as CAPTCHAs, doesn't hide that it's assisting you, and uses no proxy rotation or stealth tools. If a site shows a human check, you complete it yourself.",
         ],
       },
       {

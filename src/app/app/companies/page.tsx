@@ -1,9 +1,11 @@
 "use client";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
-import { Building2, Check, ExternalLink, Loader2, Plus, Search, Send, ShieldCheck, Star, X } from "lucide-react";
+import { ArrowUpRight, Building2, Check, ExternalLink, Loader2, Plus, Search, ShieldCheck, Star, X } from "lucide-react";
 import { PageHeader } from "@/components/app-shell";
 import { Badge, Toast } from "@/components/ui";
+import { PrepareDrawer } from "@/components/prepare-drawer";
+import type { MatchResult } from "@/lib/types";
 import { useMe } from "@/lib/me";
 import { supabaseBrowser } from "@/lib/supabase/client";
 import { normCompany } from "@/lib/jobs/signals";
@@ -158,7 +160,7 @@ function CompanyDrawer({ board, onClose, roles, prefs, auth, onToast, isTarget, 
 }) {
   const [jobs, setJobs] = useState<Job[] | null>(null);
   const [onlyFit, setOnlyFit] = useState(true);
-  const [busy, setBusy] = useState<string | null>(null);
+  const [prep, setPrep] = useState<{ job: Job; match: MatchResult } | null>(null);
   useEffect(() => {
     setJobs(null);
     if (!board) return;
@@ -169,15 +171,6 @@ function CompanyDrawer({ board, onClose, roles, prefs, auth, onToast, isTarget, 
   if (!board) return null;
   const scored = (jobs || []).map((j) => ({ j, m: matchJob(j, { roles, prefs, auth }) }));
   const list = onlyFit ? scored.filter((x) => x.m.eligible && !x.m.tooSenior && (x.m.roleFit ?? 0) >= 0.45 && x.m.score >= 30).sort((a, b) => b.m.score - a.m.score) : scored;
-  async function apply(j: Job) {
-    // A real application goes to the employer: say so before sending.
-    if (!window.confirm(`Send a real application to ${j.company} for “${j.title}”?\n\nYour agent tailors your resume and applies on their official site.`)) return;
-    setBusy(j.id);
-    const r = await fetch("/api/agent/tasks", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ jobId: j.id }) }).catch(() => null);
-    const d = r ? await r.json().catch(() => ({})) : {};
-    setBusy(null);
-    onToast(r?.ok ? `Your agent is applying to ${j.title}` : (d as { error?: string }).error || "Couldn't start");
-  }
   return (
     <AnimatePresence>
       <motion.div className="fixed inset-0 z-[55]" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} role="dialog" aria-modal="true" aria-label={`${board.name} jobs`}>
@@ -207,12 +200,13 @@ function CompanyDrawer({ board, onClose, roles, prefs, auth, onToast, isTarget, 
                     <p className="truncate text-xs text-muted">{j.location || j.country} · {timeAgo(j.posted_at)}{m.eligible ? ` · ${m.score}% match` : ` · ${m.blockers[0]}`}</p>
                   </div>
                   <a href={j.url} target="_blank" rel="noopener noreferrer" className="text-xs font-semibold text-brand-ink">View</a>
-                  {m.eligible && <button className="btn-primary min-h-8 text-xs" disabled={busy === j.id} onClick={() => apply(j)}>{busy === j.id ? <Loader2 size={13} className="animate-spin" /> : <Send size={13} />} Apply</button>}
+                  {m.eligible && <button className="btn-primary min-h-8 text-xs" onClick={() => setPrep({ job: j, match: m })}><ArrowUpRight size={13} /> Tailor &amp; apply</button>}
                 </li>
               ))}
             </ul>
           </div>
         </motion.aside>
+        <PrepareDrawer item={prep} onClose={() => setPrep(null)} onSaved={onToast} />
       </motion.div>
     </AnimatePresence>
   );

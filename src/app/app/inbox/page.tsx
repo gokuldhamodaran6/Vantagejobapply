@@ -85,7 +85,7 @@ export default function InboxPage() {
         actions={mail ? <button className="btn-secondary" onClick={sync} disabled={busy}>{busy ? <Loader2 size={16} className="animate-spin" /> : <RefreshCw size={16} />} Check now</button> : undefined}
       />
       {mail === null && (
-        <EmptyState title="Connect your job email" body="Make a Gmail just for job hunting and connect it with an app password. Your agent uses it to sign up on careers sites, reads verification codes, and sorts every reply here." action={<Link href="/app/settings#job-email" className="btn-primary"><Mail size={16} /> Connect job email</Link>} />
+        <EmptyState title="Connect your job email" body="Make a Gmail just for job hunting and connect it with an app password. Vantage reads replies from employers, tracks applications you sent anywhere, and puts interview invites on your calendar." action={<Link href="/app/settings#job-email" className="btn-primary"><Mail size={16} /> Connect job email</Link>} />
       )}
       {mail?.status === "error" && <div className="card mb-4 border-red/30 bg-red-tint p-4 text-sm text-red-ink">We can&apos;t read your job email: {mail.error}. <Link href="/app/settings#job-email" className="font-semibold underline">Reconnect</Link></div>}
       {mail && (

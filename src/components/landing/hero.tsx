@@ -133,7 +133,8 @@ export function Hero() {
             className="mt-6 max-w-xl text-lg leading-relaxed text-muted"
           >
             Tell Vantage your visa situation once. It pulls live jobs from employers&apos; official careers sites, removes the ones that
-            can&apos;t legally hire you, writes an ATS-ready resume for each role you target, and tracks every application.
+            can&apos;t legally hire you, and writes a resume and cover letter for each job. The Chrome extension fills the company&apos;s form in
+            seconds, and your inbox keeps every application and interview up to date.
           </motion.p>
           <motion.div
             initial={{ opacity: 0, y: 16 }}

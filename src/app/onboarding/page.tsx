@@ -11,7 +11,7 @@ import { supabaseBrowser } from "@/lib/supabase/client";
 import type { ApplyScope, WorkStatus } from "@/lib/types";
 import { hardNavigate } from "@/lib/nav";
 
-const STEPS = ["Your resume", "About you", "Where to work", "Work authorization", "Target roles", "Preferences", "Your agent"];
+const STEPS = ["Your resume", "About you", "Where to work", "Work authorization", "Target roles", "Preferences", "How you'll apply"];
 const S = { resume: 0, about: 1, where: 2, auth: 3, roles: 4, prefs: 5, mode: 6 } as const;
 type Suggestion = { title: string; fit: "strong" | "adjacent" | "switch"; why: string };
 const FIT_LABEL = { strong: { t: "Strong fit", c: "bg-green-tint text-green-ink" }, adjacent: { t: "Close fit", c: "bg-brand-tint text-brand-ink" }, switch: { t: "Career move", c: "bg-pink-tint text-pink-ink" } } as const;
@@ -75,7 +75,6 @@ export default function OnboardingPage() {
   const [suggested, setSuggested] = useState<Suggestion[]>([]);
   const [showPaste, setShowPaste] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
-  const [autonomy, setAutonomy] = useState<"approve_all" | "approve_important" | "fully_automatic">("approve_important");
 
   useEffect(() => {
     if (profile?.full_name && !fullName) setFullName(profile.full_name);
@@ -162,7 +161,7 @@ export default function OnboardingPage() {
     try {
       const p1 = await supabase.from("profiles").update({
         full_name: fullName.trim(), citizenship, home_country: living, phone: phone || null,
-        linkedin_url: linkedin || null, autonomy, adult_confirmed_at: new Date().toISOString(), region: living === "CA" ? province : null,
+        linkedin_url: linkedin || null, adult_confirmed_at: new Date().toISOString(), region: living === "CA" ? province : null,
       }).eq("id", userId);
       if (p1.error) throw p1.error;
 
@@ -570,13 +569,20 @@ export default function OnboardingPage() {
 
             {step === S.mode && (
               <div className="space-y-6">
-                <Heading title="How independent should your agent be?" sub="You can change this any time in Settings." />
-                <div className="space-y-2">
-                  <p className="label">How should the agent apply?</p>
-                  <ChoiceCard selected={autonomy === "approve_all"} onClick={() => setAutonomy("approve_all")} title="Approve every application" body="Nothing is sent until you approve." />
-                  <ChoiceCard selected={autonomy === "approve_important"} onClick={() => setAutonomy("approve_important")} title="Approve important ones only" body="Routine applications go ahead; target companies and top matches come to you." />
-                  <ChoiceCard selected={autonomy === "fully_automatic"} onClick={() => setAutonomy("fully_automatic")} title="Fully automatic" body="The agent prepares and queues everything inside your rules." />
-                </div>
+                <Heading title="How you'll apply" sub="Fast, and always on the company's own site. You stay in control of Submit." />
+                <ol className="space-y-3">
+                  {[
+                    ["Pick a job and press Tailor & apply", "Vantage writes a resume and cover letter for that job from your real experience, in the right format for its country."],
+                    ["The company's application opens", "The Vantage Chrome extension fills every page in seconds and attaches the resume made for this job."],
+                    ["You check it and press Submit", "It's added to Applications. Replies, interview invites and rejections are tracked from your job email, wherever you applied."],
+                  ].map(([t, b], i) => (
+                    <li key={t} className="flex gap-3 rounded-xl border border-line p-4">
+                      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-brand text-sm font-bold text-white">{i + 1}</span>
+                      <span><span className="block font-semibold">{t}</span><span className="block text-sm text-muted">{b}</span></span>
+                    </li>
+                  ))}
+                </ol>
+                <p className="text-sm text-muted">You can add the Chrome extension from the app after this step (Chrome extension in the menu). It takes a minute.</p>
               </div>
             )}
           </motion.section>

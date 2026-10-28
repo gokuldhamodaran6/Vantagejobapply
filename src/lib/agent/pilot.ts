@@ -300,6 +300,8 @@ function privateValues(ctx: PilotCtx) {
 export async function pilotStep(snap: PilotSnapshot, history: PilotHistory, ctx: PilotCtx): Promise<PilotTurn> {
   const mask = masker(ctx.facts, privateValues(ctx));
   const sugg = await suggestions(snap, ctx);
+  const fast = fastFill(snap, history, sugg, ctx);
+  if (fast) return fast;
   // Busy pages (LinkedIn's job list, big footers) can have hundreds of links: the form's own controls and its
   // buttons always make the cut; other links and buttons fill what's left.
   const STEP_BTN = /^(next|continue|save|add|upload|apply|submit|review|done|start|begin|sign in with email|create account|use my|apply manually|autofill)/i;
@@ -354,6 +356,38 @@ export async function pilotStep(snap: PilotSnapshot, history: PilotHistory, ctx:
   }
   if (!parsed) return { say: "Couldn't read the page this time", status: "stuck", actions: [], ask: [], notes: ["no AI answer"] };
   return __validate(parsed, snap, sugg, ctx);
+}
+
+export const FAST_SAY = "Filled what Vantage already knows";
+
+/**
+ * Fast first pass on each new page: every empty field Vantage already knows (contact details, links, saved answers,
+ * the resume for this job) is filled at once, without waiting for the AI. The AI then only handles what's left and the
+ * page's buttons. Same rules as any other turn: everything goes through __validate.
+ */
+export function fastFill(snap: PilotSnapshot, history: PilotHistory, sugg: Map<number, Suggestion>, ctx: PilotCtx): PilotTurn | null {
+  if (ctx.surface !== "extension" || ctx.assist) return null;
+  if (history.slice(-3).some((h) => h.say === FAST_SAY && h.url === snap.url)) return null;
+  const acts: PilotAction[] = [];
+  for (const it of snap.items) {
+    if (!FIELD_KINDS.has(it.kind) || isPrivate(it)) continue;
+    const s = sugg.get(it.i);
+    if (!s || s.ask) continue;
+    const filled = it.kind === "file" ? Boolean(it.value) : it.kind === "checkbox" ? it.value === "checked" : Boolean(it.value);
+    if (filled && !it.error) continue;
+    if (it.kind === "file") {
+      if (s.file) acts.push({ do: "upload", i: it.i, file: s.file });
+      continue;
+    }
+    if (it.kind === "checkbox") {
+      if (s.check !== undefined && (it.value === "checked") !== s.check) acts.push({ do: "set", i: it.i, value: s.check ? "checked" : "unchecked" });
+      continue;
+    }
+    if (!s.value) continue;
+    acts.push({ do: it.kind === "combobox" ? "choose" : "set", i: it.i, value: s.value });
+  }
+  if (acts.length < 2) return null;
+  return __validate({ say: FAST_SAY, status: "continue", actions: acts }, snap, sugg, ctx);
 }
 
 /** Enforce the rules on whatever the AI proposed, and put real contact details in. */

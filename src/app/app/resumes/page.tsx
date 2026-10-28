@@ -42,12 +42,12 @@ export default function ResumesPage() {
     const [r, t, a] = await Promise.all([
       s.from("resumes").select("id,target_role_id,name,is_master,level_format,style,content,ats_score,updated_at,notes,kind").neq("kind", "tailored").order("updated_at", { ascending: false }),
       s.from("target_roles").select("id,title,levels,active,coach").order("priority").order("created_at"),
-      s.from("applications").select("status,target_role_id,resume_style,letter_tone").limit(5000),
+      s.from("applications").select("status,target_role_id,resume_style,letter_tone").eq("user_id", userId || "").limit(5000),
     ]);
     setList((r.data as R[]) || []);
     setRoles(((t.data as RoleRow[]) || []).filter((x) => x.active));
     setApps((a.data as AppLite[]) || []);
-  }, []);
+  }, [userId]);
   useEffect(() => {
     if (userId) load();
   }, [userId, load]);
@@ -267,7 +267,7 @@ export default function ResumesPage() {
       {master && totalSent > 0 && (
         <section className="card mb-6 p-5">
           <h2 className="flex items-center gap-2 font-semibold"><TrendingUp size={17} className="text-brand" /> What gets you interviews</h2>
-          <p className="text-sm text-muted">From {totalSent} sent applications. Your agent leans toward what wins and keeps testing the rest.</p>
+          <p className="text-sm text-muted">From {totalSent} sent applications. Vantage leans toward what wins and keeps testing the rest.</p>
           <div className="mt-4 grid gap-6 md:grid-cols-2">
             <Bars title="Resume style" rows={(Object.keys(RESUME_STYLES) as ResumeStyle[]).map((k) => ({ k: RESUME_STYLES[k].label, s: st.styles[k] }))} />
             <Bars title="Cover letter tone" rows={(Object.keys(LETTER_TONES) as LetterTone[]).map((k) => ({ k: LETTER_TONES[k].label, s: st.tones[k] }))} />

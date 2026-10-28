@@ -14,14 +14,15 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   if (!r) return new Response("Not found", { status: 404 });
   const content = r.content as ResumeContent;
   const style = (sp.get("style") || r.style || "classic") as ResumeStyle;
-  const country = ctx.prefs?.countries?.[0] || "US";
+  const asked = (sp.get("country") || "").toUpperCase();
+  const country = /^[A-Z]{2,4}$/.test(asked) ? asked : ctx.prefs?.countries?.[0] || "US";
   const kind = sp.get("kind");
   let bytes: Uint8Array;
   let filename: string;
   const name = bestName(ctx.profile.full_name, content.name);
   const person = (name || "Resume").replace(/[^A-Za-z0-9]+/g, "_");
   if (kind === "cover") {
-    const { data: app } = await ctx.supabase.from("applications").select("cover_letter").eq("resume_id", id).maybeSingle();
+    const { data: app } = await ctx.supabase.from("applications").select("cover_letter").eq("user_id", ctx.user.id).eq("resume_id", id).limit(1).maybeSingle();
     const { data: task } = app?.cover_letter ? { data: null } : await ctx.supabase.from("agent_tasks").select("cover_letter").eq("resume_id", id).maybeSingle();
     const letter = app?.cover_letter || task?.cover_letter || sp.get("text") || "";
     if (!letter) return new Response("No cover letter for this resume yet.", { status: 404 });

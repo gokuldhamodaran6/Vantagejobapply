@@ -2,6 +2,7 @@ import "server-only";
 import { tidyResume } from "@/lib/resume/health";
 import { PDFDocument, PDFFont, PDFPage, StandardFonts, rgb } from "pdf-lib";
 import { RESUME_STYLES } from "./styles";
+import { formatFor, sectionOrderFor } from "./country";
 import type { ResumeContent, ResumeStyle } from "@/lib/types";
 
 /* Characters the standard PDF fonts (WinAnsi) can draw; everything else is mapped to a close ASCII form. */
@@ -106,7 +107,8 @@ async function setup(country: string, style: ResumeStyle) {
   const doc = await PDFDocument.create();
   const fam = st.font === "times" ? [StandardFonts.TimesRoman, StandardFonts.TimesRomanBold, StandardFonts.TimesRomanItalic] : [StandardFonts.Helvetica, StandardFonts.HelveticaBold, StandardFonts.HelveticaOblique];
   const [font, bold, italic] = await Promise.all(fam.map((f) => doc.embedFont(f)));
-  const pageSize: [number, number] = country === "US" || country === "CA" ? [612, 792] : [595.28, 841.89];
+  // Paper follows the country's format: US Letter for US/CA, A4 elsewhere (no country = Letter).
+  const pageSize: [number, number] = formatFor(country).paper === "letter" ? [612, 792] : [595.28, 841.89];
   const margin = style === "compact" ? 40 : 46;
   const c: Ctx = { doc, page: doc.addPage(pageSize), y: 0, font, bold, italic, size: st.body, lineGap: st.lineGap, left: margin, right: pageSize[0] - margin, top: margin - 4, bottom: margin, pageSize };
   c.y = pageSize[1] - c.top;
@@ -168,13 +170,27 @@ export async function resumePdf(raw: ResumeContent, opts: { style?: ResumeStyle;
   // Never render broken data: full name, no URL-as-summary, re-joined bullets, merged skill groups.
   const r = tidyResume(raw, opts.name);
   const style = opts.style || "classic";
+  const fmt = formatFor(opts.country || "US");
   const { c, st } = await setup(opts.country || "US", style);
   headerBlock(c, st, r);
 
   if (r.summary) {
-    heading(c, st, "Summary");
+    heading(c, st, fmt.personalStatement ? "Profile" : "Summary");
     text(c, r.summary);
   }
+  const educationFirst = sectionOrderFor(r) === "education-first";
+  const education = () => {
+    if (!r.education?.length) return;
+    heading(c, st, "Education");
+    for (const e of r.education) {
+      rowWithRight(c, e.degree || e.school, e.end || "", c.bold, c.size);
+      const sub = [e.degree ? e.school : "", e.location].filter(Boolean).join(" · ") + (e.details ? `. ${e.details}` : "");
+      if (sub) text(c, sub, { size: c.size - 0.3, color: [0.25, 0.25, 0.25] });
+      c.y -= 1.5;
+    }
+  };
+  // Students, new grads and people with under 2 years of experience lead with education.
+  if (educationFirst) education();
   if (r.skills?.length) {
     heading(c, st, "Skills");
     for (const g of r.skills) {
@@ -210,15 +226,7 @@ export async function resumePdf(raw: ResumeContent, opts: { style?: ResumeStyle;
       c.y -= 2;
     }
   }
-  if (r.education?.length) {
-    heading(c, st, "Education");
-    for (const e of r.education) {
-      rowWithRight(c, e.degree || e.school, e.end || "", c.bold, c.size);
-      const sub = [e.degree ? e.school : "", e.location].filter(Boolean).join(" · ") + (e.details ? `. ${e.details}` : "");
-      if (sub) text(c, sub, { size: c.size - 0.3, color: [0.25, 0.25, 0.25] });
-      c.y -= 1.5;
-    }
-  }
+  if (!educationFirst) education();
   if (r.certifications?.length) {
     heading(c, st, "Certifications");
     text(c, r.certifications.join("  •  "));
@@ -231,7 +239,7 @@ export async function resumePdf(raw: ResumeContent, opts: { style?: ResumeStyle;
     heading(c, st, "Additional");
     bullets(c, r.additional);
   }
-  return finish(c.doc, `${r.name || "Resume"} - Resume`, r.name || "");
+  return finish(c.doc, `${r.name || fmt.docName} - ${fmt.docName}`, r.name || "");
 }
 
 export async function coverLetterPdf(letter: string, raw: Pick<ResumeContent, "name" | "headline" | "location" | "phone" | "email" | "links">, opts: { style?: ResumeStyle; country?: string; name?: string } = {}): Promise<Uint8Array> {
@@ -243,7 +251,7 @@ export async function coverLetterPdf(letter: string, raw: Pick<ResumeContent, "n
   headerBlock(c, st, { ...r, headline: undefined });
   c.y -= 18;
   const country = opts.country || "US";
-  text(c, new Date().toLocaleDateString(country === "US" ? "en-US" : "en-GB", { day: "numeric", month: "long", year: "numeric" }));
+  text(c, new Date().toLocaleDateString(formatFor(country).spelling === "us" ? "en-US" : "en-GB", { day: "numeric", month: "long", year: "numeric" }));
   c.y -= 10;
   for (const para of letter.replace(/\r/g, "").split(/\n{2,}/)) {
     const lines = para.split("\n");

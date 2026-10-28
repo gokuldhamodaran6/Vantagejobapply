@@ -8,11 +8,11 @@ import { Segmented, TagInput, Toast, Toggle } from "@/components/ui";
 import { useMe } from "@/lib/me";
 import { supabaseBrowser } from "@/lib/supabase/client";
 import { COUNTRIES, COUNTRY_BY_CODE, INDUSTRIES } from "@/lib/countries";
-import { dailyLimit, effectivePlan } from "@/lib/access";
+import { effectivePlan } from "@/lib/access";
 import { JOB_TYPES, WORK_MODES, wantedModes, type WorkMode } from "@/lib/jobs/match";
 import { searchVariants } from "@/lib/jobs/roles";
 import { normCompany } from "@/lib/jobs/signals";
-import { DEFAULT_FRESH_DAYS, LIVE_MAX_DAYS, PRIORITIES, priorityMeta, shareOfLimit } from "@/lib/agent/plan";
+import { DEFAULT_FRESH_DAYS, LIVE_MAX_DAYS, PRIORITIES, priorityMeta } from "@/lib/agent/plan";
 import type { Pipeline } from "@/lib/jobs/engine";
 import type { ApplyScope, TargetPrefs, TargetRole, WorkAuth, WorkStatus } from "@/lib/types";
 import type { Coach } from "@/lib/resume/coach";
@@ -113,7 +113,6 @@ function useAutosave(onSettled: () => void) {
 export default function TargetsPage() {
   const { profile, prefs, roles, auth, userId, refresh } = useMe();
   const plan = effectivePlan(profile?.plan, profile?.role);
-  const limit = dailyLimit(profile as { daily_limit?: number | null; high_volume_ok?: boolean | null } | null, plan);
   const [p, setP] = useState<TargetPrefs | null>(null);
   const [rs, setRs] = useState<TargetRole[]>([]);
   const [as, setAs] = useState<WorkAuth[]>([]);
@@ -165,7 +164,7 @@ export default function TargetsPage() {
   useEffect(() => {
     if (!userId) return;
     const s = supabaseBrowser();
-    s.from("applications").select("target_role_id,status").then(({ data }) => {
+    s.from("applications").select("target_role_id,status").eq("user_id", userId).then(({ data }) => {
       const c: Record<string, number> = {};
       (data || []).forEach((a: { target_role_id: string | null; status: string }) => {
         if (a.target_role_id && a.status !== "saved") c[a.target_role_id] = (c[a.target_role_id] || 0) + 1;
@@ -248,7 +247,7 @@ export default function TargetsPage() {
   function toggleCountry(code: string) {
     const on = p!.countries.includes(code);
     if (!on && p!.countries.length >= plan.limits.countries) return setToast(`You can target up to ${plan.limits.countries} countries at once.`);
-    if (on && p!.countries.length === 1) return setToast("Keep at least one country — that's where your agent searches.");
+    if (on && p!.countries.length === 1) return setToast("Keep at least one country — that's where Vantage searches.");
     set({ countries: on ? p!.countries.filter((c) => c !== code) : [...p!.countries, code] });
     if (!on && !as.some((a) => a.country === code)) {
       const a: WorkAuth = { country: code, status: "none", needs_sponsorship_now: true, needs_sponsorship_future: true, apply_scope: "sponsor_or_silent", details: {} };
@@ -306,7 +305,6 @@ export default function TargetsPage() {
   const watched = new Map<string, Board>();
   for (const b of boards) if (!watched.has(b.name_norm)) watched.set(b.name_norm, b);
   const modes = wantedModes(p);
-  const share = shareOfLimit(rs, limit);
   const pipeRole = new Map((pipe?.roles || []).map((r) => [r.id, r]));
   const activeCount = rs.filter((r) => r.active).length;
   const sponsorIn = p.countries.filter((c) => { const a = as.find((x) => x.country === c); return a && (a.needs_sponsorship_now || a.needs_sponsorship_future) && a.status !== "citizen" && a.status !== "permanent_resident"; });
@@ -319,7 +317,7 @@ export default function TargetsPage() {
     <>
       <PageHeader
         title="My targets"
-        subtitle="What your agent looks for. Changes save automatically and apply to Live jobs and auto-apply right away."
+        subtitle="What Vantage looks for. Changes save automatically and apply to Live jobs right away."
         actions={
           <>
             <SaveStatus save={save} onRetry={retry} />
@@ -332,9 +330,8 @@ export default function TargetsPage() {
       <section className="card mb-6 grid grid-cols-2 gap-px overflow-hidden bg-line md:grid-cols-4" aria-label="Summary">
         {[
           { k: "Active roles", v: `${activeCount} of ${plan.limits.roles}`, sub: rs.length > activeCount ? `${rs.length - activeCount} paused` : "searched every few minutes" },
-          { k: "Live matches", v: pipe ? pipe.live.toLocaleString() : null, sub: pipe ? `${pipe.ready} ready for your agent` : "counting…" },
-          { k: "Daily limit", v: `${limit} a day`, sub: <Link href="/app/settings#agent-mode" className="hover:text-brand-ink">Change in Settings →</Link> },
-          { k: "Freshness", v: `Last ${fresh} days`, sub: "what your agent applies to" },
+          { k: "Live matches", v: pipe ? pipe.live.toLocaleString() : null, sub: pipe ? `${pipe.ready} fresh, strong fits` : "counting…" },
+          { k: "Freshness", v: `Last ${fresh} days`, sub: "for daily matches" },
         ].map((s) => (
           <div key={s.k} className="bg-white p-4">
             <p className="text-xs font-medium text-muted">{s.k}</p>
@@ -360,7 +357,7 @@ export default function TargetsPage() {
         <div className="min-w-0 space-y-6">
           {/* ---------------- Roles ---------------- */}
           <Section id="roles" title="Roles" icon={Briefcase} aside={`${rs.length} of ${plan.limits.roles}`}
-            body="Your agent searches each role's title plus the titles recruiters use for the same job. Priority decides which roles get your daily applications first.">
+            body="Vantage searches each role's title plus the titles recruiters use for the same job. Priority decides which roles come first in your matches.">
             {rs.length === 0 && (
               <div className="rounded-xl border border-dashed border-line p-6 text-center">
                 <p className="font-semibold">Add the first role you want</p>
@@ -379,7 +376,7 @@ export default function TargetsPage() {
                         <label className="sr-only" htmlFor={`title-${r.id}`}>Role title</label>
                         <input id={`title-${r.id}`} className="-mx-2 w-[calc(100%+1rem)] rounded-lg border border-transparent bg-transparent px-2 py-1 text-[17px] font-bold capitalize outline-none transition hover:border-line focus:border-brand focus:bg-white focus:ring-4 focus:ring-brand/10"
                           value={r.title} onChange={(e) => setRole(r.id, { title: e.target.value }, 1000)} />
-                        <p className="mt-0.5 text-xs text-muted">{r.active ? (pr ? <><b className="text-ink">{pr.live}</b> live matches · <b className="text-brand-ink">{pr.ready}</b> ready for your agent</> : counting ? "Counting live matches…" : "—") : "Paused — your agent skips this role"}</p>
+                        <p className="mt-0.5 text-xs text-muted">{r.active ? (pr ? <><b className="text-ink">{pr.live}</b> live matches · <b className="text-brand-ink">{pr.ready}</b> strong fits</> : counting ? "Counting live matches…" : "—") : "Paused — Vantage skips this role"}</p>
                       </div>
                       <div className="flex shrink-0 items-center gap-2 pt-1">
                         <span className="hidden text-xs font-medium text-muted sm:inline">{r.active ? "On" : "Paused"}</span>
@@ -392,7 +389,7 @@ export default function TargetsPage() {
                       <Segmented label={`Priority for ${r.title}`} value={String(pm.value) as "1" | "2" | "3"} onChange={(v) => setRole(r.id, { priority: Number(v) }, 0)}
                         options={PRIORITIES.map((x) => ({ value: String(x.value) as "1" | "2" | "3", label: x.short }))} />
                       <p className="mt-1.5 text-xs text-muted">
-                        {r.active ? <>Gets about <b className="text-ink">{share[r.id] || 0}</b> of your {limit} daily applications when it has matches{pr && pr.planned !== (share[r.id] || 0) ? ` · ${pr.planned} lined up for today` : ""}.</> : "Turn it on to give it a share of your daily applications."}
+                        {r.active ? <>Shown in Live jobs and your daily matches by priority.</> : "Turn it on to see its jobs in Live jobs."}
                       </p>
                     </div>
 
@@ -526,7 +523,7 @@ export default function TargetsPage() {
 
           {/* ---------------- Work authorisation ---------------- */}
           <Section id="visa" title="Work authorisation" icon={ShieldCheck}
-            body="Your agent only applies where you can legally work, and answers sponsorship questions truthfully from this."
+            body="Vantage only shows jobs where you can legally work, and the extension answers sponsorship questions truthfully from this."
             aside={sponsorIn.length ? `Sponsorship needed in ${sponsorIn.map((c) => COUNTRY_BY_CODE[c]?.name || c).join(", ")}` : "No sponsorship needed"}>
             <div className="space-y-3">
               {p.countries.map((code) => {
@@ -573,7 +570,7 @@ export default function TargetsPage() {
           </Section>
 
           {/* ---------------- Pay & job details ---------------- */}
-          <Section id="pay" title="Pay & job details" icon={CircleDollarSign} body="Jobs that list pay below your floor, or a job type you didn't pick, are ranked lower and rarely chosen by your agent.">
+          <Section id="pay" title="Pay & job details" icon={CircleDollarSign} body="Jobs that list pay below your floor, or a job type you didn't pick, are ranked lower in your matches.">
             <div className="grid gap-5 md:grid-cols-2">
               <div>
                 <label className="mb-1.5 block text-sm font-semibold" htmlFor="salary">Minimum yearly salary</label>
@@ -605,12 +602,12 @@ export default function TargetsPage() {
               <p className="mb-1.5 text-sm font-semibold">Posted within</p>
               <Segmented label="Posted within" value={String(FRESHNESS.includes(fresh) ? fresh : 14)} onChange={(v) => set({ max_days_old: Number(v) })}
                 options={FRESHNESS.map((d) => ({ value: String(d), label: `${d} days` }))} />
-              <p className="mt-1.5 text-xs text-muted">Your agent applies only to jobs posted in the last {fresh} days — fresh posts get far more replies. Live jobs still shows up to {LIVE_MAX_DAYS} days so you can pick older ones yourself.</p>
+              <p className="mt-1.5 text-xs text-muted">Daily matches favor jobs posted in the last {fresh} days — fresh posts get far more replies. Live jobs still shows up to {LIVE_MAX_DAYS} days so you can pick older ones yourself.</p>
             </div>
           </Section>
 
           {/* ---------------- Companies ---------------- */}
-          <Section id="companies" title="Companies" icon={Building2} body="Target companies are watched every 20 minutes and their new jobs come to you first. Your agent never applies to companies you exclude.">
+          <Section id="companies" title="Companies" icon={Building2} body="Target companies are watched every 20 minutes and their new jobs come to you first. Companies you exclude never show up in your matches.">
             <p className="mb-1.5 text-sm font-semibold">Target companies</p>
             <form className="flex flex-col gap-2 sm:flex-row" onSubmit={(e) => { e.preventDefault(); void addCompany(); }}>
               <input className="input" placeholder="Company name, or any job link from their careers site" value={company} onChange={(e) => setCompany(e.target.value)} aria-label="Company name or job link" />
@@ -618,7 +615,7 @@ export default function TargetsPage() {
             </form>
             {companyMsg && <p className="mt-2 text-sm text-ink-2" role="status">{companyMsg}</p>}
             <ul className="mt-3 divide-y divide-line rounded-xl border border-line">
-              {p.companies.length === 0 && <li className="p-4 text-sm text-muted">No target companies yet — your agent searches every verified careers site.</li>}
+              {p.companies.length === 0 && <li className="p-4 text-sm text-muted">No target companies yet — Vantage searches every verified careers site.</li>}
               {p.companies.map((c) => {
                 const b = watched.get(normCompany(c));
                 return (

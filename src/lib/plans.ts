@@ -35,7 +35,7 @@ export const PLANS: Plan[] = [
       "Up to 5 target roles and 4 countries",
       "Tailored resume + cover letter for every job (100/month)",
       "Sponsor checks on every employer",
-      "Ask your agent: status, targets, prep",
+      "Ask Vantage: status, targets, prep",
       "Unlimited application tracking",
     ],
     limits: { roles: 5, countries: 4, tailorsPerMonth: 100, autoApplyPerDay: 0, trackLimit: 100000 },
@@ -44,12 +44,12 @@ export const PLANS: Plan[] = [
   {
     id: "autopilot",
     name: "Autopilot",
-    tagline: "Your agent applies for you",
+    tagline: "Every application, done fast",
     prices: { std: { month: 59, quarter: 149 }, ppp: { month: 25, quarter: 59 } },
     features: [
       "Everything in Pro",
       "Unlimited roles and countries",
-      "Agent prepares and queues up to 25 applications a day",
+      "Chrome extension fills company application forms",
       "First-in alerts for target companies",
       "Interview prep for every interview",
     ],
