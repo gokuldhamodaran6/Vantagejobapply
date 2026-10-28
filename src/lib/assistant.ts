@@ -69,7 +69,7 @@ export async function answer(
 ): Promise<Reply> {
   const [{ data }, { data: taskData }, { data: inbox }] = await Promise.all([
     supabase.from("applications").select("*").order("updated_at", { ascending: false }).limit(300),
-    supabase.from("agent_tasks").select("status,step,job,updated_at").order("updated_at", { ascending: false }).limit(200),
+    supabase.from("agent_tasks").select("status,step,job,updated_at").neq("mode", "dry_run").order("updated_at", { ascending: false }).limit(200),
     supabase.from("inbox_messages").select("kind,subject,company,received_at").in("kind", ["interview", "offer", "assessment", "rejection", "received"]).order("received_at", { ascending: false }).limit(30),
   ]);
   const apps = (data as Application[]) || [];

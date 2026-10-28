@@ -117,6 +117,11 @@ export async function POST(req: NextRequest) {
       out.mail = await syncAll(started + 90_000).catch((e) => ({ error: String(e) }));
       out.auto = await autoSource(deadline).catch((e) => ({ error: String(e) }));
     }
+    if (task === "health_alert") {
+      const body = (await req.json().catch(() => ({}))) as { alerts?: { key: string; message: string }[] };
+      const { emailAlerts } = await import("@/lib/alerts");
+      out.email = await emailAlerts((body.alerts || []).slice(0, 20).map((a) => ({ key: String(a.key).slice(0, 80), message: String(a.message).slice(0, 400) })));
+    }
     if (task === "prune" || task === "all") out.pruned = (await supabaseAnon().rpc("prune_jobs", { secret: ingestSecret(), days: 45 })).data;
   } catch (e) {
     out.error = e instanceof Error ? e.message : String(e);

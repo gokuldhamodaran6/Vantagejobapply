@@ -1,5 +1,5 @@
 import { ghostRisk } from "../src/lib/jobs/ghost";
-import { questionsBefore } from "../src/lib/agent/precheck";
+import { questionsBefore, parseLeverApply, parseAshbyForm } from "../src/lib/agent/precheck";
 import { sameMeaning } from "../src/lib/agent/fields";
 import { runNow, todaysRuns, cleanSchedule } from "../src/lib/agent/schedule";
 import { classifyMail, nextStatus } from "../src/lib/mail-classify";
@@ -406,10 +406,26 @@ async function precheckChecks() {
     ok(!labels.some((l) => /why do you want|first name|email|resume/i.test(l)), "precheck: name, email, resume and why-us are not asked");
     const later = await questionsBefore({ jobId: "gh:acme:123", facts, answers: [{ qkey: "what are your salary expectations", question: "What are your salary expectations?", answer: "$120,000" }, { qkey: "have you ever been convicted of a felony", question: "Have you ever been convicted of a felony?", answer: "No" }], job: { title: "Analyst", company: "Acme" }, resume: null, consent: true });
     ok((later || []).length === 0, "precheck: once answered, nothing is asked");
-    ok((await questionsBefore({ jobId: "lever:acme:1", facts, answers: [], job: { title: "A", company: "B" }, resume: null, consent: true })) === null, "precheck: other sites are read live, not ahead");
+    ok((await questionsBefore({ jobId: "wd:acme:1", facts, answers: [], job: { title: "A", company: "B" }, resume: null, consent: true })) === null, "precheck: other sites are read live, not ahead");
   } finally {
     globalThis.fetch = realFetch;
   }
+  // Lever: custom question cards from the apply page.
+  const card = JSON.stringify({ text: "Questions", fields: [
+    { type: "multiple-choice", text: "Will you require visa sponsorship?", required: true, options: [{ text: "Yes" }, { text: "No" }] },
+    { type: "textarea", text: "Why Initrode?", required: true },
+    { type: "text", text: "Desired salary", required: false },
+  ] }).replace(/"/g, "&quot;");
+  const lv = parseLeverApply(`<form class="application-form"><input type="hidden" name="cards[1b2c][baseTemplate]" value="${card}"></form>`);
+  ok(lv.length === 3 && lv[0].type === "select" && lv[0].options?.join() === "Yes,No" && Boolean(lv[0].required) && lv[1].type === "textarea", "precheck: Lever question cards are read with types, options and required");
+  // Ashby: the form from its job-posting query.
+  const ab = parseAshbyForm({ data: { jobPosting: { applicationForm: { sections: [{ fieldEntries: [
+    { isRequired: true, field: { title: "Name", type: "String" } },
+    { isRequired: true, field: { title: "Are you authorized to work in the US?", type: "Boolean" } },
+    { isRequired: false, field: { title: "Pronouns", type: "ValueSelect", selectableValues: [{ label: "she/her" }, { label: "he/him" }] } },
+    { isRequired: true, field: { title: "Resume", type: "File" } },
+  ] }] } } } });
+  ok(ab.length === 4 && ab[1].options?.join() === "Yes,No" && ab[2].options?.length === 2 && ab[3].type === "file", "precheck: Ashby form fields are read with types and options");
 }
 
 plannerChecks().then(precheckChecks).then(aiMeterChecks).then(() => {

@@ -11,6 +11,7 @@ const PLAN_OPTIONS = [["free", "Free"], ["pro", "Pro"], ["autopilot", "Autopilot
 import { COUNTRY_BY_CODE } from "@/lib/countries";
 import { timeAgo } from "@/lib/format";
 import { AiSpend, usd } from "./ai-spend";
+import { HealthPanel } from "./health";
 
 type Stats = {
   users: number; users_7d: number; active_7d: number; onboarded: number; plans: Record<string, number>;
@@ -24,7 +25,11 @@ type B = { id: number; ats: string; token: string; name: string; site: string | 
 
 export default function AdminPage() {
   const { profile, loading } = useMe();
-  const [tab, setTab] = useState<"overview" | "ai" | "users" | "sources">("overview");
+  const [tab, setTab] = useState<"overview" | "health" | "ai" | "users" | "sources">(() => {
+    if (typeof window === "undefined") return "overview";
+    const t = new URLSearchParams(window.location.search).get("tab");
+    return t === "health" || t === "ai" || t === "users" || t === "sources" ? t : "overview";
+  });
   const [refreshN, setRefreshN] = useState(0);
   const [aiCosts, setAiCosts] = useState<Record<string, AiCost>>({});
   const [stats, setStats] = useState<Stats | null>(null);
@@ -109,7 +114,7 @@ export default function AdminPage() {
         </div>
       </header>
       <main className="mx-auto max-w-7xl px-4 py-6 sm:px-6">
-        <Segmented label="Section" value={tab} onChange={setTab} options={[{ value: "overview", label: "Overview" }, { value: "ai", label: "AI spend" }, { value: "users", label: `Users${stats ? ` (${stats.users})` : ""}` }, { value: "sources", label: `Job sources (${boards.length})` }]} />
+        <Segmented label="Section" value={tab} onChange={setTab} options={[{ value: "overview", label: "Overview" }, { value: "health", label: "System health" }, { value: "ai", label: "AI spend" }, { value: "users", label: `Users${stats ? ` (${stats.users})` : ""}` }, { value: "sources", label: `Job sources (${boards.length})` }]} />
 
         {tab === "overview" && stats && (
           <div className="mt-6 space-y-6">
@@ -193,6 +198,7 @@ export default function AdminPage() {
           </div>
         )}
 
+        {tab === "health" && <HealthPanel refresh={refreshN} />}
         {tab === "ai" && <AiSpend refresh={refreshN} />}
 
         {tab === "users" && (

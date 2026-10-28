@@ -90,7 +90,7 @@ export function Activity({
     const id = ++req.current;
     setLoading(true);
     const s = supabaseBrowser();
-    let q = s.from("agent_tasks").select("*", { count: "exact" });
+    let q = s.from("agent_tasks").select("*", { count: "exact" }).neq("mode", "dry_run");
     const statuses = GROUPS.find((g) => g.key === group)?.statuses;
     if (statuses) q = q.in("status", statuses);
     if (roleId) q = q.eq("job->>role_id", roleId);

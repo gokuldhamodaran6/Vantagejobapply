@@ -23,7 +23,7 @@ export default function Dashboard() {
     const s = supabaseBrowser();
     s.from("applications").select("*").order("updated_at", { ascending: false }).then(({ data }) => setApps((data as Application[]) || []));
     s.from("resumes").select("id", { count: "exact", head: true }).then(({ count }) => setHasResume((count || 0) > 0));
-    s.from("agent_tasks").select("status,job,updated_at").order("updated_at", { ascending: false }).limit(200).then(({ data }) => setAgent((data as typeof agent) || []));
+    s.from("agent_tasks").select("status,job,updated_at").neq("mode", "dry_run").order("updated_at", { ascending: false }).limit(200).then(({ data }) => setAgent((data as typeof agent) || []));
     fetch(`/api/jobs?country=${prefs?.countries?.[0] || "US"}`).then(async (r) => {
       const d = await r.json();
       setTop((d.results || []).slice(0, 5));

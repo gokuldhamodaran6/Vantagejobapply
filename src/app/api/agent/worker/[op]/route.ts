@@ -63,9 +63,9 @@ async function handle(req: Request, op: string) {
         return j({ task: null, retry: true });
       }
       // Ask before applying: questions only the person can answer are read from the form first (Greenhouse publishes
-      // them) and asked together — the run doesn't open the site just to stop half-way. Not for jobs being watched live.
+      // them, and so do Lever and Ashby) and asked together — the run doesn't open the site just to stop half-way. Not for jobs being watched live.
       const ui = (b.task.user_input || {}) as { interactive?: boolean };
-      if (b.task.mode !== "dry_run" && !ui.interactive && b.task.job_id.startsWith("gh:")) {
+      if (b.task.mode !== "dry_run" && !ui.interactive && /^(gh|lever|ashby):/.test(b.task.job_id)) {
         const ask = await questionsBefore({ jobId: b.task.job_id, facts: b.facts, answers: b.raw.answers, job: b.task.job, resume: b.resume, consent: Boolean(b.raw.applicant?.agent_consent) }).catch(() => null);
         if (ask?.length) {
           await rpc("update", { task_id: t.id, status: "needs_user", needs: ask.map((n) => ({ ...n, pre: true })), step: `${ask.length} question${ask.length > 1 ? "s" : ""} to answer before your agent applies`, log: `Read ${b.task.job.company}'s form first: ${ask.length} question${ask.length > 1 ? "s" : ""} only you can answer` });

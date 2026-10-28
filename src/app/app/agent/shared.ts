@@ -66,8 +66,8 @@ export function useAgentData(userId: string | null) {
   const full = useCallback(async () => {
     const s = supabaseBrowser();
     const [w, ix, st, tot, sg] = await Promise.all([
-      s.from("agent_tasks").select("*").in("status", WORKING).order("updated_at", { ascending: false }).limit(500),
-      s.from("agent_tasks").select(LIGHT).order("updated_at", { ascending: false }).limit(5000),
+      s.from("agent_tasks").select("*").neq("mode", "dry_run").in("status", WORKING).order("updated_at", { ascending: false }).limit(500),
+      s.from("agent_tasks").select(LIGHT).neq("mode", "dry_run").order("updated_at", { ascending: false }).limit(5000),
       s.from("applications").select("agent_task_id,status").not("agent_task_id", "is", null).limit(5000),
       s.from("applications").select("id", { count: "exact", head: true }).not("applied_at", "is", null),
       signature(),

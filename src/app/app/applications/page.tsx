@@ -62,7 +62,7 @@ export default function ApplicationsPage() {
     const [a, r, w] = await Promise.all([
       s.from("applications").select("*").order("applied_at", { ascending: false, nullsFirst: false }).limit(3000),
       s.from("resumes").select("id,name,style,ats_score,target_role_id,kind"),
-      s.from("agent_tasks").select("*").in("status", ["queued", "running", "waiting_code", "needs_user", "needs_human", "awaiting_approval"]).order("created_at"),
+      s.from("agent_tasks").select("*").neq("mode", "dry_run").in("status", ["queued", "running", "waiting_code", "needs_user", "needs_human", "awaiting_approval"]).order("created_at"),
     ]);
     setApps((a.data as App[]) || []);
     setWorking((w.data as AgentTask[]) || []);

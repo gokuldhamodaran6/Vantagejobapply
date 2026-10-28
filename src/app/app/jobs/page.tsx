@@ -59,7 +59,7 @@ export default function JobsPage() {
   const loadKnown = useCallback(async () => {
     const s = supabaseBrowser();
     const [t, a] = await Promise.all([
-      s.from("agent_tasks").select("job_id,job,status,finished_at,updated_at").neq("status", "cancelled").order("updated_at", { ascending: false }).limit(3000),
+      s.from("agent_tasks").select("job_id,job,status,finished_at,updated_at").neq("status", "cancelled").neq("mode", "dry_run").order("updated_at", { ascending: false }).limit(3000),
       s.from("applications").select("job_id,job,applied_at").not("applied_at", "is", null).limit(3000),
     ]);
     const byJob = new Map<string, Known>();
