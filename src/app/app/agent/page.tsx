@@ -159,7 +159,8 @@ export default function AgentPage() {
   const needs = live.filter((t) => NEEDS_YOU.includes(t.status) || (t.status === "waiting_code" && codeNeedsYou(t, hasMailbox, now)));
   // Jobs waiting only on questions: answered together, once (site terms and live runs keep their own cards).
   const askTasks = needs.filter((t) => t.status === "needs_user" && (t.needs || []).length > 0 && !(t.needs || []).some((n) => n.live || n.kind === "consent"));
-  const today = new Date(new Date(now).setHours(0, 0, 0, 0)).getTime();
+  // "Today" is the same day the daily limit counts (it resets at midnight UTC), so the numbers on this page agree.
+  const today = limitDayStart(now);
   const appliedToday = ix.filter((t) => t.status === "submitted" && Date.parse(t.finished_at || t.updated_at) >= today).length;
   const week = ix.filter((t) => t.status === "submitted" && Date.parse(t.finished_at || t.updated_at) >= now - 7 * 864e5).length;
   const liveNow = live.filter((t) => ["running", "waiting_code", "needs_human"].includes(t.status)).sort((a, b) => Date.parse(b.updated_at) - Date.parse(a.updated_at));
@@ -292,7 +293,7 @@ export default function AgentPage() {
 
         {/* Daily limit */}
         <div className="px-5 pb-4 sm:px-6">
-          <div className="flex items-center justify-between text-xs text-muted"><span>{usedToday} of {limit} applications used today</span>{profile?.agent_enabled && setup && (() => {
+          <div className="flex items-center justify-between text-xs text-muted"><span>{usedToday} of {limit} applications used today · resets {new Date(limitDayStart(now) + 864e5).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</span>{profile?.agent_enabled && setup && (() => {
             const runs = todaysRuns(setup.schedule, now);
             const nextRun = runs.find((r) => r.state === "next");
             return <Link href="/app/settings#schedule" className="hover:text-brand-ink">{nextRun ? `Next run ${nextRun.label}` : inQuietHours(setup.schedule, now) ? "Quiet hours — resumes in the morning" : "Checks for new jobs every 10 min"}</Link>;
