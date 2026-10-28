@@ -4,6 +4,7 @@ import { sameMeaning } from "../src/lib/agent/fields";
 import { runNow, todaysRuns, cleanSchedule } from "../src/lib/agent/schedule";
 import { classifyMail, nextStatus } from "../src/lib/mail-classify";
 import { extractCode } from "../src/lib/mail-code";
+import { verifyLink } from "../src/lib/mail";
 // Quick sanity checks for the eligibility engine. Run: npx tsx scripts/selftest.ts
 import { jobTypeOf, matchJob, workModeOf, workModeOk } from "../src/lib/jobs/match";
 import { autoSkipReason, interleaveByPriority, shareOfLimit, taskPriority } from "../src/lib/agent/plan";
@@ -463,6 +464,15 @@ async function precheckChecks() {
     { isRequired: true, field: { title: "Resume", type: "File" } },
   ] }] } } } });
   ok(ab.length === 4 && ab[1].options?.join() === "Yes,No" && ab[2].options?.length === 2 && ab[3].type === "file", "precheck: Ashby form fields are read with types and options");
+}
+
+// Verification links: the real activation link wins over click-trackers and policy links (Vanguard's Workday email).
+{
+  const wd = "https://vanguard.wd5.myworkdayjobs.com/vanguard_external/activate/r604jj/?redirect=%2Fen-US%2Fvanguard_external%2Fjob%2Fapply";
+  const html = `<a href="https://click.vanguardhr.com/ls/click?upn=abc">Click here</a> <a href="https://investor.vanguard.com/privacy">Privacy Policy</a>`;
+  ok(verifyLink(html, `Click this link to confirm your email address ${wd}`) === wd, "mail: Workday activation link found in the text part even when HTML links are tracked");
+  ok(verifyLink(`<a href="https://acme.wd1.myworkdayjobs.com/ext/activate/tok123">Verify</a>`, "") === "https://acme.wd1.myworkdayjobs.com/ext/activate/tok123", "mail: Workday activation link found in HTML");
+  ok(verifyLink(`<a href="https://x.com/privacy">p</a>`, "Your code is 123456") === null, "mail: no link when there is only a privacy link");
 }
 
 plannerChecks().then(precheckChecks).then(aiMeterChecks).then(() => {

@@ -24,7 +24,8 @@ export async function POST(req: Request) {
   const { data: bank } = await ctx.supabase.from("answer_bank").select("qkey,question");
   const known = (bank as { qkey: string; question: string }[]) || [];
   const answered = (n: Need) => known.some((b) => b.qkey === (n.qkey || qkeyOf(n.label)) || (!n.locked && !lockedKind(n.label.toLowerCase()) && sameMeaning(n.label, b.question || b.qkey)));
-  const { data: waiting } = await ctx.supabase.from("agent_tasks").select("id,needs").eq("status", "needs_user");
+  const { data: waiting, error: wErr } = await ctx.supabase.from("agent_tasks").select("id,needs").eq("status", "needs_user");
+  if (wErr) return json({ error: wErr.message }, 500);
   let freed = 0;
   for (const t of (waiting as { id: string; needs: Need[] }[]) || []) {
     const needs = t.needs || [];
@@ -32,7 +33,8 @@ export async function POST(req: Request) {
     // One-time code boxes are filled from the mailbox on the next run, never from saved answers.
     // Voluntary self-ID questions are answered "decline" by the agent itself unless you saved an answer.
     if (!needs.every((n) => isCodeQuestion(n.label || "") || (isVoluntaryId(n.label || "") && !n.locked) || answered(n))) continue;
-    const { data } = await ctx.supabase.from("agent_tasks").update({ status: "queued", needs: [], error: null, locked_at: null, step: "Back in line — you answered its questions" }).eq("id", t.id).eq("status", "needs_user").select("id");
+    const { data, error: upErr } = await ctx.supabase.from("agent_tasks").update({ status: "queued", needs: [], error: null, locked_at: null, step: "Back in line — you answered its questions" }).eq("id", t.id).eq("status", "needs_user").select("id");
+    if (upErr) return json({ error: `Your answers are saved, but the jobs couldn't be put back in line: ${upErr.message}` }, 500);
     if (data?.length) freed++;
   }
   if (freed) void wakeWorker();

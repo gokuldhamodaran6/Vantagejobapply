@@ -132,12 +132,33 @@ export function classify(fromAddr: string, fromName: string, subject: string, te
   const code = kind === "verification" ? extractCode(text || html.replace(/<[^>]+>/g, " ")) : null;
   let link: string | null = null;
   if (kind === "verification") {
-    const hrefs = [...html.matchAll(/href=["']([^"']+)["']/gi)].map((x) => x[1].replace(/&amp;/g, "&"));
-    const urls = hrefs.length ? hrefs : text.match(/https?:\/\/[^\s<>"')]+/g) || [];
-    link = urls.find((u) => /verif|confirm|activate|validate|token|auth|magic|login|signin|sign-in|password/i.test(u) && !/unsubscribe|privacy|help|support/i.test(u)) || null;
+    link = verifyLink(html, text);
   }
   const company = guessCompany(fromAddr, fromName, subject);
   return { kind, sure, code, link, company };
+}
+
+/**
+ * The account-confirmation link in a verification email. Looks at both the HTML links and the plain-text URLs
+ * (some senders wrap HTML links in click-trackers while the text part has the real link), and prefers a careers
+ * site's own activation URL — e.g. Workday's …myworkdayjobs.com/<site>/activate/<token> — over anything else.
+ */
+export function verifyLink(html: string, text: string): string | null {
+  const hrefs = [...(html || "").matchAll(/href=["']([^"']+)["']/gi)].map((x) => x[1].replace(/&amp;/g, "&"));
+  const plain = (text || "").match(/https?:\/\/[^\s<>"')\]]+/g) || [];
+  const urls = [...new Set([...plain, ...hrefs])].filter((u) => /^https?:\/\//i.test(u));
+  const bad = /unsubscribe|privacy|terms|\/help|support|preferences|mailto:/i;
+  const score = (u: string) => {
+    let path = u;
+    try { path = new URL(u).pathname; } catch { /* keep raw */ }
+    if (bad.test(path)) return -1;
+    if (/myworkdayjobs\.com|myworkdaysite\.com|workday\.com/i.test(u) && /\/activate\//i.test(u)) return 10;
+    if (/\/(activate|verify|verification|confirm)(\/|\?|$)/i.test(path)) return 6;
+    if (/verif|confirm|activate|validate|magic|signin|sign-in|login|token|auth/i.test(u)) return 3;
+    return -1;
+  };
+  const best = urls.map((u) => ({ u, s: score(u) })).filter((x) => x.s > 0).sort((a, b) => b.s - a.s)[0];
+  return best ? best.u.replace(/[.,;]+$/, "") : null;
 }
 
 function guessCompany(addr: string, name: string, subject: string): string | null {

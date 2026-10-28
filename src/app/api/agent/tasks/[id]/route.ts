@@ -123,7 +123,11 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
         return json({ ok: true, live: true });
       }
       if (["queued", "awaiting_approval"].includes(task.status)) {
-        if (!(await set({ status: "queued", priority: 0, needs: [], error: null, locked_at: null, user_input: input }, ["queued", "awaiting_approval"]))) return moved();
+        // Moving to the front goes through apply_now (queue priority is server-controlled), then the run is marked as watched.
+        const { data: ok, error } = await ctx.supabase.rpc("apply_now", { p_task: id });
+        if (error) return json({ error: error.message }, 409);
+        if (!ok) return moved();
+        await set({ user_input: input });
       } else if (["failed", "manual", "needs_user", "cancelled"].includes(task.status)) {
         const { data: ok, error } = await ctx.supabase.rpc("apply_now", { p_task: id });
         if (error) return json({ error: error.message }, 409);
