@@ -34,10 +34,10 @@ Fills job applications on company careers sites with your profile, saved answers
 > • Private answers stay private: work-authorisation and voluntary equal-opportunity answers are typed by Vantage itself and never shown to AI.
 > • Every application is added to your Vantage tracker automatically.
 >
-> Requires a Vantage account (https://vantagejobapply.onrender.com). Vantage never types your own passwords, never solves CAPTCHAs, and stops on sites that ask applicants not to use automated tools.
+> Requires a Vantage account (https://vantage-app-aht2.onrender.com). Vantage never types your own passwords, never solves CAPTCHAs, and stops on sites that ask applicants not to use automated tools.
 
-**Website:** https://vantagejobapply.onrender.com · **Support:** your support email
-**Privacy policy URL:** https://vantagejobapply.onrender.com/legal/privacy (section "The Vantage Chrome extension")
+**Website:** https://vantage-app-aht2.onrender.com · **Support:** your support email
+**Privacy policy URL:** https://vantage-app-aht2.onrender.com/legal/privacy (section "The Vantage Chrome extension")
 
 ## Privacy practices tab
 
