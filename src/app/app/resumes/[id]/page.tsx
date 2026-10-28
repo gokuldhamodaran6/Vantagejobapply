@@ -1,7 +1,7 @@
 "use client";
 import Link from "next/link";
 import { use, useEffect, useMemo, useState } from "react";
-import { ArrowLeft, Download, Plus, Trash2 } from "lucide-react";
+import { ArrowLeft, CheckCircle2, Download, Plus, Trash2, Wand2 } from "lucide-react";
 import { ResumePaper } from "@/components/resume-paper";
 import { Toast } from "@/components/ui";
 import { useMe } from "@/lib/me";
@@ -9,11 +9,12 @@ import { supabaseBrowser } from "@/lib/supabase/client";
 import { extractKeywords, resumeText, scoreResume } from "@/lib/ats";
 import { searchVariants } from "@/lib/jobs/roles";
 import { RESUME_STYLES } from "@/lib/resume/styles";
+import { autoFix, checkResume } from "@/lib/resume/check";
 import type { Resume, ResumeContent, ResumeStyle } from "@/lib/types";
 
 export default function ResumeEditor({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
-  const { roles } = useMe();
+  const { roles, profile } = useMe();
   const [r, setR] = useState<Resume | null>(null);
   const [c, setC] = useState<ResumeContent | null>(null);
   const [keywords, setKeywords] = useState<string[]>([]);
@@ -49,7 +50,14 @@ export default function ResumeEditor({ params }: { params: Promise<{ id: string 
       });
   }, [r, roles]);
 
+  // Arriving from "N things to fix": jump to the check once the resume has loaded.
+  const loaded = Boolean(c);
+  useEffect(() => {
+    if (loaded && window.location.hash === "#r-check") document.getElementById("r-check")?.scrollIntoView({ block: "start" });
+  }, [loaded]);
+
   const report = useMemo(() => (c ? scoreResume(c, keywords) : null), [c, keywords]);
+  const problems = useMemo(() => checkResume(c, profile?.full_name || undefined), [c, profile?.full_name]);
 
   if (!r || !c) return <div className="skeleton h-[600px]" />;
 
@@ -117,6 +125,54 @@ export default function ResumeEditor({ params }: { params: Promise<{ id: string 
               <ul className="mt-2 space-y-1 text-sm">{((r as Resume & { notes?: string[] }).notes || []).map((n) => <li key={n}>• {n}</li>)}</ul>
             </section>
           )}
+          <section id="r-check" className={`card p-5 ${problems.length ? "" : "bg-green-tint/40"}`}>
+            {problems.length === 0 ? (
+              <p className="flex items-center gap-2 font-semibold"><CheckCircle2 size={18} className="text-green-ink" aria-hidden /> Nothing broken — this resume reads cleanly.</p>
+            ) : (() => {
+              const auto = problems.filter((p) => p.kind === "auto");
+              const mine = problems.filter((p) => p.kind === "edit");
+              const go = (p: (typeof problems)[number]) => {
+                const el = document.getElementById(p.index !== undefined ? `r-${p.section}-${p.index}` : `r-${p.section}`);
+                el?.scrollIntoView({ behavior: "smooth", block: "center" });
+                el?.querySelector<HTMLElement>("input,textarea")?.focus({ preventScroll: true });
+              };
+              return (
+                <>
+                  <div className="flex flex-wrap items-center gap-3">
+                    <div className="min-w-0 flex-1">
+                      <p className="font-semibold">Fix my resume</p>
+                      <p className="text-sm text-muted">{problems.length} thing{problems.length > 1 ? "s" : ""} would look broken to a recruiter or an ATS.</p>
+                    </div>
+                    {auto.length > 0 && (
+                      <button className="btn-primary" onClick={() => { setC(autoFix(c, profile?.full_name || undefined)); setDirty(true); setToast(`Fixed ${auto.length} thing${auto.length > 1 ? "s" : ""} — check the preview, then Save`); }}>
+                        <Wand2 size={16} /> Fix {auto.length} for me
+                      </button>
+                    )}
+                  </div>
+                  {auto.length > 0 && (
+                    <ul className="mt-3 space-y-1.5 text-sm">
+                      {auto.map((p) => <li key={p.id} className="flex gap-2"><Wand2 size={14} className="mt-0.5 shrink-0 text-brand" aria-hidden /><span><span className="font-medium">{p.where}</span> — <span className="text-muted">{p.text}</span></span></li>)}
+                    </ul>
+                  )}
+                  {mine.length > 0 && (
+                    <>
+                      <p className="mt-4 text-xs font-bold uppercase tracking-wide text-muted">Only you know these</p>
+                      <ul className="mt-1.5 space-y-1.5 text-sm">
+                        {mine.map((p) => (
+                          <li key={p.id} className="flex items-start gap-2">
+                            <span className="mt-1.5 size-1.5 shrink-0 rounded-full bg-orange" aria-hidden />
+                            <span className="min-w-0 flex-1"><span className="font-medium">{p.where}</span> — <span className="text-muted">{p.text}</span></span>
+                            <button className="shrink-0 text-xs font-semibold text-brand-ink hover:underline" onClick={() => go(p)}>Go to it</button>
+                          </li>
+                        ))}
+                      </ul>
+                    </>
+                  )}
+                </>
+              );
+            })()}
+          </section>
+
           {report && (
             <section className="card p-5">
               <div className="flex items-center gap-4">
@@ -143,7 +199,7 @@ export default function ResumeEditor({ params }: { params: Promise<{ id: string 
             </section>
           )}
 
-          <section className="card space-y-3 p-5">
+          <section id="r-contact" className="card space-y-3 p-5">
             <h2 className="font-semibold">Contact</h2>
             <div className="grid gap-3 sm:grid-cols-2">
               <input className="input" aria-label="Full name" placeholder="Full name" value={c.name || ""} onChange={(e) => up({ name: e.target.value })} />
@@ -155,12 +211,12 @@ export default function ResumeEditor({ params }: { params: Promise<{ id: string 
             </div>
           </section>
 
-          <section className="card space-y-2 p-5">
+          <section id="r-summary" className="card space-y-2 p-5">
             <h2 className="font-semibold">Summary</h2>
             <textarea className="input py-2.5 text-sm" rows={4} aria-label="Summary" value={c.summary || ""} onChange={(e) => up({ summary: e.target.value })} placeholder="2–3 sentences: who you are, years of experience, what you're best at." />
           </section>
 
-          <section className="card space-y-3 p-5">
+          <section id="r-skills" className="card space-y-3 p-5">
             <div className="flex items-center justify-between"><h2 className="font-semibold">Skills</h2><button className="btn-ghost min-h-8 text-xs" onClick={() => up({ skills: [...(c.skills || []), { group: "Tools", items: [] }] })}><Plus size={14} /> Group</button></div>
             {(c.skills || []).map((g, i) => (
               <div key={i} className="flex gap-2">
@@ -171,12 +227,12 @@ export default function ResumeEditor({ params }: { params: Promise<{ id: string 
             ))}
           </section>
 
-          <section className="card space-y-4 p-5">
+          <section id="r-experience" className="card space-y-4 p-5">
             <div className="flex items-center justify-between"><h2 className="font-semibold">Experience</h2><button className="btn-ghost min-h-8 text-xs" onClick={() => up({ experience: [{ title: "", company: "", bullets: [""] }, ...(c.experience || [])] })}><Plus size={14} /> Role</button></div>
             {(c.experience || []).map((e, i) => {
               const set = (patch: Partial<typeof e>) => up({ experience: c.experience!.map((x, j) => (j === i ? { ...x, ...patch } : x)) });
               return (
-                <div key={i} className="rounded-xl border border-line p-3.5">
+                <div key={i} id={`r-experience-${i}`} className={`scroll-mt-24 rounded-xl border p-3.5 ${problems.some((p) => p.section === "experience" && p.index === i && p.kind === "edit") ? "border-orange/50" : "border-line"}`}>
                   <div className="grid gap-2 sm:grid-cols-2">
                     <input className="input" aria-label="Job title" placeholder="Job title" value={e.title} onChange={(ev) => set({ title: ev.target.value })} />
                     <input className="input" aria-label="Company" placeholder="Company" value={e.company} onChange={(ev) => set({ company: ev.target.value })} />
@@ -204,10 +260,10 @@ export default function ResumeEditor({ params }: { params: Promise<{ id: string 
             ))}
           </section>
 
-          <section className="card space-y-3 p-5">
+          <section id="r-education" className="card space-y-3 p-5">
             <div className="flex items-center justify-between"><h2 className="font-semibold">Education</h2><button className="btn-ghost min-h-8 text-xs" onClick={() => up({ education: [...(c.education || []), { degree: "", school: "" }] })}><Plus size={14} /> Degree</button></div>
             {(c.education || []).map((e, i) => (
-              <div key={i} className="grid gap-2 sm:grid-cols-[1fr_1fr_110px]">
+              <div key={i} id={`r-education-${i}`} className="grid scroll-mt-24 gap-2 sm:grid-cols-[1fr_1fr_110px]">
                 <input className="input" aria-label="Degree" placeholder="Degree" value={e.degree} onChange={(ev) => up({ education: c.education!.map((x, j) => (j === i ? { ...x, degree: ev.target.value } : x)) })} />
                 <input className="input" aria-label="School" placeholder="School" value={e.school} onChange={(ev) => up({ education: c.education!.map((x, j) => (j === i ? { ...x, school: ev.target.value } : x)) })} />
                 <input className="input" aria-label="Year" placeholder="MM/YYYY" value={e.end || ""} onChange={(ev) => up({ education: c.education!.map((x, j) => (j === i ? { ...x, end: ev.target.value } : x)) })} />

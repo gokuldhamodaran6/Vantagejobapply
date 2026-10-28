@@ -9,6 +9,7 @@ import { supabaseBrowser } from "@/lib/supabase/client";
 import { timeAgo } from "@/lib/format";
 import { LETTER_TONES, RESUME_STYLES } from "@/lib/resume/styles";
 import { rate, styleStats } from "@/lib/resume/learn";
+import { checkResume } from "@/lib/resume/check";
 import type { Coach } from "@/lib/resume/coach";
 import { RoleCoach } from "@/components/role-coach";
 import type { LetterTone, Resume, ResumeStyle } from "@/lib/types";
@@ -24,7 +25,7 @@ const FIT = {
 } as const;
 
 export default function ResumesPage() {
-  const { userId } = useMe();
+  const { userId, profile } = useMe();
   const [list, setList] = useState<R[] | null>(null);
   const [roles, setRoles] = useState<RoleRow[]>([]);
   const [apps, setApps] = useState<AppLite[]>([]);
@@ -172,6 +173,14 @@ export default function ResumesPage() {
                 <div key={l as string} className="rounded-xl bg-canvas py-2.5"><p className="text-lg font-bold">{n}</p><p className="text-xs text-muted">{l}</p></div>
               ))}
             </div>
+            {(() => {
+              const n = checkResume(master.content, profile?.full_name || undefined).length;
+              return n ? (
+                <Link href={`/app/resumes/${master.id}#r-check`} className="mt-4 flex items-center gap-2 rounded-xl bg-orange-tint px-3 py-2.5 text-sm font-medium text-orange-ink hover:underline">
+                  <PenLine size={15} aria-hidden /> {n} thing{n > 1 ? "s" : ""} to fix — Fix my resume <ArrowRight size={14} className="ml-auto" aria-hidden />
+                </Link>
+              ) : null;
+            })()}
             <p className="mt-4 text-sm text-muted">This is the source of truth: every role resume and job copy is built from it, and nothing is ever invented. Keep it complete — drop a newer file anywhere on this card to update it.</p>
             <div className="mt-auto flex flex-wrap gap-2 pt-4">
               <Link href={`/app/resumes/${master.id}`} className="btn-secondary min-h-9 text-[13px]"><PenLine size={15} /> Review & edit</Link>

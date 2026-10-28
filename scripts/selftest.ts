@@ -18,6 +18,7 @@ import { bestOption, bestName, qkeyOf, buildFacts, coreLabel, placeFromResume, p
 import { siteKey } from "../src/lib/agent/sites";
 import { isJobMail } from "../src/lib/agent/mailsync";
 import { __validate, __line } from "../src/lib/agent/pilot";
+import { autoFix, checkResume } from "../src/lib/resume/check";
 import { testCtx } from "../src/lib/agent/pilot-test";
 import { isPrivateIp } from "../src/lib/net";
 import { parseEventText, parseIcs } from "../src/lib/mail-event";
@@ -308,6 +309,28 @@ ok(isJobMail({ kind: "other", from_addr: "no-reply@us.greenhouse-mail.io", subje
     new Map([[7, { value: "Female" }], [9, { value: "I don't wish to answer" }]]), testCtx());
   ok(Boolean(v.actions[0]?.private) && v.actions[0].i === 7 && v.actions[0].value === "Female" && !v.actions.some((a) => a.value === "Male"), "private: Vantage fills EEO itself; the AI's own pick is dropped");
   ok(v.actions.at(-1)?.i === 10 && v.status === "next" && !v.ask.length, "private: Next stays last and Vantage-filled questions aren't asked");
+}
+
+// Fix my resume: broken entries are found; safe fixes never invent anything.
+{
+  const r = {
+    name: "PRIYA RAMAN", email: "p@x.co", phone: "312 555 0142", summary: "linkedin.com/in/priya",
+    experience: [
+      { title: "ANALYST", company: "Acme", start: "01/2019", end: "12/2020", bullets: ["• Built dashboards for", "sales team, cutting reporting time 40%", ""] },
+      { title: "Senior Analyst", company: "Globex", start: "Jan 2021", end: "Present", bullets: ["Owned forecasting for a $40M line, improving accuracy by 12 points"] },
+      { title: "Senior Analyst", company: "Globex", start: "Jan 2021", end: "Present", bullets: [] },
+      { title: "Intern", company: "", start: "Summer", end: "", bullets: ["Helped"] },
+    ],
+    skills: [{ group: "Tools", items: ["SQL"] }, { group: "Skills", items: ["sql", "Python"] }],
+  };
+  const p = checkResume(r as never, "Priya Raman");
+  const ids = new Set(p.map((x) => x.id.replace(/-\d+-/, "-N-")));
+  ok(["name-case", "summary-url", "exp-N-caps", "exp-N-frag", "exp-N-dup", "skills-dup", "dates-style"].every((k) => ids.has(k)), "fix my resume: names, links, capitals, cut lines, duplicates, mixed dates are found");
+  ok(p.some((x) => x.id === "exp-3-names" && x.kind === "edit") && p.some((x) => x.id === "exp-3-start-bad" && x.kind === "edit"), "fix my resume: missing company and unreadable dates go to the person");
+  const f = autoFix({ ...r, experience: r.experience.slice(0, 3) } as never, "Priya Raman");
+  ok(f.name === "Priya Raman" && f.experience!.length === 2 && f.experience![0].company === "Globex" && f.experience![1].bullets[0] === "Built dashboards for sales team, cutting reporting time 40%", "fix my resume: fixed name, one Globex role first, cut line joined");
+  ok(f.experience![1].start === "Jan 2019" && f.experience![1].title === "Analyst" && (f.links || []).includes("linkedin.com/in/priya") && f.skills!.flatMap((g) => g.items).length === 2, "fix my resume: one date style, normal capitals, link moved, repeats dropped");
+  ok(JSON.stringify(f).length <= JSON.stringify(r).length + 40, "fix my resume: nothing is added");
 }
 
 // AI usage meter: price table, token mapping, and that a call is recorded with its user and feature.

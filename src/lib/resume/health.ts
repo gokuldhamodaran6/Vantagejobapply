@@ -53,7 +53,7 @@ export function tidyResume(c: ResumeContent, fullName?: string): ResumeContent {
       const b = raw.trim();
       if (!b) continue;
       const prev = out[out.length - 1];
-      if (prev && (/^[a-z&(]/.test(b) || /[,;—–-]$/.test(prev) || b.length < 18)) out[out.length - 1] = `${prev.replace(/[;—–-]$/, "")}${/[,]$/.test(prev) ? "" : ","} ${b}`.replace(/\s+/g, " ").replace(/,,/g, ",");
+      if (prev && (/^[a-z&(]/.test(b) || /[,;—–-]$/.test(prev) || b.length < 18)) out[out.length - 1] = `${prev.replace(/[;—–-]$/, "")} ${b}`.replace(/\s+/g, " ");
       else out.push(b);
     }
     return { ...e, bullets: out.map((b) => b.replace(/\.\.$/, ".")) };
