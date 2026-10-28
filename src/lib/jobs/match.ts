@@ -64,21 +64,38 @@ export type MatchCtx = {
   sponsorsLoaded?: Set<string>; // countries whose sponsor register is loaded
 };
 
+/**
+ * What a job's own text says (level, years, visa wording) doesn't depend on who is looking, so it's worked out once per
+ * job and shared by every search and every user (the regexes over each description were most of a search's CPU time).
+ */
+const SIGNALS = new Map<string, ReturnType<typeof analyzeText>>();
+function signalsOf(job: Job) {
+  const k = `${job.id}|${job.title}|${(job.description || "").length}`;
+  let v = SIGNALS.get(k);
+  if (!v) {
+    if (SIGNALS.size > 40_000) SIGNALS.clear();
+    v = analyzeText(job.title, job.description);
+    SIGNALS.set(k, v);
+  }
+  return v;
+}
+
 export function matchJob(job: Job, ctx: MatchCtx): MatchResult {
   const reasons: string[] = [];
   const warnings: string[] = [];
   const blockers: string[] = [];
-  const signals = analyzeText(job.title, job.description);
+  const signals = signalsOf(job);
   let tooSenior = false;
   let stretchUp = false;
 
   // 1. Role fit
   let best: TargetRole | undefined;
   let roleScore = 0;
+  let lower: string | null = null;
   for (const role of ctx.roles.filter((r) => r.active)) {
     let s = roleSimilarity(role.title, job.title);
     if (role.keywords.length && job.description) {
-      const d = job.description.toLowerCase();
+      const d = (lower ??= job.description.toLowerCase());
       const hit = role.keywords.filter((k) => d.includes(k.toLowerCase())).length;
       s = s * 0.75 + (hit / role.keywords.length) * 0.25;
     }

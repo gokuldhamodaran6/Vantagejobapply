@@ -31,9 +31,26 @@ void Bot;
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
-  const { profile, loading } = useMe();
+  const { profile, loading, prefs, roles } = useMe();
   const [drawer, setDrawer] = useState(false);
   const [needs, setNeeds] = useState(0);
+
+  // Instant Live jobs: shortly after any page opens, the default job search and the agent's line are prepared on the
+  // server in the background (shared for a few minutes), so opening Live jobs or Your agent shows results at once.
+  const hasRoles = roles.some((r) => r.active);
+  const country = prefs?.countries?.[0] || "US";
+  useEffect(() => {
+    if (!profile?.onboarding_complete || !hasRoles) return;
+    let last = 0;
+    try { last = Number(sessionStorage.getItem("vantage.warm") || 0); } catch { /* storage blocked */ }
+    if (Date.now() - last < 110_000) return;
+    const t = setTimeout(() => {
+      try { sessionStorage.setItem("vantage.warm", String(Date.now())); } catch { /* storage blocked */ }
+      if (!pathname.startsWith("/app/jobs")) void fetch(`/api/jobs?${new URLSearchParams({ country })}`, { priority: "low" } as RequestInit).catch(() => {});
+      if (!pathname.startsWith("/app/agent")) void fetch("/api/agent/pipeline", { priority: "low" } as RequestInit).catch(() => {});
+    }, 1200);
+    return () => clearTimeout(t);
+  }, [profile?.onboarding_complete, hasRoles, country, pathname]);
 
   // "Your agent needs you" — checked every 25s on every page.
   useEffect(() => {
