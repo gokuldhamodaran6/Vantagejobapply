@@ -159,6 +159,11 @@ async function plannerChecks() {
   const v = Object.fromEntries(plan.fills.map((x) => [x.id, x.value]));
   const ma = plan.missing.find((m) => m.id === "a");
   ok(!v.a && ma?.locked === "work_auth" && ma.suggest === "Yes" && v.b === "United States" && v.c === "Datadog Careers Page" && v.d === "Dhamodaran" && plan.missing.length === 1, "work-authorisation question asked (suggested Yes), other Greenhouse questions answered");
+  const phone = await planFields([
+    { id: "p1", label: "Phone Device Type*", type: "combobox", options: ["Home", "Home Cellular"], required: true },
+    { id: "p2", label: "Phone Device Type", type: "combobox", options: [], required: true },
+  ], { facts, answers: [], job: { title: "PM", company: "NVIDIA" }, resume: null, coverLetter: null, consent: false });
+  ok(phone.fills.find((x) => x.id === "p1")?.value === "Home Cellular" && phone.fills.find((x) => x.id === "p2")?.value === "Mobile" && !phone.missing.length, "phone device type is answered (mobile/cell), never asked");
   const authQ = "Are you legally authorised to work full-time in the country where this job is based?";
   const confirmed = await planFields([
     { id: "a", label: `${authQ}* ${authQ}`, type: "combobox", options: ["Yes", "No"], required: true },

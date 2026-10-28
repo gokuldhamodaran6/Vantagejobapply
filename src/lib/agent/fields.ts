@@ -381,6 +381,11 @@ export async function planFields(
       }
       continue;
     }
+    // Phone device type (Workday, iCIMS): the person's phone is a mobile. Sites word it "Mobile", "Cell", "Home Cellular"…
+    if (/phone (device )?type|type of phone|phone category/.test(label)) {
+      const opt = (f.options || []).find((o) => /mobile|cell/i.test(o)) || (f.options?.length ? null : "Mobile");
+      if (opt) { fills.push({ id: f.id, value: opt }); continue; }
+    }
     const saved = fromBank(f.label);
     const core = coreLabel(f.label);
     const yesNo = (f.options || []).filter((o) => !/^(select|choose|please select|--)/i.test(o.trim())).every((o) => /^(yes|no)\b/i.test(o.trim())) && (f.options || []).length > 0;

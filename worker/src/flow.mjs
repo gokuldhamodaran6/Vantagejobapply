@@ -88,6 +88,10 @@ export async function runTask(bundle, browser) {
     timezoneId: process.env.TZ_DEFAULT || "America/Chicago",
     userAgent: process.env.BROWSER_UA || "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36",
   });
+  // Short waits per action: an element that isn't there in 10 s isn't coming (Playwright's default is 30 s, and a page
+  // with many such fields could stall a run for minutes).
+  context.setDefaultTimeout(10_000);
+  context.setDefaultNavigationTimeout(45_000);
   await context.route("**/*", async (route) => {
     const req = route.request();
     if (["media", "font"].includes(req.resourceType())) return route.abort();
