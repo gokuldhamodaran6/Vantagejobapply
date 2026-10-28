@@ -78,6 +78,14 @@ const DOCS: Record<string, Doc> = {
         ],
       },
       {
+        h: "The Vantage Chrome extension",
+        p: [
+          "The extension fills job applications in your own Chrome when you ask it to (“Fill it here”) or send a job to your Vantage list. On the tab you choose, it reads the application form's questions and the job's title and description, and sends them to Vantage so it can fill the form with your profile, saved answers and tailored resume. It types the answers into that page. It does not read other tabs, your browsing history, passwords, or pages you haven't asked it to fill, and it never presses the final Submit unless you tell it to.",
+          "It stores only a sign-in key for your Vantage account and the state of the application in progress, in your browser. Disconnecting removes the key.",
+          "Limited use: information the extension handles is used only to fill and track your job applications. It is not sold, not used for advertising or credit decisions, not shared except to submit the application you asked for to that employer, and not read by people except with your permission, for security, or where the law requires. Equal-opportunity and work-authorisation answers are typed by Vantage itself and never shown to AI.",
+        ],
+      },
+      {
         h: "International transfers",
         p: [
           "Vantage is hosted in the United States (Supabase database in the US East region; Render application hosting in the US), and our AI providers process data in the US. If you are outside the US, your information is transferred there. Where required, transfers are protected by safeguards such as standard contractual clauses. Vantage isn't yet available to residents of Québec.",

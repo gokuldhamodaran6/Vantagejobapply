@@ -46,3 +46,18 @@ const zip = join(here, "../public/vantage-extension.zip");
 rmSync(zip, { force: true });
 execFileSync("zip", ["-qr", zip, ...readdirSync(out)], { cwd: out });
 console.log("built", out, "→", zip);
+
+// Chrome Web Store package: the same files, without the "key" field (the store assigns the extension its own ID and
+// refuses uploads that carry a key).
+const storeDir = join(here, "dist-store");
+rmSync(storeDir, { recursive: true, force: true });
+cpSync(out, storeDir, { recursive: true });
+const { key: _key, ...storeManifest } = manifest;
+void _key;
+writeFileSync(join(storeDir, "manifest.json"), JSON.stringify(storeManifest, null, 2));
+const storeZip = join(here, "store", `vantage-extension-store-${manifest.version}.zip`);
+mkdirSync(join(here, "store"), { recursive: true });
+rmSync(storeZip, { force: true });
+execFileSync("zip", ["-qr", storeZip, ...readdirSync(storeDir)], { cwd: storeDir });
+rmSync(storeDir, { recursive: true, force: true });
+console.log("store package →", storeZip);

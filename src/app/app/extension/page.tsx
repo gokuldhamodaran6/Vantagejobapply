@@ -5,23 +5,35 @@ import { PageHeader } from "@/components/app-shell";
 import { Toast } from "@/components/ui";
 import { timeAgo } from "@/lib/format";
 
-/** The extension's fixed ID (from the public key in its manifest). */
-const EXT_ID = "emeljhngmongcbfjioceeegbfamjdbpn";
+/**
+ * The extension's IDs: the download from Vantage has a fixed ID (from the public key in its manifest); the Chrome Web
+ * Store gives its copy its own ID, set in NEXT_PUBLIC_EXT_STORE_ID once it's published. Whichever is installed answers.
+ */
+const EXT_IDS = [process.env.NEXT_PUBLIC_EXT_STORE_ID, "emeljhngmongcbfjioceeegbfamjdbpn"].filter((x): x is string => Boolean(x));
 type Key = { id: string; label: string; created_at: string; last_used_at: string | null };
 type ChromeRuntime = { sendMessage: (id: string, msg: unknown, cb: (r: unknown) => void) => void; lastError?: { message?: string } };
 const runtime = (): ChromeRuntime | null => (globalThis as unknown as { chrome?: { runtime?: ChromeRuntime } }).chrome?.runtime || null;
 
-function ask(msg: unknown): Promise<{ ok?: boolean; connected?: boolean; version?: string } | null> {
+type Reply = { ok?: boolean; connected?: boolean; version?: string } | null;
+function askOne(id: string, msg: unknown): Promise<Reply> {
   const rt = runtime();
   if (!rt?.sendMessage) return Promise.resolve(null);
   return new Promise((resolve) => {
     try {
-      rt.sendMessage(EXT_ID, msg, (r) => resolve(rt.lastError ? null : (r as { ok?: boolean }) || null));
+      rt.sendMessage(id, msg, (r) => resolve(rt.lastError ? null : (r as Reply) || null));
     } catch {
       resolve(null);
     }
     setTimeout(() => resolve(null), 1500);
   });
+}
+/** Ask every known copy; the first that answers (the one installed) wins. */
+async function ask(msg: unknown): Promise<Reply> {
+  for (const id of EXT_IDS) {
+    const r = await askOne(id, msg);
+    if (r) return r;
+  }
+  return null;
 }
 
 export default function ExtensionPage() {
