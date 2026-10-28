@@ -173,6 +173,13 @@ async function handle(req: Request, op: string) {
       return j({ ok: true, task: t });
     }
 
+    if (op === "pause") {
+      // The worker is restarting for an update: the run goes back in line unless Submit was already pressed.
+      if (body.submitPressed) await rpc("update", { task_id: taskId, submit_clicked: true });
+      const t = await rpc<{ status: string } | null>("pause", { task_id: taskId });
+      return j({ ok: true, status: t?.status || null });
+    }
+
     if (op === "poll") {
       // Worker waits for: user-entered code, "I finished the human check", cancellation, or a verification email.
       const t = await rpc<{ status: string; user_input: Record<string, unknown>; user_id: string; apply_url: string; started_at: string | null; locked_at: string | null; job: { company: string } } | null>("task", { task_id: taskId });

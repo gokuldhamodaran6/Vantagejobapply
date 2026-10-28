@@ -11,7 +11,8 @@ import type { ResumeContent } from "@/lib/types";
  * Safety is enforced here, not trusted to the AI:
  * - Contact details never reach the AI: it sees {{placeholders}}, filled in after it answers.
  * - Eligibility answers (visa, right to work, citizenship, record, pay history, clearance, age) and EEO answers come
- *   only from the person's own saved answers/profile; anything else is asked.
+ *   only from the person's own saved answers/profile; anything else is asked. They are private: the AI never sees
+ *   them — not the saved answer, not what the page shows, not in history. Vantage fills those controls itself.
  * - Final Submit is never pressed by the pilot; it reports "ready" with the button instead.
  * - Password boxes are never touched (the account step is handled separately with the per-site vault login).
  */
@@ -26,7 +27,9 @@ export type PilotSnapshot = {
   /** Each section heading with what it already shows (entries already added, etc.). */
   outline?: string[];
 };
-export type PilotAction = { do: "fill" | "set" | "choose" | "click" | "upload" | "key" | "wait" | "scroll" | "clear"; i?: number; value?: string; file?: "resume" | "cover_letter"; key?: string; ms?: number };
+export type PilotAction = { do: "fill" | "set" | "choose" | "click" | "upload" | "key" | "wait" | "scroll" | "clear"; i?: number; value?: string; file?: "resume" | "cover_letter"; key?: string; ms?: number;
+  /** A private answer (EEO, eligibility) Vantage filled itself: its value is never shown to the AI, even in history. */
+  private?: boolean };
 export type PilotResult = { ok: boolean; note?: string; chosen?: string; options?: string[]; value?: string };
 export type PilotHistory = { say?: string; actions: PilotAction[]; results: PilotResult[]; url?: string; notes?: string[] }[];
 export type PilotStatus = "continue" | "next" | "ready" | "account" | "ask" | "done" | "stuck" | "handoff";
@@ -71,11 +74,13 @@ function factValue(f: Facts, k: string) {
   return typeof e[1] === "function" ? e[1](f) : (f[e[1]] as string) || "";
 }
 /** Real values → {{placeholders}} in anything shown to the AI. Longest values first, so "Gokul D" beats "Gokul". */
-function masker(f: Facts) {
+function masker(f: Facts, privateValues: string[] = []) {
   const pairs = PH.map(([n]) => [factValue(f, n) || "", `{{${n}}}`] as [string, string]).filter(([v]) => v && v.length >= 3);
+  // Private answers (gender, race, veteran, disability, visa…) shown back on a review page are hidden too.
+  for (const v of privateValues) pairs.push([v, "(private answer)"]);
   pairs.sort((a, b) => b[0].length - a[0].length);
   const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const res = pairs.map(([v, p]) => [new RegExp(esc(v), "gi"), p] as [RegExp, string]);
+  const res = pairs.map(([v, p]) => [new RegExp(p === "(private answer)" ? `\\b${esc(v)}\\b` : esc(v), "gi"), p] as [RegExp, string]);
   const phoneRe = f.phone.replace(/\D/g, "").length >= 7 ? new RegExp(f.phone.replace(/\D/g, "").slice(-7).split("").join("[^0-9]{0,3}"), "g") : null;
   return (s: string | undefined | null) => {
     if (!s) return s || "";
@@ -187,14 +192,33 @@ async function suggestions(snap: PilotSnapshot, ctx: PilotCtx): Promise<Map<numb
   return out;
 }
 
+/** EEO and eligibility questions: answered only from the person's own answers, and never shown to the AI. */
+export function isPrivate(it: PilotItem | undefined) {
+  if (!it || !it.label) return false;
+  return Boolean(lockedKind(it.label)) || EEO.test(meaning(it));
+}
+
 /* ---------------- what the AI sees ---------------- */
-function line(it: PilotItem, s: Suggestion | undefined, mask: (x: string) => string) {
+function line(it: PilotItem, s: Suggestion | undefined, mask: (x: string) => string, ownerPrivate = false) {
   const parts = [`[${it.i}] ${it.kind}`];
   if (it.label) parts.push(JSON.stringify(mask(it.label).slice(0, 160)));
   if (it.kind === "option") {
     if (it.of !== undefined) parts.push(`(in [${it.of}])`);
     if (it.more) parts.push("› has sub-options");
-    if (it.selected) parts.push("✓selected");
+    if (it.selected && !ownerPrivate) parts.push("✓selected");
+    return parts.join(" ");
+  }
+  const priv = isPrivate(it);
+  if (priv) {
+    // The AI only learns that this is handled — never the answer.
+    const answered = it.kind === "checkbox" ? it.value === "checked" : Boolean(it.value);
+    if (it.required) parts.push("REQUIRED");
+    if (it.section) parts.push(`§ ${mask(it.section).slice(0, 60)}`);
+    if (s?.ask) parts.push(s.ask.locked ? "→ LOCKED: only the applicant answers this (ask)" : "→ ASK the applicant (no saved answer)");
+    else if (s && (s.value || s.check !== undefined)) parts.push("→ PRIVATE: Vantage fills this itself from the applicant's own answer — don't touch it");
+    else if (answered) parts.push("→ PRIVATE: already answered — leave it");
+    else parts.push("→ PRIVATE: leave it (only the applicant answers this)");
+    if (it.error && !s?.value) parts.push("⚠ needs an answer");
     return parts.join(" ");
   }
   if (it.value !== undefined && it.kind !== "button" && it.kind !== "link") parts.push(`= ${JSON.stringify(mask(it.value).slice(0, 120))}`);
@@ -215,6 +239,8 @@ function line(it: PilotItem, s: Suggestion | undefined, mask: (x: string) => str
   }
   return parts.join(" ");
 }
+
+export const __line = line;
 
 const SYSTEM = `You are Vantage Pilot. You complete a job application in a real web browser for an applicant, like a careful human assistant sitting at their computer. Each turn you see the current page as a numbered list of controls and decide the next actions. Work fast but never guess facts.
 
@@ -239,6 +265,7 @@ VALUES:
 - Contact details are placeholders you write literally: {{first_name}} {{last_name}} {{full_name}} {{preferred_name}} {{email}} {{phone}} {{phone_national}} {{phone_digits}} {{address_line1}} {{postal_code}} {{linkedin}} {{github}} {{website}}. Use {{phone_national}} when the page has a separate country-code control. Never write real contact details yourself.
 - A control marked "→ use X" has the applicant's own answer: use exactly X (pick the option that means X). "(APPROVED — exactly)" must not change at all.
 - "→ LOCKED" or "→ ASK": never answer it yourself; put it in "ask" with the question and options. Eligibility (visa, sponsorship, right to work, citizenship), criminal record, pay history, clearance, age, and gender/race/ethnicity/veteran/disability are ONLY ever answered from "→ use".
+- "→ PRIVATE": Vantage fills it itself (the answer is private). Don't act on it or its options, don't ask about it, and treat it as answered.
 - Work history and education sections: fill them from RESUME, entry by entry, most recent first. Add EVERY job on the resume (up to 6) and EVERY school (up to 3), even when the form only requires one — recruiters and the employer's screening read these fields. Count the entries already listed on the page before adding more; never duplicate one. Click "Add"/"Add Another"/"Add Experience" to create each entry. Job title, company, location, from/to dates (month + year; for spin-buttons type digits like "03" and "2024"), "I currently work here" for a current job, and a short role description from that job's bullets. Never invent employers, dates, degrees or numbers.
 - Skills lists: add up to 10 relevant skills from the resume (type one, pick it, repeat).
 - "How did you hear about us": use the "→ use" answer if given; otherwise the company's careers site / website, else "Other". Never claim a referral or an employee you don't know.
@@ -262,8 +289,16 @@ HOW TO WORK:
 
 Reply with ONLY JSON: {"say":"<6-12 words for the applicant: what you're doing>","actions":[...],"status":"...","submit":N?,"ask":[{"i":N,"question":"...","options":[...]}]?}`;
 
+/** The person's private answers worth hiding in page text: distinctive ones only (not "Yes"/"No"). */
+function privateValues(ctx: PilotCtx) {
+  const f = ctx.facts as unknown as Record<string, string | undefined>;
+  const vals = ["gender", "race", "hispanic", "veteran", "disability", "pronouns"].map((k) => f[k] || "");
+  for (const a of ctx.answers) if (lockedKind(a.question || a.qkey) || EEO.test(a.question || a.qkey)) vals.push(a.answer);
+  return [...new Set(vals.map((v) => String(v).trim()).filter((v) => v.length >= 4 && v.length <= 80 && !/^(yes|no|none|n\/a)\b/i.test(v) && !/decline|wish|prefer not|choose not|rather not|not to (answer|disclose|self)/i.test(v)))];
+}
+
 export async function pilotStep(snap: PilotSnapshot, history: PilotHistory, ctx: PilotCtx): Promise<PilotTurn> {
-  const mask = masker(ctx.facts);
+  const mask = masker(ctx.facts, privateValues(ctx));
   const sugg = await suggestions(snap, ctx);
   // Busy pages (LinkedIn's job list, big footers) can have hundreds of links: the form's own controls and its
   // buttons always make the cut; other links and buttons fill what's left.
@@ -280,12 +315,13 @@ export async function pilotStep(snap: PilotSnapshot, history: PilotHistory, ctx:
     `TEXT: ${mask(snap.excerpt || "").slice(0, 700)}`,
     snap.outline?.length ? `SECTIONS (what each already shows — count existing entries here before adding any):\n${snap.outline.map((o) => `- ${mask(o)}`).join("\n")}` : "",
     "CONTROLS:",
-    ...items.map((it) => line(it, sugg.get(it.i), mask)),
+    ...items.map((it) => line(it, sugg.get(it.i), mask, it.kind === "option" && it.of !== undefined && isPrivate(snap.items.find((x) => x.i === it.of)))),
   ].filter(Boolean).join("\n");
 
   const hist = history.slice(-4).map((h, k) => `#${k + 1} ${h.say ? `(${mask(h.say)}) ` : ""}${h.url && h.url !== snap.url ? `[on ${mask(h.url).slice(0, 80)}] ` : ""}` +
     h.actions.map((a, j) => {
       const r = h.results[j];
+      if (a.private) return `Vantage filled private answer [${a.i}] → ${!r ? "not run" : r.ok ? "ok" : "FAILED"}`;
       const what = `${a.do}${a.i !== undefined ? ` [${a.i}]` : ""}${a.value !== undefined ? ` ${JSON.stringify(mask(a.value).slice(0, 60))}` : ""}${a.file ? ` ${a.file}` : ""}${a.key ? ` ${a.key}` : ""}`;
       const res = !r ? "not run" : r.ok ? `ok${r.chosen ? ` → ${JSON.stringify(mask(r.chosen).slice(0, 60))}` : ""}` : `FAILED${r.note ? `: ${mask(r.note).slice(0, 100)}` : ""}${r.options?.length ? ` options: ${r.options.slice(0, 20).map(mask).join(" | ")}` : ""}`;
       return `${what} → ${res}`;
@@ -368,6 +404,11 @@ export function __validate(p: { say?: string; actions?: PilotAction[]; status?: 
     const g = guarded(it);
     const target = owner(it)!;
     const s = sugg.get(target.i);
+    // Private answers are filled by Vantage below; opening a private list is all the AI may do there.
+    if ((g === "locked" || g === "eeo") && (s?.value || s?.check !== undefined)) {
+      if (a.do === "click" && it.kind !== "option") actions.push({ do: "click", i: it.i });
+      continue;
+    }
     if (g === "locked" || g === "eeo" || g === "approved") {
       // Only the person's own answer may go in. Clicking an option counts as answering.
       const proposed = a.do === "click" && it.kind === "option" ? it.label : a.do === "click" ? null : String(a.value ?? "");
@@ -394,6 +435,7 @@ export function __validate(p: { say?: string; actions?: PilotAction[]; status?: 
       continue;
     }
     const value = a.value === undefined || a.value === null ? undefined : unmask(ctx.facts, String(a.value)).slice(0, target.max || 6000);
+    if (value !== undefined && value.includes("(private answer)")) { notes.push("private answers are filled by Vantage"); continue; }
     // Never type a placeholder we couldn't fill in.
     if (value !== undefined && /\{\{[^}]*\}\}/.test(value)) { notes.push(`no value for ${value.match(/\{\{[^}]*\}\}/)![0]}`); continue; }
     // A county box never gets the state, the city or the country (the AI likes to "help" there).
@@ -407,8 +449,29 @@ export function __validate(p: { say?: string; actions?: PilotAction[]; status?: 
     actions.push({ do: a.do, i: it.i, ...(value !== undefined ? { value } : {}) });
   }
 
+  // Private answers (EEO, eligibility): Vantage fills them itself, first, so a "next" click stays last.
+  const own: PilotAction[] = [];
+  for (const it of snap.items) {
+    if (it.kind === "option" || !isPrivate(it)) continue;
+    const s = sugg.get(it.i);
+    if (!s || s.ask) continue;
+    if (it.kind === "checkbox" && s.check !== undefined) {
+      if ((it.value === "checked") !== s.check) own.push({ do: "set", i: it.i, value: s.check ? "checked" : "unchecked", private: true });
+      continue;
+    }
+    if (!s.value || it.value === s.value) continue;
+    own.push({ do: it.kind === "combobox" ? "choose" : it.kind === "text" || it.kind === "textarea" ? "fill" : "set", i: it.i, value: s.value, private: true });
+  }
+  if (own.length) {
+    actions.unshift(...own);
+    notes.push(`Vantage filled ${own.length} private answer${own.length > 1 ? "s" : ""} itself`);
+    if (status === "ready" || status === "done") status = "continue";
+  }
+
   for (const q of p.ask || []) {
     const it = q.i !== undefined ? byI.get(Number(q.i)) : undefined;
+    const s = it ? sugg.get(owner(it)!.i) : undefined;
+    if (it && isPrivate(owner(it)) && (s?.value || s?.check !== undefined)) continue; // Vantage fills it
     addAsk(it, it ? undefined : q.question, q.options);
   }
   if (status === "ask" && !ask.size) status = "continue";

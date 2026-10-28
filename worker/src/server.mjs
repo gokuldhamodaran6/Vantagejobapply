@@ -1,7 +1,7 @@
 import http from "node:http";
 import { timingSafeEqual } from "node:crypto";
 import { chromium } from "playwright";
-import { call, update } from "./api.mjs";
+import { call, update, halt } from "./api.mjs";
 import { runTask } from "./flow.mjs";
 import { handleLive } from "./live.mjs";
 
@@ -9,6 +9,8 @@ const PORT = Number(process.env.PORT || 10000);
 let running = false;
 let browser = null;
 let lastWork = 0;
+let stopping = false;
+let currentBundle = null;
 const stats = { started: new Date().toISOString(), done: 0, failed: 0, current: null };
 
 async function getBrowser() {
@@ -17,6 +19,11 @@ async function getBrowser() {
     ? await chromium.connectOverCDP(process.env.BROWSER_WS_ENDPOINT)
     : await chromium.launch({
         headless: true,
+        // A restart signal is handled by shutdown() below — the browser stays open so a run that already pressed
+        // Submit can still see the confirmation.
+        handleSIGTERM: false,
+        handleSIGINT: false,
+        handleSIGHUP: false,
         // The browser never sees the worker's secrets.
         env: { HOME: process.env.HOME || "/tmp", PATH: process.env.PATH || "/usr/bin:/bin", TZ: process.env.TZ_DEFAULT || "UTC" },
         args: ["--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu", "--no-zygote", "--disable-file-system", "--js-flags=--max-old-space-size=256"],
@@ -30,6 +37,7 @@ async function drain() {
   running = true;
   try {
     for (;;) {
+      if (stopping) break;
       const bundle = await call("claim").catch((e) => {
         console.error("claim failed", e.message);
         return { task: null };
@@ -41,6 +49,7 @@ async function drain() {
       }
       lastWork = Date.now();
       stats.current = { id: bundle.task.id, company: bundle.task.job?.company };
+      currentBundle = bundle;
       try {
         const b = await getBrowser();
         const result = await runTask(bundle, b);
@@ -48,11 +57,14 @@ async function drain() {
         else if (result === "failed") stats.failed++;
       } catch (e) {
         console.error("run failed", e);
+        if (bundle.shutdown && !bundle.submitPressed) break;
         await update(bundle.task.id, { status: "failed", error: String(e.message || e).slice(0, 300) });
         await browser?.close().catch(() => {});
         browser = null;
       }
       stats.current = null;
+      currentBundle = null;
+      if (stopping) break;
       // Pause between applications so it never looks like a burst.
       await new Promise((r) => setTimeout(r, 2000 + Math.random() * 3000));
     }
@@ -79,7 +91,7 @@ const server = http.createServer(async (req, res) => {
       res.writeHead(401);
       return res.end();
     }
-    drain();
+    if (!stopping) drain();
     res.writeHead(202, { "content-type": "application/json" });
     return res.end(JSON.stringify({ accepted: true, running }));
   }
@@ -87,6 +99,36 @@ const server = http.createServer(async (req, res) => {
   res.writeHead(404);
   res.end();
 });
+
+/**
+ * Safe updates: a new version is starting (Render sends SIGTERM and allows ~30 s). Stop taking jobs; a run that
+ * hasn't pressed Submit goes straight back to the front of the line (the attempt doesn't count) and the new worker
+ * starts it again; a run that already pressed Submit gets a few seconds to see the confirmation, and is otherwise
+ * marked "stopped right after Submit" — never retried, so nothing is ever sent twice.
+ */
+async function shutdown(signal) {
+  if (stopping) return;
+  stopping = true;
+  console.log(`[shutdown] ${signal}: finishing up`);
+  const b = currentBundle;
+  if (b) {
+    b.shutdown = true; // from here on the run never presses Submit (checked right before every press)
+    if (b.submitPressed) {
+      const until = Date.now() + 18_000;
+      while (currentBundle === b && Date.now() < until) await new Promise((r) => setTimeout(r, 500));
+    }
+    if (currentBundle === b) {
+      halt(b.task.id);
+      const r = await call("pause", { taskId: b.task.id, submitPressed: Boolean(b.submitPressed) }).catch((e) => ({ error: e.message }));
+      console.log("[shutdown] run", b.task.id, "→", r.status || r.error);
+    }
+  }
+  server.close();
+  await browser?.close().catch(() => {});
+  process.exit(0);
+}
+process.on("SIGTERM", () => void shutdown("SIGTERM"));
+process.on("SIGINT", () => void shutdown("SIGINT"));
 
 server.listen(PORT, () => console.log(`Vantage agent worker on :${PORT}`));
 // Pilot self-test (only when switched on): fills a copy of a Workday application and logs the result.
@@ -102,6 +144,6 @@ if (process.env.PILOT_SELFTEST === "1") {
 }
 // Safety net: check the queue every minute while recently busy.
 setInterval(() => {
-  if (!running && Date.now() - lastWork < 20 * 60 * 1000) drain();
+  if (!stopping && !running && Date.now() - lastWork < 20 * 60 * 1000) drain();
 }, 60_000);
 drain();

@@ -42,6 +42,11 @@ const FINAL_NEXT = /\b(apply|submit|send|finish|complete|confirm)\b/i;
 /** What the person saw in the review step, keyed the same way on the next run. */
 const normLabel = (l) => String(l || "").toLowerCase().replace(/\s+/g, " ").trim().slice(0, 300);
 
+/** The worker is restarting for an update: never press Submit now (the run goes back in line by itself). */
+function pauseIfStopping(bundle) {
+  if (bundle.shutdown) throw new Stop("paused", "Paused for a Vantage update");
+}
+
 class Stop extends Error {
   constructor(status, message, extra = {}) {
     super(message);
@@ -122,6 +127,7 @@ export async function runTask(bundle, browser) {
     try {
     for (let step = 0; step < (bundle.pilot ? 36 : 14); step++) {
       await holdIfYou(bundle, page);
+      pauseIfStopping(bundle);
       if (Date.now() - started - clock.waited > TASK_BUDGET_MS || Date.now() - started > (bundle.interactive ? 60 * 60 * 1000 : HARD_CAP_MS)) throw new Stop("failed", "Took too long on this site. You can finish it yourself from the job link.");
       // A new visit to a page (even one seen earlier in this run, like a sign-in page) is filled afresh.
       if (page.url() !== bundle.lastUrl) {
@@ -325,8 +331,10 @@ export async function runTask(bundle, browser) {
         // final press, so an interrupted run is never retried (it may already be in the employer's system).
         const last = await call("poll", { taskId: task.id, since: new Date().toISOString(), checkMail: false }).catch(() => ({}));
         if (last.cancelled) throw new Stop("cancelled", "Cancelled");
-        await update(task.id, { submitClicked: true, step: "Submitting" });
+        pauseIfStopping(bundle);
+        // Set in the same tick as the check: a restart from here on waits for this run instead of handing it back.
         bundle.submitPressed = true;
+        await update(task.id, { submitClicked: true, step: "Submitting" });
       }
       if (!finalStep) await holdIfYou(bundle, page);
       if (submit) {
@@ -380,11 +388,17 @@ export async function runTask(bundle, browser) {
     return "submitted";
   } catch (e) {
     const shot = await page.screenshot({ type: "jpeg", quality: 50 }).catch(() => null);
+    // Shutting down for an update: the server already put this run back in line.
+    if (bundle.shutdown && !bundle.submitPressed) return "paused";
     if (e instanceof Stop) {
       await update(task.id, { status: e.status, step: e.message, error: e.status === "failed" || e.status === "manual" ? e.message : null, needs: e.extra.needs, proof: shot ? shot.toString("base64") : undefined, log: e.message });
       return e.status;
     }
     console.error("task error", task.id, e);
+    if (bundle.submitPressed) {
+      await update(task.id, { status: "manual", step: "Stopped right after pressing Submit", error: "Submit was pressed, then the run stopped before the confirmation showed. Check your job email for a receipt before trying again — it may already be sent.", proof: shot ? shot.toString("base64") : undefined, log: "Stopped after Submit was pressed" });
+      return "manual";
+    }
     await update(task.id, { status: "failed", step: "Something went wrong", error: String(e.message || e).slice(0, 300), proof: shot ? shot.toString("base64") : undefined, log: "Stopped after an unexpected error" });
     return "failed";
   } finally {
@@ -750,6 +764,7 @@ async function passCode(bundle, page, ch, purpose = "application") {
       const submit = (await findSubmit(page)) || (await findVerify(page));
       if (submit) {
         if (purpose !== "account") {
+          pauseIfStopping(bundle);
           bundle.submitPressed = true;
           await update(task.id, { submitClicked: true });
         }
@@ -875,7 +890,7 @@ async function waitForHumanInner(task, page, clock) {
 
 /** Stops the person can finish themselves in the in-app browser (not refusals, not anything after Submit). */
 function canHandOff(bundle, e, round) {
-  if (!bundle.interactive || bundle.dry || bundle.submitPressed || e.extra?.final || round >= 6) return false;
+  if (!bundle.interactive || bundle.dry || bundle.submitPressed || bundle.shutdown || e.extra?.final || round >= 6) return false;
   return e.status === "manual" || (e.status === "needs_user" && Array.isArray(e.extra?.needs));
 }
 

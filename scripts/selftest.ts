@@ -17,7 +17,7 @@ import { ruleIntent } from "../src/lib/assistant";
 import { bestOption, bestName, qkeyOf, buildFacts, coreLabel, placeFromResume, planFields, lockedKind } from "../src/lib/agent/fields";
 import { siteKey } from "../src/lib/agent/sites";
 import { isJobMail } from "../src/lib/agent/mailsync";
-import { __validate } from "../src/lib/agent/pilot";
+import { __validate, __line } from "../src/lib/agent/pilot";
 import { testCtx } from "../src/lib/agent/pilot-test";
 import { isPrivateIp } from "../src/lib/net";
 import { parseEventText, parseIcs } from "../src/lib/mail-event";
@@ -295,6 +295,19 @@ ok(isJobMail({ kind: "other", from_addr: "no-reply@us.greenhouse-mail.io", subje
   ok(!v.actions.some((a) => a.i === 1) && !v.actions.some((a) => a.i === 5) && !v.actions.some((a) => a.i === 4), "no phone in extension box, no password typing, no final submit click");
   ok(v.actions.find((a) => a.i === 2)?.value === "Yes" && !v.actions.some((a) => a.i === 3), "eligibility answers only from the applicant; unknown locked questions withheld");
   ok(v.status === "ask" && v.ask.some((q) => q.locked === "conviction"), "missing locked answers are asked before anything is ready to submit");
+}
+// Private answers: EEO and eligibility answers never reach the AI — not the saved answer, not the page's value, not history.
+{
+  const id = (x: string) => x;
+  const g = { i: 7, kind: "combobox", label: "Gender*", value: "", required: true };
+  const a1 = __line(g, { value: "Female" }, id), a2 = __line({ ...g, value: "Female" }, undefined, id);
+  const a3 = __line({ i: 8, kind: "option", label: "Female", of: 7, selected: true }, undefined, id, true);
+  ok(!a1.includes("Female") && !a2.includes("Female") && !a3.includes("selected") && /PRIVATE/.test(a1 + a2), "private: the AI sees neither the saved EEO answer nor the page's selected value");
+  const snap = { url: "x", items: [g, { i: 9, kind: "radio", label: "Are you a protected veteran?", value: "", options: ["Yes", "No", "I don't wish to answer"] }, { i: 10, kind: "button", label: "Next" }] };
+  const v = __validate({ say: "x", status: "next", actions: [{ do: "choose", i: 7, value: "Male" }, { do: "click", i: 10 }], ask: [{ i: 9, question: "Veteran?" }] }, snap,
+    new Map([[7, { value: "Female" }], [9, { value: "I don't wish to answer" }]]), testCtx());
+  ok(Boolean(v.actions[0]?.private) && v.actions[0].i === 7 && v.actions[0].value === "Female" && !v.actions.some((a) => a.value === "Male"), "private: Vantage fills EEO itself; the AI's own pick is dropped");
+  ok(v.actions.at(-1)?.i === 10 && v.status === "next" && !v.ask.length, "private: Next stays last and Vantage-filled questions aren't asked");
 }
 
 // AI usage meter: price table, token mapping, and that a call is recorded with its user and feature.

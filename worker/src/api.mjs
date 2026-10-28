@@ -14,5 +14,10 @@ export async function call(op, body = {}) {
   return j;
 }
 
-export const update = (taskId, patch) => call("update", { taskId, ...patch }).catch((e) => console.error("update failed", e.message));
+// Runs handed back during a restart: late status writes from the old run are dropped so they can't undo the hand-back.
+const halted = new Set();
+export const halt = (taskId) => halted.add(taskId);
+
+export const update = (taskId, patch) =>
+  halted.has(taskId) ? Promise.resolve() : call("update", { taskId, ...patch }).catch((e) => console.error("update failed", e.message));
 export const log = (taskId, text, step) => update(taskId, { log: text, ...(step ? { step } : {}) });

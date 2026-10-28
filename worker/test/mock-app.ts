@@ -15,7 +15,7 @@ const auth = { country: "US", status: "post_study_work" as const, needs_sponsors
 const applicant = { city: "Chicago", state: "IL", postal_code: "60601", address_line1: "1 Main St", country: "United States", phone: "(312) 555-0142", agent_consent: true };
 const answers: { qkey: string; question: string; answer: string }[] = [];
 
-type T = { id: string; ats: string; url: string; job: { title: string; company: string; country: string }; status: string; needs?: unknown; log: string[]; userInput: Record<string, unknown>; attempts: number };
+type T = { id: string; ats: string; url: string; job: { title: string; company: string; country: string }; status: string; needs?: unknown; log: string[]; userInput: Record<string, unknown>; attempts: number; submitClicked?: boolean };
 const tasks: T[] = [
   { id: "t-gh", ats: "greenhouse", url: `${BASE}/fx/greenhouse.html`, job: { title: "Product Marketing Specialist", company: "Acme", country: "US" }, status: "queued", log: [], userInput: {}, attempts: 0 },
   { id: "t-ashby", ats: "ashby", url: `${BASE}/fx/ashby.html`, job: { title: "Growth Marketing Manager", company: "Initech", country: "US" }, status: "queued", log: [], userInput: {}, attempts: 0 },
@@ -91,7 +91,19 @@ const server = http.createServer(async (req, res) => {
     }
   } else if (op === "plan") {
     out = await planFields(body.fields as FormField[], { facts: facts(), answers, job: t!.job, resume, coverLetter: "Dear team,\n\nHello.\n\nSincerely,\nPriya Raman", consent: true });
+  } else if (op === "pause") {
+    // Restart for an update: back in line unless Submit was pressed.
+    if (body.submitPressed) t!.submitClicked = true;
+    if (["running", "waiting_code", "needs_human"].includes(t!.status)) {
+      t!.status = t!.submitClicked ? "manual" : "queued";
+      if (!t!.submitClicked) t!.attempts = Math.max(0, t!.attempts - 1);
+      t!.log.push(t!.submitClicked ? "Stopped during a Vantage update after Submit was pressed" : "Paused for a Vantage update before anything was sent — back in line");
+    }
+    events.push(`${t!.id}: pause → ${t!.status}`);
+    console.log(`[app] ${t!.id} pause → ${t!.status}`);
+    out = { ok: true, status: t!.status };
   } else if (op === "update") {
+    if (body.submitClicked) t!.submitClicked = true;
     if (body.status) t!.status = body.status;
     if (body.needs) t!.needs = body.needs;
     if (body.log) t!.log.push(body.log);

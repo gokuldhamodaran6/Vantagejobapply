@@ -1,6 +1,6 @@
 "use client";
 import { useCallback, useEffect, useState } from "react";
-import { Check, Clock, Copy, Eye, EyeOff, KeyRound, Loader2, Mail, Plus, ShieldCheck, Trash2, X } from "lucide-react";
+import { Check, Clock, Copy, Eye, EyeOff, KeyRound, Loader2, Lock, Mail, Plus, ShieldCheck, Trash2, X } from "lucide-react";
 import { supabaseBrowser } from "@/lib/supabase/client";
 import { useMe } from "@/lib/me";
 import { timeAgo } from "@/lib/format";
@@ -189,6 +189,8 @@ const TOPICS: [string, RegExp][] = [
   ["How you found the job", /hear|learn|refer|source/],
 ];
 const topicOf = (q: string, a: string) => TOPICS.find(([, re]) => re.test(q.toLowerCase()))?.[0] || (a.length > 140 ? "Your stories" : "Other questions");
+// Private topics: these answers are never shown to the AI — Vantage types them into the form itself.
+const PRIVATE_TOPICS = new Set(["Work permit and visa", "Legal statements", "About you (voluntary)"]);
 const STRICT = /sponsor|visa|authori[sz]|eligib|citizen|convict|criminal|felony|veteran|disabilit|gender|race|ethnic|hispanic|salary|clearance|\bage\b|\b18\b/;
 
 export function SavedAnswersCard() {
@@ -218,11 +220,12 @@ export function SavedAnswersCard() {
     <section id="answers" className="card scroll-mt-24 p-5 sm:p-6">
       <h2 className="text-lg font-bold">Your answers</h2>
       <p className="text-sm text-muted">What your agent has learned from you. Ordinary questions are reused whenever a company asks the same thing — even in other words. Statements in your name (visa, legal, voluntary questions) are used only for the exact same question.</p>
+      <p className="mt-2 flex items-start gap-2 rounded-xl bg-canvas p-3 text-xs text-muted"><Lock size={14} className="mt-0.5 shrink-0" aria-hidden /> <span><b className="text-ink">Private answers stay private.</b> Work permit, legal and voluntary (gender, race, veteran, disability) answers are never shown to the AI. Vantage types them into the form itself — the AI only learns that the question is handled.</span></p>
       {rows === null && <div className="skeleton mt-4 h-20" />}
       {rows?.length === 0 && <p className="mt-4 rounded-xl bg-canvas p-4 text-sm text-muted">None yet. When a form asks something only you know, it appears on the Agent page — answer once and it lands here.</p>}
       {order.map((topic) => (
         <div key={topic} className="mt-5">
-          <p className="text-xs font-bold uppercase tracking-wide text-muted">{topic} · {groups.get(topic)!.length}</p>
+          <p className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wide text-muted">{topic} · {groups.get(topic)!.length}{PRIVATE_TOPICS.has(topic) && <span className="inline-flex items-center gap-1 rounded-full bg-canvas px-2 py-0.5 normal-case tracking-normal"><Lock size={10} aria-hidden /> Private — never shown to the AI</span>}</p>
           <ul className="mt-1 divide-y divide-line">
             {groups.get(topic)!.map((r) => {
               const strict = STRICT.test(r.question.toLowerCase());
