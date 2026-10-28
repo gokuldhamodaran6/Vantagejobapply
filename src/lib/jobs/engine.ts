@@ -9,7 +9,7 @@ import { inPreferredPlace } from "./places";
 import { roleKey, autoSkipReason, interleaveByPriority, LIVE_MAX_DAYS, type SkipReason } from "@/lib/agent/plan";
 import { PER_EMPLOYER_30D } from "@/lib/access";
 import { ingestSecret, supabaseAnon } from "@/lib/supabase/server";
-import { keyOf, memo } from "@/lib/memo";
+import { keyOf, memo, peek } from "@/lib/memo";
 import type { Job, MatchResult, TargetPrefs, TargetRole, WorkAuth } from "@/lib/types";
 
 /** Live jobs shows a job for a target when its title fits the target at least this well. */
@@ -131,14 +131,15 @@ function cachedSearch(supabase: SupabaseClient, country: string, tsquery: string
 }
 
 /**
- * The same shared search, for server jobs without a signed-in user (auto-apply): same question, same answer as the
- * person's own Matched & waiting panel — and whichever asks first fills the cache for the other.
+ * The person's own ranked search, if their Live jobs or Matched & waiting asked it in the last 10 minutes (the app warms
+ * it whenever they open a page). Server jobs use it to take exactly what "Up next" showed; they never run it themselves
+ * (too big for the database's limit on server calls).
  */
-export function sharedSearch(country: string, phrases: string[], run: (country: string, tsquery: string, since: string) => Promise<unknown[]>) {
-  const tsquery = titleTsQuery(phrases);
+export function recentSharedSearch(country: string, phrases: string[]): unknown[] | null {
   const since = new Date(Date.now() - LIVE_MAX_DAYS * 864e5).toISOString();
   const hour = new Date(Math.floor(Date.parse(since) / 3_600_000) * 3_600_000).toISOString();
-  return memo(keyOf("search", country, tsquery, hour), SEARCH_TTL, async () => ({ data: await run(country, tsquery, hour), error: null as null | { message: string } }), SEARCH_BUCKET);
+  const hit = peek<{ data: unknown[] }>(keyOf("search", country, titleTsQuery(phrases), hour), SEARCH_BUCKET.bucket);
+  return hit?.data || null;
 }
 
 export async function searchForUser(

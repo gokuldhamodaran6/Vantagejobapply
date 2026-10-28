@@ -31,6 +31,12 @@ export async function memo<T>(key: string, ttlMs: number, fn: () => Promise<T>, 
   return pending;
 }
 
+/** A fresh cached value, if there is one — never computes. */
+export function peek<T>(key: string, bucket = "default"): T | undefined {
+  const e = buckets.get(bucket)?.get(key);
+  return e && !e.pending && Date.now() - e.at < e.ttl ? (e.value as T) : undefined;
+}
+
 /** A short, stable key for any JSON-able input. */
 export function keyOf(...parts: unknown[]) {
   const s = JSON.stringify(parts);
