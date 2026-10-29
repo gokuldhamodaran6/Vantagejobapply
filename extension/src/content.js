@@ -275,10 +275,10 @@
       const bars = Array.from({ length: Math.min(r.total, 12) }, (_, i) => `<span class="${i < r.covered ? "on" : ""}"></span>`).join("");
       const fmt = r.format ? `${esc(r.format.label || r.format.docName)}${r.format.pages ? `, ${r.format.pages} page${r.format.pages > 1 ? "s" : ""}` : ""}` : "";
       const gaps = (r.missing || []).slice(0, 4).map((m) => `<span class="chip">${esc(m)}</span>`).join("");
-      return `<div class="rep"><div class="t">Resume written for this job</div><div class="bar">${bars}</div>
+      return `<div class="rep"><div class="t">Resume and cover letter written for this job</div><div class="bar">${bars}</div>
         <div>Covers <b>${r.covered} of ${r.total}</b> key skills${fmt ? ` · ${fmt}` : ""}${r.harvard && r.harvard.total ? ` · ${r.harvard.ok}/${r.harvard.total} bullets pass Harvard checks` : ""}</div>
         ${gaps ? `<div class="muted" style="margin-top:6px">Not in your history (never added):</div><div class="chips">${gaps}</div>` : ""}
-        ${r.resumeId ? `<div style="margin-top:6px"><a href="${APP}/app/resumes/${esc(r.resumeId)}" target="_blank" rel="noopener">Open the resume ↗</a></div>` : ""}</div>`;
+        ${r.resumeId ? `<div style="margin-top:8px;display:flex;gap:14px;flex-wrap:wrap"><a href="${APP}/api/resume/${esc(r.resumeId)}/pdf?inline=1" target="_blank" rel="noopener">Resume (PDF) ↗</a><a href="${APP}/api/resume/${esc(r.resumeId)}/pdf?kind=cover&inline=1" target="_blank" rel="noopener">Cover letter (PDF) ↗</a><a href="${APP}/app/resumes/${esc(r.resumeId)}" target="_blank" rel="noopener">Edit ↗</a></div>` : ""}</div>`;
     }
     if (tailoring) return `<div class="rep"><span class="spin"></span><b>Writing your resume and cover letter for this job…</b><div class="muted" style="margin-top:4px">Usually 20–40 seconds. Vantage fills the rest of the form meanwhile and attaches the resume when it's ready.</div></div>`;
     return "";

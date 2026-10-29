@@ -284,6 +284,7 @@ HOW TO WORK:
 - After each turn you get the results. If "choose" fails, look at the options it reports or click the control and pick from the listed options next turn. Fix every ⚠ error and every page error.
 - Start pages: "Apply" / "Apply Now" opens the application. On Workday's "Start Your Application" prefer "Apply Manually" (or "Autofill with Resume", then upload the resume). On sign-in choice pages click "Sign in with email" or "Create Account" — never Google/LinkedIn/Indeed sign-in, never "Apply with LinkedIn".
 - Upload the resume wherever a resume/CV upload is offered (also on autofill pages). Upload the cover letter only to a cover-letter control.
+- Never "click" Attach / Upload / Browse / Choose file buttons: that opens the computer's file window and freezes the page. Always use "upload" on the file control. If a previous turn says a file is still being written, leave that control and fill everything else.
 - Never press a FINAL-SUBMIT button; status "ready" instead. On a review page, check it and report "ready".
 - Don't repeat an action that failed twice the same way; try another way or report "stuck".
 

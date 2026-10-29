@@ -36,18 +36,18 @@ function Text({ id, label, required, type = "text" }) {
   );
 }
 
-function Resume() {
+function Upload({ id, label, required }) {
   const [file, setFile] = useState(null);
   return (
-    <div className="file-upload" role="group" aria-labelledby="upload-label-resume">
-      <div id="upload-label-resume" className="label">Resume/CV<span aria-hidden="true">*</span></div>
+    <div className="file-upload" role="group" aria-labelledby={`upload-label-${id}`}>
+      <div id={`upload-label-${id}`} className="label">{label}{required && <span aria-hidden="true">*</span>}</div>
       {file ? (
-        <div className="file-upload__filename"><span>{file}</span> <button type="button" aria-label="Remove file" onClick={() => { setFile(null); state.files = []; }}>×</button></div>
+        <div className="file-upload__filename"><span>{file}</span> <button type="button" aria-label="Remove file" onClick={() => { setFile(null); state.files = state.files.filter((x) => x !== file); }}>×</button></div>
       ) : (
         <div>
-          <button type="button" className="btn" onClick={() => document.getElementById("resume").click()}>Attach</button>
-          <input id="resume" type="file" className="visually-hidden" style={{ position: "absolute", width: 1, height: 1, overflow: "hidden", clip: "rect(0 0 0 0)" }}
-            accept=".pdf,.doc,.docx,.txt,.rtf" onChange={(e) => { const f = e.target.files?.[0]; if (f) { setFile(f.name); state.files = [f.name]; } }} />
+          <button type="button" className="btn" onClick={() => { state.pickerOpened = (state.pickerOpened || 0) + 1; document.getElementById(id).click(); }}>Attach</button>
+          <input id={id} type="file" className="visually-hidden" style={{ position: "absolute", width: 1, height: 1, overflow: "hidden", clip: "rect(0 0 0 0)" }}
+            accept=".pdf,.doc,.docx,.txt,.rtf" onChange={(e) => { const f = e.target.files?.[0]; if (f) { setFile(f.name); state.files = [...state.files, `${id}:${f.name}`]; } }} />
           <button type="button" className="btn">Dropbox</button>
           <button type="button" className="btn">Enter manually</button>
         </div>
@@ -69,7 +69,8 @@ function App() {
         <Text id="email" label="Email" required />
         <Dropdown id="country" label="Country" options={COUNTRIES} required />
         <Text id="phone" label="Phone" required type="tel" />
-        <Resume />
+        <Upload id="resume" label="Resume/CV" required />
+        <Upload id="cover_letter" label="Cover Letter" />
         <Text id="question_1" label="LinkedIn Profile" />
         <Dropdown id="question_2" label="Do you have a non-compete agreement that would limit your ability to seek employment with Umbrella?" options={YESNO} required />
         <Dropdown id="question_3" label="Did an employee refer you to apply?" options={YESNO} required />

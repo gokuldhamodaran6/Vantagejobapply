@@ -3,7 +3,7 @@
 // act(): do one thing a person would do — type, pick from a dropdown (nested ones too), tick, upload, click.
 // It never presses a final Submit/Send button; the caller decides that.
 (() => {
-  const VERSION = 11;
+  const VERSION = 12;
   if (window.__vp && window.__vp.v >= VERSION) return;
 
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -220,6 +220,9 @@
       if (["hidden", "image", "reset"].includes(type)) continue;
       if (!isFile && !visible(el) && !(["radio", "checkbox"].includes(type) && el.closest("label") && visible(el.closest("label")))) continue;
       if (chrome(el) || (!isFile && trap(el))) continue;
+      // The buttons of a file-upload box ("Attach", "Dropbox", "Google Drive", "Enter manually") open file pickers or
+      // other services: the box's file field stands for the question, and the file goes straight into it.
+      if (!isFile && (tagName === "BUTTON" || el.getAttribute("role") === "button" || tagName === "A" || tagName === "LABEL") && inUploadBox(el)) continue;
       // A list where several answers can be picked, always on the page (not a popup): one field with its options.
       if (el.getAttribute("role") === "listbox" && el.getAttribute("aria-multiselectable") === "true") {
         el.setAttribute("data-vp-multi", "1");
@@ -266,10 +269,20 @@
         // The attached file's name is often shown beside the drop zone, not inside it: look a few levels up.
         const FILE_ITEMS = "[data-automation-id*='file-upload-item' i], [data-automation-id*='fileName' i], [data-automation-id*='uploaded' i], [class*='file-name' i], [class*='filename' i], [class*='attachment' i] a, [class*='chip' i], [class*='uploaded' i]";
         let shown = "";
+        // Look only inside this field's own upload box: a neighbouring box (Resume/CV next to Cover Letter) shows its own file.
+        const own = el.closest("[role='group'], fieldset, [data-automation-id*='attachment' i]");
         for (let p = el.parentElement, k = 0; p && k < 5 && !shown; p = p.parentElement, k++) {
           shown = [...p.querySelectorAll(FILE_ITEMS)].map(text).filter((t) => /\.(pdf|docx?|rtf|txt|odt|pages)\b/i.test(t)).join(", ");
+          if (p === own) break;
         }
-        const l = label || (box && text(box).slice(0, 120)) || "File upload";
+        // "Attach" / "Upload" is the button, not the question: name the field by its group ("Resume/CV", "Cover Letter").
+        let l = label || (box && text(box).slice(0, 120)) || "File upload";
+        if (/^(attach|upload|browse|choose( a)? files?|select( a)? files?|drop files?( here)?|file upload|add files?)\*?$/i.test(clean(l))) {
+          const group = el.closest("[role='group'][aria-labelledby], fieldset, [aria-labelledby]");
+          const named = group?.getAttribute("aria-labelledby") ? group.getAttribute("aria-labelledby").split(/\s+/).map((id) => text(byId(group, id))).join(" ") : group?.tagName === "FIELDSET" ? text(group.querySelector("legend")) : "";
+          const hint = clean(`${el.id} ${el.name}`).replace(/[_-]+/g, " ");
+          l = clean(named) || containerLabel(box || el) || (/(resume|cv|cover)/i.test(hint) ? hint : l);
+        }
         add(el, { kind: "file", label: l, value: shown || (el.files?.length ? [...el.files].map((f) => f.name).join(", ") : ""), required: isRequired(el, l), section: sectionOf(el), error: errorOf(el), accept: el.getAttribute("accept") || "" });
         continue;
       }
@@ -382,6 +395,32 @@
       excerpt: clean(main.innerText).slice(0, 900),
       items,
     };
+  }
+
+  // Inside a file-upload widget: a small box with a file input and no other questions.
+  function inUploadBox(el) {
+    for (let p = el.parentElement, k = 0; p && k < 4; p = p.parentElement, k++) {
+      if (!p.querySelector("input[type='file']")) continue;
+      return p.querySelectorAll("input:not([type='file']):not([type='hidden']), select, textarea, [role='combobox']").length === 0;
+    }
+    return false;
+  }
+
+  // The file field behind an "Attach" / "Upload" / "Choose file" button (or its label), if clicking would open a picker.
+  const PICKER = /^(attach|upload|browse|choose( a)? files?|select( a)? files?|add (a )?files?|drop files?|upload (a |your )?(file|resume|cv|cover letter)|attach (a |your )?(file|resume|cv|cover letter))\b/i;
+  function filePickerFor(el, label) {
+    if (el.tagName === "INPUT" && el.type === "file") return el;
+    const lab = el.closest("label");
+    if (lab) {
+      const f = lab.htmlFor ? rootOf(lab).getElementById?.(lab.htmlFor) || document.getElementById(lab.htmlFor) : lab.querySelector("input[type='file']");
+      if (f && f.tagName === "INPUT" && f.type === "file") return f;
+    }
+    if (!PICKER.test(label || "")) return null;
+    for (let p = el.parentElement, k = 0; p && k < 4; p = p.parentElement, k++) {
+      const f = p.querySelector("input[type='file']");
+      if (f) return f;
+    }
+    return null;
   }
 
   /* ---------- acting ---------- */
@@ -690,6 +729,13 @@
       if (a.do === "click") {
         const t = clean(text(el) || el.value || el.getAttribute("aria-label"));
         if (FINAL.test(t) && !a.allowFinal) return { ok: false, note: "final submit is pressed by the person (or the agent's review step), not here" };
+        // "Attach" / "Upload" / "Choose file" open the computer's file picker, which freezes the page behind a system
+        // dialog. Never click them: the file goes straight into their file field instead (the caller uploads it).
+        const picker = filePickerFor(el, t);
+        if (picker) {
+          const idx = picker.getAttribute("data-vp");
+          return { ok: false, fileInput: idx === null ? null : Number(idx), note: "file pickers aren't opened — the file is uploaded straight into the field" };
+        }
         if (item?.kind === "option") {
           const inner = el.querySelector("input[type='radio'], input[type='checkbox']");
           await press(inner || el);

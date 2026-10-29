@@ -9,6 +9,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 const FX = join(here, "../../worker/test/fixtures");
 const calls = [];
 let fileCalls = 0;
+const snapClicked = new Set();
 const ANS = { "first name": "Priya", "last name": "Raman", email: "priya.careers@gmail.com", phone: "(312) 555-0142", "linkedin profile": "https://linkedin.com/in/priya" };
 // A scripted stand-in for the AI pilot, for the Workday copy: checks the extension's loop, actions and uploads.
 const RULES = [
@@ -32,6 +33,12 @@ function fakePilot(snap) {
     if (add) return { say: "Adding your work history", status: "continue", actions: [{ do: "click", i: add.i }] };
   }
   const actions = [];
+  // CLICK_ATTACH: behave like an AI that clicks the page's "Attach" button instead of uploading (opens a file picker).
+  if (process.env.CLICK_ATTACH) {
+    const emptyFile = it.find((x) => x.kind === "file" && !x.value);
+    const attach = emptyFile && it.find((x) => x.kind === "button" && /^attach$/i.test(x.label) && !snapClicked.has(x.i));
+    if (attach) { snapClicked.add(attach.i); return { say: "Attaching", status: "continue", actions: [{ do: "click", i: attach.i }] }; }
+  }
   for (const x of it) {
     const empty = x.kind === "file" ? !x.value : x.kind === "checkbox" ? x.value !== "checked" : !x.value;
     if (!empty) continue;
@@ -85,7 +92,8 @@ const server = http.createServer(async (req, res) => {
     if (url.pathname === "/api/ext/file") {
       fileCalls++;
       if (fileCalls <= Number(process.env.FILE_PENDING || 0) && url.searchParams.get("now") !== "1") { res.writeHead(202, { "content-type": "application/json" }); return res.end(JSON.stringify({ pending: true })); }
-      return j({ name: "Priya_Raman_Resume.pdf", mimeType: "application/pdf", base64: Buffer.from("%PDF-1.4 test").toString("base64") });
+      const cover = url.searchParams.get("kind") === "cover_letter";
+      return j({ name: cover ? "Priya_Raman_Cover_Letter.pdf" : "Priya_Raman_Resume.pdf", mimeType: "application/pdf", base64: Buffer.from("%PDF-1.4 test").toString("base64") });
     }
     if (url.pathname === "/api/ext/status") {
       const ready = fileCalls >= Number(process.env.FILE_PENDING || 0);
@@ -127,7 +135,7 @@ if (process.env.OPEN_FROM_SITE) {
 }
 await page.waitForTimeout(1500);
 if (process.env.FAKE_PILOT) {
-  const st = await page.evaluate(() => window.__state && { page: window.__state.page, values: window.__state.values, files: window.__state.files, work: window.__state.work?.length, trap: window.__state.trapped || null });
+  const st = await page.evaluate(() => window.__state && { pickerOpened: window.__state.pickerOpened || 0, page: window.__state.page, values: window.__state.values, files: window.__state.files, work: window.__state.work?.length, trap: window.__state.trapped || null });
   console.log("WORKDAY COPY STATE:", JSON.stringify(st, null, 1));
   if (process.env.SUBMIT_FOR_ME) {
     await sw.evaluate(async () => { const [t] = await chrome.tabs.query({ url: "http://127.0.0.1:4300/*" }); await onPanel(t.id, { action: "submit_now" }); });
@@ -148,6 +156,8 @@ if (process.env.SUBMIT) {
   await page.waitForTimeout(5000);
   console.log("after submit:", page.url());
 }
+if (process.env.DEBUG_STATE) console.log("dbg:", JSON.stringify(await sw.evaluate(async () => (await chrome.storage.session.get("dbg")).dbg)));
+if (process.env.DEBUG_STATE) console.log("ext state:", JSON.stringify(await sw.evaluate(async () => { const tabs = await chrome.tabs.query({}); const out = []; for (const t of tabs) { const st = await store.tab(t.id); if (st) out.push({ fileReady: st.fileReady, tailoring: st.tailoring, report: Boolean(st.report), waiting: st.waiting, history: (st.history || []).map((h) => [h.say, (h.actions || []).map((a) => a.do + ":" + a.i + (a.file ? ":" + a.file : "")).join(","), (h.results || []).map((r) => r && (r.ok ? "ok" : r.note)).join("|")]) }); } return out; })).slice(0, 3000));
 console.log("panel:", await page.evaluate(() => Boolean(document.getElementById("vantage-panel"))));
 console.log("api calls:", calls.join(" "));
 await ctx.close();

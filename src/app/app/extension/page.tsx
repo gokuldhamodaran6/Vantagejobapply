@@ -69,7 +69,7 @@ export default function ExtensionPage() {
       {ext?.installed && !isLatest(ext.version) && (
         <section className="mt-5 card border-brand/40 p-5">
           <p className="font-semibold">Update the extension (you have {ext.version || "an older version"})</p>
-          <p className="mt-1 text-sm text-muted">Version {LATEST_EXT} fills every dropdown on Greenhouse&apos;s new forms (country, yes/no questions), fills the rest of the form while your resume for the job is being written and attaches it the moment it&apos;s ready, shows what the resume covers for the job, and never freezes on long waits. Download it, unzip it over the old folder, then press the reload ↻ button on Vantage in <code className="rounded bg-canvas px-1">chrome://extensions</code>.</p>
+          <p className="mt-1 text-sm text-muted">Version {LATEST_EXT} uploads the resume and the cover letter written for each job straight into the company&apos;s form (never opening a file window), fills every dropdown on Greenhouse&apos;s new forms, fills the rest of the form while your files are being written, and shows what the resume covers for the job with links to both PDFs. Download it, unzip it over the old folder, then press the reload ↻ button on Vantage in <code className="rounded bg-canvas px-1">chrome://extensions</code>.</p>
           <a href="/vantage-extension.zip" download className="btn-primary mt-3 min-h-9 text-[13px]"><Download size={15} /> Download version {LATEST_EXT}</a>
         </section>
       )}

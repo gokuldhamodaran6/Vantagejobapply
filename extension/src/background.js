@@ -87,6 +87,12 @@ async function watchTailoring(tabId, taskId) {
         await store.patchTab(tabId, { tailoring: false, fileReady: true, report: st.report || t.report || null });
         const last = lastPanel.get(tabId);
         if (last) await showPanel(tabId, { ...last, report: st.report || undefined, tailoring: false });
+        // Nothing is filling right now (waiting for an answer, or finished): attach the files straight away.
+        if (!active.has(tabId)) {
+          const now = await store.tab(tabId);
+          if (now && !now.sent) await attachPending(tabId, now, {}, ["resume", "cover_letter"]).catch(() => {});
+          if (last) await showPanel(tabId, { ...last, report: st.report || undefined, tailoring: false });
+        }
         return;
       }
       await sleep(3000);
@@ -175,16 +181,34 @@ async function fileFor(t, kind, files) {
   return files[kind] || null;
 }
 
-/** Attach the resume to the form's resume box once it's written (the rest of the form was filled meanwhile). */
-async function attachPending(tabId, t, files) {
+/** Which file a file field wants: the cover letter for cover-letter fields, otherwise the resume. */
+const kindOf = (label) => (/cover/i.test(label || "") ? "cover_letter" : "resume");
+
+/**
+ * Attach the files written for this job to every empty resume / cover-letter field on the page (the rest of the form
+ * was filled while they were being written). Returns the kinds still waiting.
+ */
+async function attachPending(tabId, t, files, want) {
   const page = await readTab(tabId);
-  const box = page?.snap.items.find((x) => x.kind === "file" && !x.value && /resume|cv|curriculum|attach/i.test(x.label || "")) || page?.snap.items.find((x) => x.kind === "file" && !x.value && x.required);
-  if (!box) return true; // already attached (or no resume box on this page)
-  const f = await fileFor(t, "resume", files);
-  if (!f) return false;
-  await showPanel(tabId, { ...t.base, steps: steps(1), note: "Your resume for this job is ready — attaching it…", noteTone: "ok", buttons: [{ text: "Pause", action: "pause", ghost: true }] });
-  const r = (await inFrames(tabId, (x) => window.__vp?.act(x), [{ do: "upload", i: box.i, file: f }], [page.frameId]))[0]?.result;
-  return Boolean(r?.ok);
+  if (!page) return want;
+  const left = new Set(want);
+  for (const kind of want) {
+    const box = page.snap.items.find((x) => x.kind === "file" && !x.value && kindOf(x.label) === kind && (kind === "cover_letter" || /resume|cv|curriculum|attach|upload/i.test(x.label || "") || x.required))
+      || (kind === "resume" ? page.snap.items.find((x) => x.kind === "file" && !x.value && kindOf(x.label) === "resume") : null);
+    if (!box) { left.delete(kind); continue; } // nothing to attach it to (or already attached)
+    const f = await fileFor(t, kind, files);
+    if (!f) continue;
+    await showPanel(tabId, { ...t.base, steps: steps(1), note: kind === "resume" ? "Your resume for this job is ready — attaching it…" : "Your cover letter for this job is ready — attaching it…", noteTone: "ok", buttons: [{ text: "Pause", action: "pause", ghost: true }] });
+    const r = await act(tabId, page.frameId, { do: "upload", i: box.i, file: f });
+    if (r?.ok) left.delete(kind);
+  }
+  return [...left];
+}
+
+/** One page action, with a time limit: a page that stops answering never freezes the whole run. */
+async function act(tabId, frameId, x, ms = 25_000) {
+  const run = inFrames(tabId, (y) => window.__vp?.act(y), [x], [frameId]).then((res) => res[0]?.result);
+  return Promise.race([run, sleep(ms).then(() => ({ ok: false, note: "the page didn't respond", timeout: true }))]);
 }
 
 async function pilotTurns(tabId, t) {
@@ -192,14 +216,17 @@ async function pilotTurns(tabId, t) {
   const history = t.history || [];
   let lastSig = "";
   let same = 0;
-  let uploadPending = false;
+  // "resume" / "cover_letter" fields waiting for the files written for this job. While they're being written, both
+  // are watched for: the cover letter goes into a cover-letter field whenever the form has one.
+  let pendingFiles = (await store.tab(tabId))?.fileReady ? [] : ["resume", "cover_letter"];
+  let finalCheck = false;
   await store.patchTab(tabId, { paused: false });
   for (let turn = 0; turn < 70; turn++) {
     const cur = await store.tab(tabId);
     if (!cur || cur.paused) return;
     chrome.storage.session.set({ [`b${tabId}`]: Date.now() });
-    // The resume finished while other fields were being filled: attach it now.
-    if (uploadPending && cur.fileReady) uploadPending = !(await attachPending(tabId, cur, files));
+    // The files finished while other fields were being filled: attach them now.
+    if (pendingFiles.length && cur.fileReady) pendingFiles = await attachPending(tabId, cur, files, pendingFiles);
     await inject(tabId);
     const page = await readTab(tabId);
     if (!page) { await sleep(1000); continue; }
@@ -224,14 +251,26 @@ async function pilotTurns(tabId, t) {
         const f = await fileFor(t, kind, files);
         if (!f) {
           // Still being written: fill everything else now and attach it the moment it's ready.
-          if (kind === "resume") uploadPending = true;
-          r = { ok: false, note: kind === "resume" ? "the resume for this job is still being written — Vantage attaches it as soon as it's ready; fill the other fields" : "no cover letter yet — skip it" };
+          if (!pendingFiles.includes(kind)) pendingFiles.push(kind);
+          r = { ok: false, note: `the ${kind === "resume" ? "resume" : "cover letter"} for this job is still being written — Vantage attaches it as soon as it's ready; fill the other fields and don't click Attach/Upload` };
         } else {
           await showPanel(tabId, { ...t.base, steps: steps(1), note: kind === "resume" ? "Attaching the resume written for this job…" : "Attaching the cover letter written for this job…", noteTone: "ok", buttons: [{ text: "Pause", action: "pause", ghost: true }] });
-          r = (await inFrames(tabId, (x) => window.__vp?.act(x), [{ do: "upload", i: a.i, file: f }], [page.frameId]))[0]?.result;
+          r = await act(tabId, page.frameId, { do: "upload", i: a.i, file: f });
         }
       } else {
-        r = (await inFrames(tabId, (x) => window.__vp?.act(x), [a], [page.frameId]))[0]?.result;
+        r = await act(tabId, page.frameId, a);
+        // A click on "Attach" / "Upload" would have opened the file picker: upload into its field instead.
+        if (r && r.fileInput !== undefined) {
+          const box = page.snap.items.find((x) => x.i === r.fileInput) || page.snap.items.find((x) => x.kind === "file" && !x.value);
+          const kind = kindOf(box?.label || page.snap.items.find((x) => x.i === a.i)?.label);
+          const f = await fileFor(t, kind, files);
+          if (f && box) r = await act(tabId, page.frameId, { do: "upload", i: box.i, file: f });
+          else { if (!pendingFiles.includes(kind)) pendingFiles.push(kind); r = { ok: false, note: `the ${kind === "resume" ? "resume" : "cover letter"} is still being written — Vantage attaches it when ready; don't click Attach/Upload` }; }
+        }
+      }
+      if (r?.timeout) {
+        await markWaiting(tabId);
+        return showPanel(tabId, { ...t.base, steps: steps(1), note: "The page stopped responding (a pop-up or file window may be open). Close it, then press Continue.", noteTone: "warn", buttons: [{ text: "Continue", action: "continue" }] });
       }
       r ||= { ok: false, note: "page changed" };
       results.push(r);
@@ -242,18 +281,36 @@ async function pilotTurns(tabId, t) {
     while (history.length > 10) history.shift();
     await store.patchTab(tabId, { history });
 
-    if (plan.status === "ready" && uploadPending) {
-      // Everything else is filled: wait for the resume (the panel shows progress), attach it, then check the page again.
-      for (let w = 0; w < 40 && uploadPending; w++) {
+    if (plan.status === "ready" && pendingFiles.length) {
+      // Everything else is filled: wait for the files (the panel shows progress), attach them, then check the page again.
+      for (let w = 0; w < 40 && pendingFiles.length; w++) {
         const now = await store.tab(tabId);
         if (!now || now.paused) return;
-        if (now.fileReady) uploadPending = !(await attachPending(tabId, now, files));
-        if (!uploadPending) break;
-        await showPanel(tabId, { ...t.base, steps: steps(1), note: `Every other field is filled. Your resume for this job is almost written — attaching it as soon as it's ready (${w * 3} s)…`, noteTone: "ok", buttons: [{ text: "Use my saved resume instead", action: "own_resume", ghost: true }, { text: "Pause", action: "pause", ghost: true }] });
+        if (now.fileReady) pendingFiles = await attachPending(tabId, now, files, pendingFiles);
+        if (!pendingFiles.length) break;
+        await showPanel(tabId, { ...t.base, steps: steps(1), note: `Every other field is filled. Your ${pendingFiles.includes("resume") ? "resume" : "cover letter"} for this job is almost written — attaching it as soon as it's ready (${w * 3} s)…`, noteTone: "ok", buttons: [{ text: "Use my saved resume instead", action: "own_resume", ghost: true }, { text: "Pause", action: "pause", ghost: true }] });
         await sleep(3000);
+      }
+      if (pendingFiles.length) {
+        // Still not ready after two minutes: stop waiting; the person can attach it (or use their saved resume).
+        pendingFiles = [];
+        await showPanel(tabId, { ...t.base, steps: steps(1), note: "Your files for this job are taking longer than usual. Use your saved resume, or attach it yourself.", noteTone: "warn", buttons: [{ text: "Use my saved resume instead", action: "own_resume" }, { text: "Continue", action: "continue", ghost: true }] });
+        await markWaiting(tabId);
+        return;
       }
       lastSig = "";
       continue;
+    }
+    if (plan.status === "ready" && !finalCheck) {
+      // Last check before handing over: every resume / cover-letter field gets the file written for this job.
+      finalCheck = true;
+      const now = await store.tab(tabId);
+      if (now?.fileReady) {
+        const before = page.snap.items.filter((x) => x.kind === "file" && !x.value).length;
+        await attachPending(tabId, now, files, ["resume", "cover_letter"]);
+        const after = (await readTab(tabId))?.snap.items.filter((x) => x.kind === "file" && !x.value).length ?? before;
+        if (after < before) { lastSig = ""; continue; } // attached something: read the page once more
+      }
     }
     if (plan.status === "ready") {
       await store.patchTab(tabId, { history, submit: { i: plan.submit, frameId: page.frameId } });
