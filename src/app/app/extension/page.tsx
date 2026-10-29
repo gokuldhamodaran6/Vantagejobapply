@@ -4,7 +4,7 @@ import { Check, Download, Loader2, MousePointerClick, PenLine, ShieldCheck, Tras
 import { PageHeader } from "@/components/app-shell";
 import { Toast } from "@/components/ui";
 import { timeAgo } from "@/lib/format";
-import { askExtension, canOpenFromSite } from "@/lib/ext-client";
+import { askExtension, isLatest, LATEST_EXT } from "@/lib/ext-client";
 
 type Key = { id: string; label: string; created_at: string; last_used_at: string | null };
 const ask = (msg: unknown) => askExtension(msg);
@@ -66,11 +66,11 @@ export default function ExtensionPage() {
         ))}
       </section>
 
-      {ext?.installed && !canOpenFromSite(ext.version) && (
+      {ext?.installed && !isLatest(ext.version) && (
         <section className="mt-5 card border-brand/40 p-5">
-          <p className="font-semibold">Update the extension to use Tailor &amp; apply</p>
-          <p className="mt-1 text-sm text-muted">Version 1.2.0 opens the company&apos;s application straight from Vantage and starts filling it as soon as the page loads, with the resume and cover letter already written. Download it, unzip it over the old folder, then press the reload ↻ button on Vantage in <code className="rounded bg-canvas px-1">chrome://extensions</code>.</p>
-          <a href="/vantage-extension.zip" download className="btn-primary mt-3 min-h-9 text-[13px]"><Download size={15} /> Download version 1.2.0</a>
+          <p className="font-semibold">Update the extension (you have {ext.version || "an older version"})</p>
+          <p className="mt-1 text-sm text-muted">Version {LATEST_EXT} fills every dropdown on Greenhouse&apos;s new forms (country, yes/no questions), fills the rest of the form while your resume for the job is being written and attaches it the moment it&apos;s ready, shows what the resume covers for the job, and never freezes on long waits. Download it, unzip it over the old folder, then press the reload ↻ button on Vantage in <code className="rounded bg-canvas px-1">chrome://extensions</code>.</p>
+          <a href="/vantage-extension.zip" download className="btn-primary mt-3 min-h-9 text-[13px]"><Download size={15} /> Download version {LATEST_EXT}</a>
         </section>
       )}
 

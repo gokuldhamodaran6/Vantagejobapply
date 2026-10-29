@@ -38,5 +38,9 @@ export async function extensionState(): Promise<ExtState> {
   return { installed: Boolean(r?.ok), connected: Boolean(r?.connected), version: r?.version };
 }
 
+/** The newest extension: fills styled dropdowns (Greenhouse 2026 forms), attaches the resume as soon as it's written. */
+export const LATEST_EXT = "1.2.1";
+export const isLatest = (v?: string) => Boolean(v) && v!.localeCompare(LATEST_EXT, undefined, { numeric: true }) >= 0;
+
 /** Versions before 1.2.0 can't open and fill a job sent from the website. */
 export const canOpenFromSite = (v?: string) => Boolean(v) && v!.localeCompare("1.2.0", undefined, { numeric: true }) >= 0;

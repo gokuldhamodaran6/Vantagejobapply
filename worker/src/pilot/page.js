@@ -3,7 +3,7 @@
 // act(): do one thing a person would do — type, pick from a dropdown (nested ones too), tick, upload, click.
 // It never presses a final Submit/Send button; the caller decides that.
 (() => {
-  const VERSION = 10;
+  const VERSION = 11;
   if (window.__vp && window.__vp.v >= VERSION) return;
 
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -50,9 +50,19 @@
     return Number(s.opacity) > 0.02;
   };
   // Bot traps: inputs a person can't see or reach (1-pixel boxes, "honeypot" names). Never touch them.
+  // Search boxes inside styled dropdowns (react-select on Greenhouse's new forms, Ashby, many others) are drawn a few
+  // pixels wide on purpose — the visible box is the dropdown control around them. Those are real questions, not traps.
+  const dropdownSearch = (el) => {
+    if (el.tagName !== "INPUT" || !(el.getAttribute("role") === "combobox" || el.getAttribute("aria-autocomplete") || el.getAttribute("aria-haspopup"))) return false;
+    for (let p = el.parentElement, k = 0; p && k < 5; p = p.parentElement, k++) {
+      const pr = p.getBoundingClientRect();
+      if (pr.width >= 40 && pr.height >= 16) return true;
+    }
+    return false;
+  };
   const trap = (el) => {
     const r = el.getBoundingClientRect();
-    return (el.tagName === "INPUT" && !/^(checkbox|radio|file)$/i.test(el.type) && (r.width < 4 || r.height < 4)) ||
+    return (el.tagName === "INPUT" && !/^(checkbox|radio|file)$/i.test(el.type) && (r.width < 4 || r.height < 4) && !dropdownSearch(el)) ||
       /honeypot|beecatcher|bot.?trap|\bhp_|leave (this )?(field )?(blank|empty)/i.test(`${el.name} ${el.id} ${el.getAttribute("data-automation-id") || ""} ${el.getAttribute("aria-label") || ""} ${el.placeholder || ""}`) ||
       el.tabIndex === -1 && el.tagName === "INPUT" && el.getAttribute("aria-hidden") === "true";
   };

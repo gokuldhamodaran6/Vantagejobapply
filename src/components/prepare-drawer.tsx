@@ -155,7 +155,7 @@ export function PrepareDrawer({ item, onClose, onSaved }: { item: { job: Job; ma
     const r = await fetch("/api/apply", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ jobId: j.id, roleId: item!.match.role?.id || null, resume: t.resume, coverLetter: cover || t.coverLetter, style: t.style, tone: t.tone, atsScore: t.report?.score, force }),
+      body: JSON.stringify({ jobId: j.id, roleId: item!.match.role?.id || null, resume: t.resume, coverLetter: cover || t.coverLetter, style: t.style, tone: t.tone, atsScore: t.report?.score, force, match: t.match, format: t.format, harvard: t.harvard ? { ok: t.harvard.ok, total: t.harvard.total } : undefined }),
     }).catch(() => null);
     const d = r ? await r.json().catch(() => ({})) : { error: "Network error. Try again." };
     setBusy("");

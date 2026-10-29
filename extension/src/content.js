@@ -260,7 +260,30 @@
     .row { display: flex; gap: 8px; margin-top: 14px; flex-wrap: wrap; }
     .btn { border: 0; border-radius: 10px; padding: 9px 14px; font: inherit; font-weight: 700; cursor: pointer; background: #2f5beb; color: #fff; }
     .btn.g { background: #f1f3f8; color: #10142a; }
+    .rep { margin-top: 10px; padding: 10px 12px; border-radius: 12px; border: 1px solid #e3e6ee; background: #fafbfd; }
+    .rep .t { font-weight: 700; font-size: 13px; }
+    .bar { display: flex; gap: 3px; margin: 7px 0 6px; } .bar span { flex: 1; height: 6px; border-radius: 3px; background: #e3e6ee; } .bar span.on { background: #22a05b; }
+    .chips { margin-top: 6px; display: flex; flex-wrap: wrap; gap: 4px; }
+    .chip { font-size: 11.5px; border: 1px solid #f0c36d; color: #8a5a00; border-radius: 999px; padding: 1px 7px; }
+    .rep a { color: #2f5beb; font-weight: 600; font-size: 12.5px; text-decoration: none; }
+    .spin { display: inline-block; width: 10px; height: 10px; border: 2px solid #c8cfe0; border-top-color: #2f5beb; border-radius: 50%; animation: sp .8s linear infinite; margin-right: 6px; vertical-align: -1px; }
+    @keyframes sp { to { transform: rotate(360deg); } }
   `;
+  const APP = "https://vantagejobapply.onrender.com";
+  const reportHtml = (r, tailoring) => {
+    if (r && r.total) {
+      const bars = Array.from({ length: Math.min(r.total, 12) }, (_, i) => `<span class="${i < r.covered ? "on" : ""}"></span>`).join("");
+      const fmt = r.format ? `${esc(r.format.label || r.format.docName)}${r.format.pages ? `, ${r.format.pages} page${r.format.pages > 1 ? "s" : ""}` : ""}` : "";
+      const gaps = (r.missing || []).slice(0, 4).map((m) => `<span class="chip">${esc(m)}</span>`).join("");
+      return `<div class="rep"><div class="t">Resume written for this job</div><div class="bar">${bars}</div>
+        <div>Covers <b>${r.covered} of ${r.total}</b> key skills${fmt ? ` · ${fmt}` : ""}${r.harvard && r.harvard.total ? ` · ${r.harvard.ok}/${r.harvard.total} bullets pass Harvard checks` : ""}</div>
+        ${gaps ? `<div class="muted" style="margin-top:6px">Not in your history (never added):</div><div class="chips">${gaps}</div>` : ""}
+        ${r.resumeId ? `<div style="margin-top:6px"><a href="${APP}/app/resumes/${esc(r.resumeId)}" target="_blank" rel="noopener">Open the resume ↗</a></div>` : ""}</div>`;
+    }
+    if (tailoring) return `<div class="rep"><span class="spin"></span><b>Writing your resume and cover letter for this job…</b><div class="muted" style="margin-top:4px">Usually 20–40 seconds. Vantage fills the rest of the form meanwhile and attaches the resume when it's ready.</div></div>`;
+    return "";
+  };
+  let heartbeat = null;
   function panel(state) {
     if (window !== window.top) return;
     if (!host) {
@@ -269,6 +292,11 @@
       document.documentElement.appendChild(host);
       root = host.attachShadow({ mode: "closed" });
     }
+    // While Vantage is filling (the panel offers Pause), tell it every few seconds that this page is still open,
+    // so a run stopped by Chrome carries on by itself.
+    const working = Boolean(state && (state.buttons || []).some((b) => b.action === "pause"));
+    if (working && !heartbeat) heartbeat = setInterval(() => chrome.runtime.sendMessage({ type: "alive" }).catch(() => {}), 10000);
+    if (!working && heartbeat) { clearInterval(heartbeat); heartbeat = null; }
     if (!state) { host.remove(); host = null; return; }
     const steps = (state.steps || []).map((s) => `<li class="${s.state}"><span class="dot"></span><span>${esc(s.text)}</span></li>`).join("");
     const qs = (state.missing || []).map((m, i) => {
@@ -283,8 +311,9 @@
     root.innerHTML = `<style>${CSS_TEXT}</style><div class="p" role="dialog" aria-label="Vantage">
       <div class="h"><span class="logo">V</span> Vantage <button class="x" aria-label="Close">×</button></div>
       <div class="b">
-        ${state.job ? `<div class="job">${esc(state.job.title)}</div><div class="muted">${esc(state.job.company)}${state.match ? ` · ${state.match}% match` : ""}</div>` : ""}
+        ${state.job ? `<div class="job">${esc(state.job.title)}</div><div class="muted">${esc(state.job.company)}${state.match ? ` · ${state.match}% fit with your targets` : ""}</div>` : ""}
         ${state.ghost ? `<div class="warn">${state.ghost.level === "high" ? "Likely ghost job" : "Might be a ghost job"}: ${esc(state.ghost.reasons.join(" · "))}</div>` : ""}
+        ${reportHtml(state.report, state.tailoring)}
         ${state.note ? `<div class="${state.noteTone || "ok"}">${esc(state.note)}</div>` : ""}
         <ul class="steps">${steps}</ul>
         ${qs ? `<div style="margin-top:12px;font-weight:700">Only you can answer ${state.missing.length === 1 ? "this" : "these"}</div><div class="muted">Answer once — Vantage remembers it for every future application.</div>${qs}` : ""}

@@ -2,6 +2,7 @@ import { json, loadUserContext } from "@/lib/server-user";
 import { prepareAndQueue } from "@/lib/agent/prepare";
 import { applyTarget } from "@/lib/agent/jobs";
 import { rpc } from "@/lib/agent/svc";
+import { buildReport, saveReport } from "@/lib/agent/report";
 import { matchJob } from "@/lib/jobs/match";
 import type { Job, LetterTone, ResumeContent, ResumeStyle } from "@/lib/types";
 
@@ -17,6 +18,9 @@ export async function POST(req: Request) {
   if (!ctx) return json({ error: "Log in first." }, 401);
   const b = (await req.json().catch(() => ({}))) as {
     jobId?: string; roleId?: string | null; resume?: ResumeContent; coverLetter?: string; style?: ResumeStyle; tone?: LetterTone; atsScore?: number; force?: boolean;
+    match?: { covered: number; total: number; skills: { skill: string; evidence: string | null }[] };
+    format?: { code: string; label?: string; docName: string; paper: string; pages?: number; note: string };
+    harvard?: { ok: number; total: number };
   };
   if (!b.jobId) return json({ error: "Pick a job first." }, 400);
   const { data } = await ctx.supabase.from("jobs").select("*").eq("id", b.jobId).maybeSingle();
@@ -56,6 +60,11 @@ export async function POST(req: Request) {
   // An application already open for this job keeps its place, with the newest resume and letter.
   if (resumeId && (task.resume_id !== resumeId || (b.coverLetter && task.cover_letter !== b.coverLetter))) {
     await rpc("update", { task_id: task.id, resume_id: resumeId, ...(b.coverLetter ? { cover_letter: b.coverLetter } : {}), log: "New resume and cover letter written for this job" });
+  }
+
+  // What this resume covers, for the extension's panel (counts come from the tailoring the person just saw).
+  if (b.match && b.format && b.harvard && Array.isArray(b.match.skills)) {
+    await saveReport(task.id, buildReport({ match: { covered: Number(b.match.covered) || 0, total: Number(b.match.total) || 0, skills: b.match.skills.slice(0, 12).map((x) => ({ skill: String(x.skill).slice(0, 80), evidence: x.evidence ? String(x.evidence).slice(0, 200) : null })) }, format: b.format, harvard: { ok: Number(b.harvard.ok) || 0, total: Number(b.harvard.total) || 0 }, resumeId: resumeId || task.resume_id }));
   }
 
   // In Applications as "Ready" (never moves an application backwards).

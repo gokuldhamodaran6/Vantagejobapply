@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Vantage — Fill job applications",
   "short_name": "Vantage",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "Applies on company careers sites with a resume written for each job. Fills every page; you press Submit.",
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAv/RIEiJABo2y88th1DZvHxhQhrnxAT6zkTwZ2WkKPWYASJDBhdz/h3NZVEVOt6gK3aYH4LUzCZFdP6curMMZ3r/XshYCnWextUosycVcvdMxh8Vr6SZEbyk0zqYy+1YpzCKC2+nYOZZ+ukpav5ZoNoEtEV7YYASW4mENviyKAMtikAfrw6yIuTmu9Bpg+WtiPzxLhufUQdYnm4++d4OYswNDxcDszYugWbfiWwS6bi28gP2pi+GomGe21Rm9960hR3NO9i9STyu0SLts0Ddx007xVsRdzFpNJfjiauMCzBK2oADP3qz+YJ/tznEFMXTSBfPo6ExaPEjotE1/b8wI7wIDAQAB",
   "icons": {

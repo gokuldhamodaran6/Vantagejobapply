@@ -7,6 +7,7 @@ import { applyTarget } from "./jobs";
 import { rpc, rpcExt } from "./svc";
 import { bestName } from "./fields";
 import { fullDescription } from "@/lib/jobs/fulltext";
+import { reportFromTailoring, saveReport } from "./report";
 import type { Job, LetterTone, ResumeContent, ResumeStyle } from "@/lib/types";
 
 type ResumeRow = { id: string; target_role_id: string | null; is_master: boolean; content: ResumeContent; style: ResumeStyle | null; name: string; updated_at?: string };
@@ -66,6 +67,7 @@ export async function prepareAndQueue(input: {
         const t = await runWithAi({ userId, taskId, feature: "tailor" }, () => tailorForJob(base.content, { title: job.title, company: job.company, description, country: job.country, location: job.location }, bestName(input.name, base.content?.name), t0));
         const report = scoreResume(t.resume, t.keywords);
         const saved = await rpcExt<{ id: string }>("save_resume", { user_id: userId, role_id: input.roleId || "", name: `${job.title} — ${job.company}`, content: t.resume, ats_score: report.score, style: s0 });
+        await saveReport(taskId, reportFromTailoring(t, base.content, saved.id));
         await rpc("update", { task_id: taskId, resume_id: saved.id, cover_letter: t.coverLetter, log: "Tailored resume and cover letter ready" });
       };
       return { taskCreated: res.inserted > 0, resumeId: base.id, tailor };

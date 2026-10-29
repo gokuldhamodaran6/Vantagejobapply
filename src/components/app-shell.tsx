@@ -9,7 +9,7 @@ import { LogoMark } from "@/components/brand";
 import { useMe } from "@/lib/me";
 import { supabaseBrowser } from "@/lib/supabase/client";
 import { hardNavigate } from "@/lib/nav";
-import { canOpenFromSite, extensionState, type ExtState } from "@/lib/ext-client";
+import { extensionState, isLatest, type ExtState } from "@/lib/ext-client";
 
 const NAV = [
   { href: "/app", label: "Dashboard", icon: LayoutDashboard },
@@ -113,7 +113,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         {profile && ext && (
           <Link href="/app/extension" className="block rounded-xl border border-line bg-canvas p-3.5 hover:border-brand/40">
             <div className="flex items-center gap-2 text-[13px] font-semibold">
-              {ext.connected && canOpenFromSite(ext.version) ? (
+              {ext.connected && isLatest(ext.version) ? (
                 <><span className="live-dot h-2 w-2 rounded-full bg-green" /> Extension ready</>
               ) : ext.installed ? (
                 <><span className="h-2 w-2 rounded-full bg-orange" /> {ext.connected ? "Update the extension" : "Connect the extension"}</>
@@ -121,7 +121,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 <><span className="h-2 w-2 rounded-full bg-line-2" /> Add the Chrome extension</>
               )}
             </div>
-            <p className="mt-1 text-xs text-muted">{ext.connected && canOpenFromSite(ext.version) ? "Tailor & apply fills company forms for you." : "It fills company application forms for you."}</p>
+            <p className="mt-1 text-xs text-muted">{ext.connected && isLatest(ext.version) ? "Tailor & apply fills company forms for you." : ext.installed && ext.connected ? "A new version fills more sites. Click to update." : "It fills company application forms for you."}</p>
           </Link>
         )}
         <button onClick={signOut} className="flex min-h-10 w-full items-center gap-3 rounded-lg px-2.5 text-sm font-medium text-ink-2 hover:bg-canvas">

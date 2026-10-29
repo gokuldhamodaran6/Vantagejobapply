@@ -6,6 +6,11 @@ const store = {
   set: (k, v) => chrome.storage.local.set({ [k]: v }),
   tab: async (tabId) => (await chrome.storage.session.get(`t${tabId}`))[`t${tabId}`] || null,
   setTab: (tabId, v) => (v ? chrome.storage.session.set({ [`t${tabId}`]: v }) : chrome.storage.session.remove(`t${tabId}`)),
+  /** Change some fields of a tab's state, keeping what others (the resume watcher) wrote meanwhile. */
+  patchTab: async (tabId, p) => {
+    const cur = (await chrome.storage.session.get(`t${tabId}`))[`t${tabId}`];
+    if (cur) await chrome.storage.session.set({ [`t${tabId}`]: { ...cur, ...p } });
+  },
 };
 
 async function api(path, { method = "GET", body } = {}) {
@@ -39,8 +44,59 @@ async function top(tabId, func, args = []) {
   const [r] = await inFrames(tabId, func, args, [0]);
   return r?.result;
 }
-const showPanel = (tabId, state) => top(tabId, (s) => window.__vantage?.panel(s), [state]);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const lastPanel = new Map();
+/** The panel always shows what the resume written for this job covers (or that it's being written). */
+async function showPanel(tabId, state) {
+  if (state) {
+    const t = await store.tab(tabId);
+    if (t?.report && !state.report) state = { ...state, report: t.report };
+    if (t?.tailoring && !t.report && state.tailoring === undefined) state = { ...state, tailoring: true };
+    lastPanel.set(tabId, state);
+  } else lastPanel.delete(tabId);
+  return top(tabId, (s) => window.__vantage?.panel(s), [state]);
+}
+
+/*
+ * Chrome stops an extension's background after ~30 s without activity, which would freeze a run mid-page. While any
+ * application is being filled, a light ping every 20 s keeps it awake; when none is, it may sleep as usual.
+ */
+const active = new Set();
+let pinger = null;
+function keepAwake() {
+  if (active.size && !pinger) pinger = setInterval(() => chrome.runtime.getPlatformInfo(() => {}), 20_000);
+  if (!active.size && pinger) { clearInterval(pinger); pinger = null; }
+}
+
+/**
+ * The resume and cover letter for this job are written on the server (20–60 s) while the form is filled. Ask every
+ * few seconds; when they're ready, remember what the resume covers and show it in the panel.
+ */
+const watching = new Set();
+async function watchTailoring(tabId, taskId) {
+  if (watching.has(tabId)) return;
+  watching.add(tabId);
+  active.add(`w${tabId}`);
+  keepAwake();
+  try {
+    for (let k = 0; k < 60; k++) {
+      const st = await api(`/api/ext/status?taskId=${taskId}`).catch(() => null);
+      const t = await store.tab(tabId);
+      if (!t || t.taskId !== taskId) return;
+      if (st?.ready) {
+        await store.patchTab(tabId, { tailoring: false, fileReady: true, report: st.report || t.report || null });
+        const last = lastPanel.get(tabId);
+        if (last) await showPanel(tabId, { ...last, report: st.report || undefined, tailoring: false });
+        return;
+      }
+      await sleep(3000);
+    }
+  } finally {
+    watching.delete(tabId);
+    active.delete(`w${tabId}`);
+    keepAwake();
+  }
+}
 
 const STEPS = ["Read the job", "Fill every page of the form", "You check it and press Submit"];
 const steps = (at) => STEPS.map((text, i) => ({ text, state: i < at ? "done" : i === at ? "now" : "" }));
@@ -87,25 +143,63 @@ async function run(tabId, { force = false, resume = false } = {}) {
         return showPanel(tabId, { job: start.job, ghost: start.ghost, note: "You already applied to this job — Vantage won't send it twice.", noteTone: "warn", buttons: [{ text: "Fill anyway", action: "force" }, { text: "Close", action: "close", ghost: true }] });
       }
       base = { job: start.job, ghost: start.ghost, match: start.match };
-      t = { taskId: start.taskId, job: start.job, url: info.url, at: Date.now(), base, history: [] };
+      t = { taskId: start.taskId, job: start.job, url: info.url, at: Date.now(), base, history: [], tailoring: Boolean(start.tailoring) };
       await store.setTab(tabId, t);
     } catch (e) {
       return showPanel(tabId, { note: e.code === 401 ? "Connect the extension to your Vantage account: click the Vantage icon → Connect." : e.message, noteTone: "warn", buttons: [{ text: "Try again", action: "refill" }, { text: "Close", action: "close", ghost: true }] });
     }
   }
-  await pilotLoop(tabId, t);
+  // Not written yet (or written before this run): find out, and show what the resume covers.
+  if (!t.fileReady) watchTailoring(tabId, t.taskId).catch(() => {});
+  await pilotLoop(tabId, (await store.tab(tabId)) || t);
 }
 
 /** The pilot: read the page, let Vantage decide, act like a person, check, repeat — page after page. */
 async function pilotLoop(tabId, t) {
+  if (active.has(tabId)) return; // already filling this tab
+  active.add(tabId);
+  keepAwake();
+  try {
+    return await pilotTurns(tabId, t);
+  } finally {
+    active.delete(tabId);
+    keepAwake();
+  }
+}
+
+/** The resume (or cover letter) file for this job, or null while it's still being written. */
+async function fileFor(t, kind, files) {
+  if (files[kind]) return files[kind];
+  const f = await api(`/api/ext/file?taskId=${t.taskId}&kind=${kind}`).catch(() => null);
+  if (f && !f.pending && f.base64) files[kind] = f;
+  return files[kind] || null;
+}
+
+/** Attach the resume to the form's resume box once it's written (the rest of the form was filled meanwhile). */
+async function attachPending(tabId, t, files) {
+  const page = await readTab(tabId);
+  const box = page?.snap.items.find((x) => x.kind === "file" && !x.value && /resume|cv|curriculum|attach/i.test(x.label || "")) || page?.snap.items.find((x) => x.kind === "file" && !x.value && x.required);
+  if (!box) return true; // already attached (or no resume box on this page)
+  const f = await fileFor(t, "resume", files);
+  if (!f) return false;
+  await showPanel(tabId, { ...t.base, steps: steps(1), note: "Your resume for this job is ready — attaching it…", noteTone: "ok", buttons: [{ text: "Pause", action: "pause", ghost: true }] });
+  const r = (await inFrames(tabId, (x) => window.__vp?.act(x), [{ do: "upload", i: box.i, file: f }], [page.frameId]))[0]?.result;
+  return Boolean(r?.ok);
+}
+
+async function pilotTurns(tabId, t) {
   const files = {};
   const history = t.history || [];
   let lastSig = "";
   let same = 0;
-  await store.setTab(tabId, { ...t, paused: false });
+  let uploadPending = false;
+  await store.patchTab(tabId, { paused: false });
   for (let turn = 0; turn < 70; turn++) {
     const cur = await store.tab(tabId);
     if (!cur || cur.paused) return;
+    chrome.storage.session.set({ [`b${tabId}`]: Date.now() });
+    // The resume finished while other fields were being filled: attach it now.
+    if (uploadPending && cur.fileReady) uploadPending = !(await attachPending(tabId, cur, files));
     await inject(tabId);
     const page = await readTab(tabId);
     if (!page) { await sleep(1000); continue; }
@@ -127,12 +221,15 @@ async function pilotLoop(tabId, t) {
       let r;
       if (a.do === "upload") {
         const kind = a.file === "cover_letter" ? "cover_letter" : "resume";
-        if (!files[kind]) {
-          await showPanel(tabId, { ...t.base, steps: steps(1), note: kind === "resume" ? "Attaching the resume written for this job…" : "Attaching your cover letter…", noteTone: "ok", buttons: [{ text: "Pause", action: "pause", ghost: true }] });
-          files[kind] = await api(`/api/ext/file?taskId=${t.taskId}&kind=${kind}`).catch(() => null);
-          if (!files[kind] && kind === "cover_letter") await showPanel(tabId, { ...t.base, steps: steps(1), note: "No cover letter ready yet — continuing without it.", noteTone: "ok", buttons: [{ text: "Pause", action: "pause", ghost: true }] });
+        const f = await fileFor(t, kind, files);
+        if (!f) {
+          // Still being written: fill everything else now and attach it the moment it's ready.
+          if (kind === "resume") uploadPending = true;
+          r = { ok: false, note: kind === "resume" ? "the resume for this job is still being written — Vantage attaches it as soon as it's ready; fill the other fields" : "no cover letter yet — skip it" };
+        } else {
+          await showPanel(tabId, { ...t.base, steps: steps(1), note: kind === "resume" ? "Attaching the resume written for this job…" : "Attaching the cover letter written for this job…", noteTone: "ok", buttons: [{ text: "Pause", action: "pause", ghost: true }] });
+          r = (await inFrames(tabId, (x) => window.__vp?.act(x), [{ do: "upload", i: a.i, file: f }], [page.frameId]))[0]?.result;
         }
-        r = files[kind] ? (await inFrames(tabId, (x) => window.__vp?.act(x), [{ do: "upload", i: a.i, file: files[kind] }], [page.frameId]))[0]?.result : { ok: false, note: "no file" };
       } else {
         r = (await inFrames(tabId, (x) => window.__vp?.act(x), [a], [page.frameId]))[0]?.result;
       }
@@ -143,16 +240,29 @@ async function pilotLoop(tabId, t) {
     }
     history.push({ say: plan.say, actions: plan.actions, results, url: page.snap.url, notes: plan.notes });
     while (history.length > 10) history.shift();
-    await store.setTab(tabId, { ...t, history });
+    await store.patchTab(tabId, { history });
 
+    if (plan.status === "ready" && uploadPending) {
+      // Everything else is filled: wait for the resume (the panel shows progress), attach it, then check the page again.
+      for (let w = 0; w < 40 && uploadPending; w++) {
+        const now = await store.tab(tabId);
+        if (!now || now.paused) return;
+        if (now.fileReady) uploadPending = !(await attachPending(tabId, now, files));
+        if (!uploadPending) break;
+        await showPanel(tabId, { ...t.base, steps: steps(1), note: `Every other field is filled. Your resume for this job is almost written — attaching it as soon as it's ready (${w * 3} s)…`, noteTone: "ok", buttons: [{ text: "Use my saved resume instead", action: "own_resume", ghost: true }, { text: "Pause", action: "pause", ghost: true }] });
+        await sleep(3000);
+      }
+      lastSig = "";
+      continue;
+    }
     if (plan.status === "ready") {
-      await store.setTab(tabId, { ...t, history, submit: { i: plan.submit, frameId: page.frameId } });
+      await store.patchTab(tabId, { history, submit: { i: plan.submit, frameId: page.frameId } });
       await markWaiting(tabId);
       return showPanel(tabId, { ...t.base, steps: steps(2), note: "Every page is filled and this is the last step. Look it over — then Vantage can submit it for you, or press Submit on the page yourself.", noteTone: "ok", buttons: [{ text: "Submit it for me", action: "submit_now" }, { text: "Check again", action: "continue", ghost: true }] });
     }
     if (plan.status === "done") return confirmed(tabId, "The page says the application went through.");
     if (plan.status === "ask") {
-      await store.setTab(tabId, { ...t, history, missing: plan.ask });
+      await store.patchTab(tabId, { history, missing: plan.ask });
       await markWaiting(tabId);
       return showPanel(tabId, { ...t.base, steps: steps(1), missing: plan.ask, buttons: [{ text: "Save answers & continue", action: "answers" }, { text: "Pause", action: "pause", ghost: true }] });
     }
@@ -306,6 +416,17 @@ async function onPanel(tabId, msg) {
     return run(tabId, { resume: true });
   }
   if (msg.action === "submitted") return markSubmitted(tabId, "manual");
+  if (msg.action === "own_resume") {
+    // Don't wait for the tailored resume: attach the person's saved one.
+    const f = await api(`/api/ext/file?taskId=${t.taskId}&kind=resume&now=1`).catch(() => null);
+    if (f?.base64) {
+      const page = await readTab(tabId);
+      const box = page?.snap.items.find((x) => x.kind === "file" && !x.value && /resume|cv|attach/i.test(x.label || ""));
+      if (box) await inFrames(tabId, (x) => window.__vp?.act(x), [{ do: "upload", i: box.i, file: f }], [page.frameId]);
+      await store.setTab(tabId, { ...t, fileReady: true });
+    }
+    return;
+  }
   if (msg.action === "not_yet") {
     await store.setTab(tabId, { ...t, submitAt: 0 });
     return showPanel(tabId, { ...t.base, steps: steps(1), note: "OK — it's not marked as applied. Finish the form, press the site's Submit, and Vantage records it when the confirmation appears.", noteTone: "ok", buttons: [{ text: "Continue filling", action: "continue" }, { text: "Close", action: "close", ghost: true }] });
@@ -343,6 +464,15 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
       reply({ ok: true });
     } else if (msg.type === "panel" && sender.tab?.id) {
       await onPanel(sender.tab.id, msg);
+      reply({ ok: true });
+    } else if (msg.type === "alive" && sender.tab?.id) {
+      // The panel says "filling" but nothing is running (Chrome restarted the extension): carry on where it was.
+      const tabId = sender.tab.id;
+      if (!active.has(tabId)) {
+        const t = await store.tab(tabId);
+        const beat = (await chrome.storage.session.get(`b${tabId}`))[`b${tabId}`] || 0;
+        if (t?.taskId && !t.paused && !t.waiting && !t.sent && Date.now() - beat > 15_000) run(tabId, { resume: true }).catch(() => {});
+      }
       reply({ ok: true });
     } else if (msg.type === "submit_click" && sender.tab?.id) {
       const t = await store.tab(sender.tab.id);
@@ -392,7 +522,8 @@ async function openAndFill(msg) {
   if (!/^[0-9a-f-]{36}$/i.test(String(msg.taskId || "")) || !(/^https:\/\//i.test(String(msg.url || "")) || local)) return { ok: false, error: "Bad request" };
   const tab = await chrome.tabs.create({ url: msg.url, active: true });
   const job = msg.job && typeof msg.job === "object" ? { title: String(msg.job.title || ""), company: String(msg.job.company || "") } : null;
-  await store.setTab(tab.id, { taskId: msg.taskId, job, url: msg.url, at: Date.now(), base: { job }, history: [], autostart: true });
+  const st = await api(`/api/ext/status?taskId=${msg.taskId}`).catch(() => null);
+  await store.setTab(tab.id, { taskId: msg.taskId, job, url: msg.url, at: Date.now(), base: { job }, history: [], autostart: true, fileReady: Boolean(st?.ready), report: st?.report || null });
   return { ok: true };
 }
 
