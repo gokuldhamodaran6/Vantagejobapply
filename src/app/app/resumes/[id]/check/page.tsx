@@ -4,7 +4,7 @@ import { use, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ArrowLeft, Check as Tick, Loader2, X } from "lucide-react";
 import { ResumePaper } from "@/components/resume-paper";
-import type { ParseRow, SkillProof, LineGrade, Knockout } from "@/lib/resume/recruiter";
+import { DOMAIN, type ParseRow, type SkillProof, type LineGrade, type Knockout } from "@/lib/resume/recruiter";
 import type { ResumeContent, ResumeStyle } from "@/lib/types";
 
 type Data = {
@@ -134,7 +134,7 @@ export default function RecruiterCheck({ params }: { params: Promise<{ id: strin
                         <td className="py-2.5 pr-3 font-semibold capitalize">{s.skill}</td>
                         {d.target.kind === "role" && <td className="w-48 py-2.5 pr-3"><span className="flex items-center gap-2"><span className="h-1.5 flex-1 rounded-full bg-line-2"><span className="block h-1.5 rounded-full bg-brand" style={{ width: `${s.share}%` }} /></span><span className="w-9 text-right text-xs text-ink-2">{s.share}%</span></span></td>}
                         <td className={`py-2.5 font-medium ${s.status === "proven" ? "text-green-ink" : s.status === "listed" ? "text-orange-ink" : "text-pink-ink"}`}>
-                          {s.status === "proven" ? `Proven · ${s.where.slice(0, 3).join(", ")}` : s.status === "listed" ? "Listed only · back it with a bullet if true" : "Missing · add only if you've done it"}
+                          {s.status === "proven" ? `Proven · ${s.where.slice(0, 3).join(", ")}` : s.status === "listed" ? "Listed only · back it with a bullet if true" : DOMAIN.has(s.skill) ? "Industry experience · only if you've worked in it" : "Missing · add only if you've done it"}
                         </td>
                       </tr>
                     ))}

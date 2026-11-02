@@ -57,7 +57,10 @@ export function parseReadout(src: ResumeContent, read: ResumeContent): ParseRow[
 /* ------------------------------------------------------------------ */
 
 /** Terms too generic to search on, or that mean something else in a posting. */
-const NOT_SEARCHED = new Set(["communication", "leadership", "cross-functional", "data-driven", "platform", "api", "events", "b2b", "b2c", "pipeline", "operations", "sales", "retention", "partnerships", "stakeholder", "discovery", "launch", "messaging", "crm", "rest", "emergency", "teaching", "electrical", "plumbing", "node", "go", "r", "cad"]);
+const NOT_SEARCHED = new Set(["communication", "leadership", "cross-functional", "data-driven", "platform", "api", "events", "b2b", "b2c", "pipeline", "operations", "sales", "retention", "partnerships", "stakeholder", "discovery", "launch", "messaging", "crm", "rest", "emergency", "teaching", "electrical", "plumbing", "node", "go", "r", "cad", "epic", "platform", "discovery"]);
+
+/** Industry context rather than a skill: shown, but never the headline "missing skill". */
+export const DOMAIN = new Set(["supply chain", "procurement", "accounting", "saas", "b2b", "b2c", "logistics", "warehouse", "inventory", "nursing", "patient care", "icu", "auditing", "ifrs", "gaap", "payroll", "compliance", "risk management"]);
 
 /** Ways a resume says the same skill. */
 const SAME: Record<string, string[]> = {
@@ -84,6 +87,9 @@ const SAME: Record<string, string[]> = {
   "data modeling": ["data model", "data modeling", "metric layer", "semantic layer"],
   etl: ["etl", "data pipeline", "pipelines", "scheduled syncs"],
   "process improvement": ["process improvement", "process mapping", "streamlined", "re-engineered"],
+  "product management": ["product management", "product manager", "product owner", "product strategy"],
+  "product marketing": ["product marketing", "positioning", "go-to-market"],
+  "customer service": ["customer service", "customer support", "client support"],
 };
 
 const tokens = (t: string) => ` ${t.toLowerCase().replace(/r&d/g, "rnd").replace(/[^a-z0-9+#./ -]/g, " ").replace(/\s+/g, " ")} `;

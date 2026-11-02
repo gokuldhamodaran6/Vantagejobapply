@@ -1,6 +1,6 @@
 import { json, loadUserContext } from "@/lib/server-user";
 import { atsReadout, roleDemand } from "@/lib/resume/recruiter-server";
-import { gradeLines, skillProof, titleFound } from "@/lib/resume/recruiter";
+import { DOMAIN, gradeLines, skillProof, titleFound } from "@/lib/resume/recruiter";
 import { repairResume } from "@/lib/resume/repair";
 import type { InterviewKit } from "@/lib/resume/interview";
 import type { ResumeContent, ResumeStyle } from "@/lib/types";
@@ -26,7 +26,7 @@ export async function GET() {
         const d = await roleDemand(ctx.supabase, ctx.user.id, role.title, country);
         const proof = skillProof(c, d.skills);
         const t = titleFound(c, role.title);
-        const missing = proof.filter((p) => p.status === "missing");
+        const missing = proof.filter((p) => p.status === "missing" && !DOMAIN.has(p.skill));
         return {
           id: role.id,
           title: role.title,
