@@ -1,15 +1,17 @@
 import type { Metadata, Viewport } from "next";
 import "@fontsource-variable/inter";
+import "@fontsource-variable/bricolage-grotesque/opsz.css";
 import "./globals.css";
 
 export const metadata: Metadata = {
   metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000"),
   title: { default: "Vantage — Jobs abroad that can actually hire you", template: "%s · Vantage" },
   description:
-    "Vantage finds live jobs in the US, UK, Canada, Australia and more, filters out roles you can't legally take, tailors your resume per role and tracks every application.",
+    "Vantage writes a resume and cover letter for every job, checks every line against your real history like a hiring manager, fills the company's form, and keeps every application and interview up to date. Visa rules for the US, UK, Canada and Australia built in.",
   openGraph: {
     title: "Vantage — Jobs abroad that can actually hire you",
-    description: "Live jobs, visa-aware filtering, ATS-ready resumes and an agent that tracks everything.",
+    description: "A resume for every job. Every word still true.",
+    images: [{ url: "/vantage-film-poster.jpg", width: 1280, height: 720, alt: "Vantage" }],
     type: "website",
   },
 };

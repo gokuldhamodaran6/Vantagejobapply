@@ -1,24 +1,23 @@
-import { LandingNav } from "@/components/landing/nav";
-import { Hero } from "@/components/landing/hero";
-import { HowItWorks, Features, FinalCta } from "@/components/landing/sections";
+import { GlassNav, KeptTrue, Kit, FinalCall } from "@/components/landing/v2/sections";
+import { PrismHero } from "@/components/landing/v2/prism-hero";
+import { Story } from "@/components/landing/v2/story";
 import { CountryRules } from "@/components/landing/countries";
-import { EarlyAccess } from "@/components/landing/early-access";
 import { Faq, Footer } from "@/components/landing/faq";
 
 export default function Home() {
   return (
-    <>
-      <LandingNav />
+    <div className="lp flex min-h-screen flex-col">
+      <GlassNav />
       <main className="flex-1">
-        <Hero />
-        <HowItWorks />
+        <PrismHero />
+        <Story />
+        <KeptTrue />
         <CountryRules />
-        <Features />
-        <EarlyAccess />
+        <Kit />
         <Faq />
-        <FinalCta />
+        <FinalCall />
       </main>
       <Footer />
-    </>
+    </div>
   );
 }

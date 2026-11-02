@@ -35,9 +35,9 @@ const FAQ = [
 export function Faq() {
   return (
     <section id="faq" className="py-24">
-      <div className="mx-auto grid max-w-6xl gap-10 px-4 sm:px-6 lg:grid-cols-[1fr_1.6fr]">
+      <div className="mx-auto grid max-w-[1200px] gap-10 px-4 sm:px-6 lg:grid-cols-[1fr_1.6fr]">
         <div>
-          <h2 className="text-3xl font-bold tracking-tight sm:text-4xl">Questions people ask first</h2>
+          <h2 className="display text-[34px] font-[680] leading-[1.06] sm:text-[46px]">Questions people ask first</h2>
           <p className="mt-4 text-lg text-muted">Anything else? Email us from inside the app.</p>
         </div>
         <div className="divide-y divide-line border-y border-line">
@@ -59,21 +59,21 @@ export function Faq() {
 export function Footer() {
   return (
     <footer className="border-t border-line py-12">
-      <div className="mx-auto flex max-w-6xl flex-wrap items-start justify-between gap-8 px-4 sm:px-6">
+      <div className="mx-auto flex max-w-[1200px] flex-wrap items-start justify-between gap-8 px-4 sm:px-6">
         <div className="max-w-xs">
           <Logo />
           <p className="mt-3 text-sm text-muted">Jobs abroad that can actually hire you.</p>
         </div>
         <nav aria-label="Footer" className="grid grid-cols-2 gap-x-12 gap-y-2 text-sm">
-          <a href="#features" className="text-ink-2 hover:text-ink">Features</a>
+          <a href="#story" className="text-ink-2 hover:text-ink">How it works</a>
           <Link href="/legal/terms" className="text-ink-2 hover:text-ink">Terms</Link>
-          <a href="#early-access" className="text-ink-2 hover:text-ink">Early access</a>
+          <a href="#true" className="text-ink-2 hover:text-ink">Kept true</a>
           <Link href="/legal/privacy" className="text-ink-2 hover:text-ink">Privacy</Link>
           <a href="#countries" className="text-ink-2 hover:text-ink">Countries</a>
           <Link href="/login" className="text-ink-2 hover:text-ink">Log in</Link>
         </nav>
       </div>
-      <p className="mx-auto mt-10 max-w-6xl px-4 text-xs text-subtle sm:px-6">
+      <p className="mx-auto mt-10 max-w-[1200px] px-4 text-xs text-subtle sm:px-6">
         © {new Date().getFullYear()} Vantage. Vantage is not a law firm and does not give immigration advice. Some jobs powered by Adzuna.
       </p>
     </footer>

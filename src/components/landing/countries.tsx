@@ -10,9 +10,9 @@ export function CountryRules() {
 
   return (
     <section id="countries" className="py-24">
-      <div className="mx-auto max-w-6xl px-4 sm:px-6">
+      <div className="mx-auto max-w-[1200px] px-4 sm:px-6">
         <div className="max-w-2xl">
-          <h2 className="text-3xl font-bold tracking-tight sm:text-4xl">The rules of each country, applied to every job</h2>
+          <h2 className="display text-[34px] font-[680] leading-[1.06] sm:text-[46px]">The rules of each country, applied to every job</h2>
           <p className="mt-4 text-lg text-muted">
             Vantage knows which visa routes exist, who can sponsor and what disqualifies a job — and checks every posting for you.
           </p>
@@ -44,7 +44,7 @@ export function CountryRules() {
             transition={{ duration: 0.25 }}
             className="mt-6 grid gap-5 lg:grid-cols-[1.2fr_1fr]"
           >
-            <div className="card p-7">
+            <div className="glass rounded-[24px] p-7">
               <h3 className="text-lg font-semibold">Ways to work in {c.name}</h3>
               <ul className="mt-5 space-y-4">
                 {c.routes.map((r) => (
@@ -56,7 +56,7 @@ export function CountryRules() {
               </ul>
               <p className="mt-5 text-[15px] leading-relaxed"><span className="font-semibold">For students: </span>{c.studentPath}</p>
             </div>
-            <div className="card flex flex-col p-7">
+            <div className="glass flex flex-col rounded-[24px] p-7">
               <h3 className="text-lg font-semibold">What Vantage checks for you</h3>
               <ul className="mt-5 space-y-3 text-[15px] leading-relaxed">
                 {c.facts.map((f) => (
