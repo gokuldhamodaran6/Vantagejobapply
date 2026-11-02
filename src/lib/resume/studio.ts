@@ -253,6 +253,17 @@ Return ONLY the letter as plain text.`,
   );
   if (!out || out.trim().length < 400) return null;
   let text = tidyLetter(out.replace(/^```\w*\n?|```$/g, ""));
+  // Fact-check: every past claim in the right role, with the same metric, credit and years figure as the resume.
+  const years = (original.summary || "").match(/\b(\d{1,2}\+?)\s+years\b/i)?.[1];
+  const checked = await claude(
+    `You are a fact-checker for a cover letter. Compare every claim about the candidate's past with the ORIGINAL resume.
+Fix ONLY these problems, changing as few words as possible: a fact attributed to the wrong employer or role; a metric, tool, number or result that differs from the ORIGINAL; stronger credit than the ORIGINAL gives ("contributed to" must stay); anything the ORIGINAL does not state.${years ? ` Years of experience must read "${years}" (as in the resume), never another number.` : ""}
+Keep the tone, structure, greeting and sign-off. Return ONLY the full corrected letter as plain text.`,
+    [{ role: "user", content: `ORIGINAL RESUME:\n${json(original)}\n\nLETTER:\n${text}` }],
+    2500,
+    { model: "writer", temperature: 0.1, feature: "tailor-letter-check" },
+  ).catch(() => null);
+  if (checked && checked.trim().length > text.length * 0.7 && /Dear /.test(checked)) text = tidyLetter(checked.replace(/^```\w*\n?|```$/g, ""));
   let issues = lintLetter(text, job.company);
   if (issues.length) {
     const fixed = await claude(
