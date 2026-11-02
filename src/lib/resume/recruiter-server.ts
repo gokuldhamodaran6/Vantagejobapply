@@ -17,7 +17,11 @@ export async function atsReadout(c: ResumeContent, style: ResumeStyle = "classic
 }
 
 /** Cached per user for a day: the role's skill demand across open postings. */
+const memo = new Map<string, { at: number; v: unknown }>();
 async function cached<T>(supabase: SupabaseClient, userId: string, key: string, maxAgeH: number, make: () => Promise<T>): Promise<T> {
+  // Market demand is the same for everyone: a process-wide memo makes repeat visits instant.
+  const hit = key.startsWith("demand") ? memo.get(key) : undefined;
+  if (hit && Date.now() - hit.at < maxAgeH * 3600e3) return hit.v as T;
   try {
     const { data } = await supabase.from("resume_insights").select("data,updated_at").eq("user_id", userId).eq("key", key).maybeSingle();
     if (data && Date.now() - Date.parse(data.updated_at) < maxAgeH * 3600e3) return data.data as T;
@@ -25,6 +29,7 @@ async function cached<T>(supabase: SupabaseClient, userId: string, key: string, 
     /* table not there yet: compute */
   }
   const v = await make();
+  if (key.startsWith("demand")) memo.set(key, { at: Date.now(), v });
   try {
     await supabase.from("resume_insights").upsert({ user_id: userId, key, data: v as unknown as object, updated_at: new Date().toISOString() });
   } catch {
@@ -36,9 +41,14 @@ async function cached<T>(supabase: SupabaseClient, userId: string, key: string, 
 export type RoleDemand = { postings: number; skills: SkillDemand[] };
 
 export async function roleDemand(supabase: SupabaseClient, userId: string, title: string, country = "US"): Promise<RoleDemand> {
-  return cached(supabase, userId, `demand:${country}:${title.toLowerCase().trim()}`, 24, async () => {
-    const since = new Date(Date.now() - 60 * 864e5).toISOString();
-    const { data } = await supabase.rpc("search_jobs", { p_country: country, p_tsquery: titleTsQuery(searchVariants(title, 4)), p_since: since, p_limit: 300 });
+  return cached(supabase, userId, `demand2:${country}:${title.toLowerCase().trim()}`, 24, async () => {
+    const since = new Date(Date.now() - 90 * 864e5).toISOString();
+    // The exact title (plus one close variant) keeps the search on the index and under the statement timeout;
+    // broad variant lists made big families like "Product Manager" time out and come back empty.
+    const run = (phrases: string[]) => supabase.rpc("search_jobs", { p_country: country, p_tsquery: titleTsQuery(phrases), p_since: since, p_limit: 200 });
+    let { data, error } = await run(searchVariants(title, 2));
+    if (error) ({ data, error } = await run([title]));
+    if (error) console.error("role demand search failed", title, error.message);
     const rows = ((data as { title: string; description: string | null }[]) || []).filter((j) => (j.description || "").length > 400);
     return { postings: rows.length, skills: skillDemand(rows.map((j) => j.description || ""), 12) };
   });

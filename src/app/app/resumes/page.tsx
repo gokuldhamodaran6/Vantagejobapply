@@ -205,7 +205,7 @@ export default function ResumesPage() {
               sub={ready ? (ready.parse.bad.length ? `Read wrong: ${ready.parse.bad.join(", ")}.` : "Name, contact, every job title, employer, date range and degree come out right when the file is read back.") : ""} />
             <Check href={`/app/resumes/${master.id}/check`} label="Recruiter search" good={ready ? foundRoles === ready.roles.length && ready.roles.length > 0 : null}
               value={ready ? (ready.roles.length ? `Found for ${foundRoles} of ${ready.roles.length} roles` : "Add a target role") : null}
-              sub={ready ? (weakRole ? `${weakRole.title}: no "${weakRole.missing[0].skill}", which ${weakRole.missing[0].share}% of ${weakRole.postings} open postings ask for.` : ready.roles.length ? "Your titles and skills match what recruiters search for each role." : "") : ""} />
+              sub={ready ? (weakRole ? `${weakRole.title}: no "${weakRole.missing[0].skill}", which ${weakRole.missing[0].share}% of ${weakRole.postings} recent postings ask for.` : ready.roles.length ? "Your titles and skills match what recruiters search for each role." : "") : ""} />
             <Check href={`/app/resumes/${master.id}/check?tab=lines`} label="Bullets with a result" good={ready ? ready.lines.strong >= ready.lines.total * 0.6 : null}
               value={ready ? `${ready.lines.strong} of ${ready.lines.total}` : null}
               sub={ready ? (ready.lines.total - ready.lines.strong ? `${ready.lines.total - ready.lines.strong} lines say what you did, not what changed because of it.` : "Every line shows an outcome or scope.") : ""} />
@@ -335,7 +335,7 @@ export default function ResumesPage() {
                             )}
                           </td>
                           <td className="border-b border-line-2 px-3 py-3.5">
-                            {rd ? (rd.postings ? <><p className="font-semibold">{rd.have} of {rd.skills} skills</p><p className="text-xs text-muted">{rd.postings} open postings{rd.titleFound ? "" : " · title not found"}</p></> : <p className="text-xs text-muted">No open postings in your feed yet</p>) : <span className="skeleton block h-8 w-28" />}
+                            {rd ? (rd.postings ? <><p className="font-semibold">{rd.have} of {rd.skills} skills</p><p className="text-xs text-muted">{rd.postings} recent postings{rd.titleFound ? "" : " · title not found"}</p></> : <p className="text-xs text-muted">No open postings in your feed yet</p>) : <span className="skeleton block h-8 w-28" />}
                           </td>
                           <td className="border-b border-line-2 px-3 py-3.5 text-ink-2">
                             {rd ? (rd.missing.length ? rd.missing.map((m) => `${m.skill} (${m.share}%)`).join(", ") : <span className="text-green-ink">None in the top {rd.skills}</span>) : <span className="skeleton block h-5 w-36" />}

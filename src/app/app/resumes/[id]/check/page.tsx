@@ -123,7 +123,7 @@ export default function RecruiterCheck({ params }: { params: Promise<{ id: strin
             {tab === "search" && (
               <div className="space-y-3 p-5">
                 <p className="text-sm text-ink-2">
-                  {d.target.kind === "job" ? "The skills this posting names." : d.target.postings ? `The skills recruiters filter on for ${d.target.label}, ranked by how many of ${d.target.postings} open postings in your job feed ask for them.` : "No open postings for this role in your feed yet, so there's nothing to count."}{" "}
+                  {d.target.kind === "job" ? "The skills this posting names." : d.target.postings ? `The skills recruiters filter on for ${d.target.label}, ranked by how many of ${d.target.postings} recent postings in your job feed ask for them.` : "No open postings for this role in your feed yet, so there's nothing to count."}{" "}
                   <b>Proven</b> means a bullet shows you using it; <b>listed</b> means it&apos;s only in your skills or summary.
                 </p>
                 <table className="w-full border-collapse text-sm">
