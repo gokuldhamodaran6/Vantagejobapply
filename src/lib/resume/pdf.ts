@@ -305,31 +305,42 @@ export async function fitToPages(r0: ResumeContent, pages: number, opts: { style
   const count = async () => (await PDFDocument.load(await resumePdf(r, opts))).getPageCount();
   let n = await count();
   let trimmed = 0;
+  const exp = () => (r.experience || []).filter((e) => !e.brief);
+  // Cut the weakest line: no result, no number, no promotion or leadership signal; later lines first on a tie.
+  const value = (b: string, i: number) => (/\d[\d,.]*%/.test(b) ? 4 : 0) + (/\b(?!(19|20)\d{2}\b)\d[\d,.]*\+?/.test(b) ? 2 : 0) + (/\b(promoted|led a team|award|mentored|funding|acquisition)\b/i.test(b) ? 2 : 0) - i * 0.1;
+  const cutBullet = (floorFirst: number, floorOther: number) => () => {
+    const roles = exp();
+    const cands = roles.map((e, i) => ({ e, floor: i === 0 ? floorFirst : i === 1 ? Math.max(floorOther, 2) : floorOther })).filter((x) => x.e.bullets.length > x.floor);
+    if (!cands.length) return false;
+    // Older roles give up lines first; then whichever role has the most.
+    const t = cands.sort((a, b) => roles.indexOf(b.e) - roles.indexOf(a.e) || b.e.bullets.length - a.e.bullets.length)[0].e;
+    let worst = 0;
+    t.bullets.forEach((b, i) => { if (value(b, i) < value(t.bullets[worst], worst)) worst = i; });
+    t.bullets.splice(worst, 1);
+    return true;
+  };
+  const cap = (get: () => string[] | undefined, set: (x: string[]) => void, n: number) => () => {
+    const x = get() || [];
+    return x.length > n ? (set(x.slice(0, n)), true) : false;
+  };
+  const capSkills = (n: number) => () => {
+    const g = (r.skills || []).find((x) => x.items.length > n);
+    return g ? ((g.items = g.items.slice(0, n)), true) : false;
+  };
+  // Achievements outrank lists: certificates, awards and long skill lines go before real bullets do.
   const steps: (() => boolean)[] = [
-    () => (r.additional?.length ? ((r.additional = []), true) : false),
-    () => {
-      const g = (r.skills || []).find((x) => x.items.length > 9);
-      return g ? ((g.items = g.items.slice(0, 9)), true) : false;
-    },
-    () => {
-      const exp = (r.experience || []).filter((e) => !e.brief);
-      const older = exp.slice(1).filter((e) => e.bullets.length > 1).sort((a, b) => b.bullets.length - a.bullets.length)[0];
-      const first = exp[0] && exp[0].bullets.length > 3 ? exp[0] : null;
-      const t = older && (!first || older.bullets.length >= 3) ? older : first || older;
-      if (!t) return false;
-      // Cut the weakest line: no result, no number, no promotion or leadership signal; later lines first on a tie.
-      const value = (b: string, i: number) => (/\d[\d,.]*%/.test(b) ? 4 : 0) + (/\b(?!(19|20)\d{2}\b)\d[\d,.]*\+?/.test(b) ? 2 : 0) + (/\b(promoted|led a team|award|mentored|funding|acquisition)\b/i.test(b) ? 2 : 0) - i * 0.1;
-      let worst = 0;
-      t.bullets.forEach((b, i) => { if (value(b, i) < value(t.bullets[worst], worst)) worst = i; });
-      t.bullets.splice(worst, 1);
-      return true;
-    },
-    () => ((r.certifications || []).length > 5 ? ((r.certifications = r.certifications!.slice(0, 5)), true) : false),
-    () => ((r.awards || []).length > 2 ? ((r.awards = r.awards!.slice(0, 2)), true) : false),
-    () => {
-      const g = (r.skills || []).find((x) => x.items.length > 6);
-      return g ? ((g.items = g.items.slice(0, 6)), true) : false;
-    },
+    cap(() => r.additional, (x) => (r.additional = x), 0),
+    cap(() => r.certifications, (x) => (r.certifications = x), 4),
+    capSkills(8),
+    cap(() => r.awards, (x) => (r.awards = x), 2),
+    cutBullet(4, 2),
+    cap(() => r.certifications, (x) => (r.certifications = x), 3),
+    cap(() => r.awards, (x) => (r.awards = x), 1),
+    capSkills(6),
+    () => ((r.skills || []).length > 3 ? (r.skills!.pop(), true) : false),
+    cutBullet(3, 1),
+    cap(() => r.certifications, (x) => (r.certifications = x), 2),
+    cutBullet(2, 1),
   ];
   for (let guard = 0; n > pages && guard < 30; guard++) {
     const step = steps.find((s) => s());

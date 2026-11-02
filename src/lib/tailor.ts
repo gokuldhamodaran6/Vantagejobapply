@@ -123,7 +123,15 @@ export async function tailorForJob(base0: ResumeContent, job: JobIn, candidateNa
     });
     if (s) {
       // The page target is real: measure the PDF and trim the least valuable lines until it fits.
-      const fit = await fitToPages(s.resume, format.pages, { country: country || job.country }).catch(() => null);
+      // One strong page beats two, but two strong pages beat one thin page: if one page would leave fewer than
+      // ~10 achievement bullets, the resume gets a second page instead.
+      const opts = { country: country || job.country };
+      const bulletsOf = (r: ResumeContent) => (r.experience || []).reduce((n, e) => n + (e.bullets || []).length, 0);
+      let fit = await fitToPages(s.resume, format.pages, opts).catch(() => null);
+      if (fit && format.pages === 1 && (fit.pages > 1 || bulletsOf(fit.resume) < Math.min(10, bulletsOf(s.resume)))) {
+        fit = await fitToPages(s.resume, 2, opts).catch(() => fit);
+        if (fit) format.pages = 2;
+      }
       if (fit) s.resume = fit.resume;
       const letter = s.coverLetter || ruleLetter(s.resume, job, keywords, tone);
       const analysis = s.strategy.requirements.map((r) => ({ requirement: r.requirement, evidence: r.evidence ?? null })).filter((r) => r.requirement);

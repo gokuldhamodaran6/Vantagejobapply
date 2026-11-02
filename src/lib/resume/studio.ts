@@ -151,7 +151,7 @@ Return ONLY JSON:
       compress: arr(s.compress, 6),
       requirements: arr(s.requirements, 8),
       gaps: arr(s.gaps, 6),
-      questions: arr<string>(s.questions, 5).filter((q) => typeof q === "string" && q.length > 10),
+      questions: arr<unknown>(s.questions, 5).map((q) => (typeof q === "string" ? q : (q as { question?: string; text?: string })?.question || (q as { text?: string })?.text || "")).filter((q) => q.length > 10),
       keywords: arr<string>(s.keywords, 25).length ? arr<string>(s.keywords, 25) : keywords,
     },
   };
@@ -241,7 +241,7 @@ STRUCTURE (230–320 words, 4 short paragraphs):
 - P4 (1–2 sentences): confident close, invitation to talk. No "I hope", no begging.
 - Sign off "${tone === "warm" ? "Best regards," : "Sincerely,"}" then "${name}".
 Write like a sharp human: varied sentences, plain words, no exclamation marks, at most one dash, at most two sentences starting with "I". Never mention AI, tools used to write, visas or salary. ${fmt.spelling === "us" ? "US spelling." : fmt.spellingNote || "UK/Commonwealth spelling."}
-Banned phrases: ${BANNED.join("; ")}.
+Banned phrases: ${BANNED.join("; ")}; let us schedule; robust; I am confident.
 Return ONLY the letter as plain text.`,
     [{ role: "user", content: `HOOK: ${brief?.hook || "(pick one concrete detail from the posting)"}\nMUST-HAVES: ${json(brief?.mustHave?.map((m) => m.requirement) || [])}\nPROBLEMS: ${json(brief?.problems || [])}\nPLAN: ${json({ identity: st.identity, angle: st.angle, pillars: st.pillars, gaps: st.gaps })}\n\nPOSTING:\n${(job.description || "").slice(0, 6000)}\n\nRESUME (only source of facts):\n${json(r)}` }],
     2500,
@@ -275,10 +275,20 @@ export async function studio(base0: ResumeContent, job: StudioJob, opts: { fmt: 
   let pb = playbookFor(job.company);
   const { brief, strategy } = await plan(base, job, pb, opts.keywords);
   stages.push(brief ? "plan" : "plan-skipped");
+  if (strategy.questions.length < 3) strategy.questions = [...strategy.questions, ...numberQuestions(base)].slice(0, 5);
   if (brief?.companyKind && pb.kind === "other") pb = playbookFor(job.company, brief.companyKind);
 
   const jobText = `${job.title} ${job.description || ""}`;
-  const finish = (r: ResumeContent) => polishResume(guard(base, r, jobText), { jobTitle: job.title, identity: strategy.identity, original: base });
+  const finish = (r: ResumeContent) => {
+    const out = polishResume(guard(base, r, jobText), { jobTitle: job.title, identity: strategy.identity, original: base });
+    // A headline needs its specialisms: if the checks stripped them, borrow the person's own from the master headline.
+    const segs = (out.headline || "").split(" | ").filter(Boolean);
+    if (segs.length < 2) {
+      const own = (base.headline || "").split(/\s+\|\s+/).slice(1).filter((x) => !segs.includes(x));
+      out.headline = [segs[0] || strategy.identity, ...own].filter(Boolean).slice(0, 3).join(" | ");
+    }
+    return out;
+  };
 
   const drafted = await write(base, job, pb, opts.fmt, brief, strategy, opts.onePage);
   if (!drafted) return null;
@@ -312,6 +322,23 @@ export async function studio(base0: ResumeContent, job: StudioJob, opts: { fmt: 
     playbook: { name: pb.name, kind: pb.kind, values: pb.values },
     stages,
   };
+}
+
+/** Questions that would add a real number to roles whose bullets have none (never written into the resume). */
+export function numberQuestions(c: ResumeContent): string[] {
+  const out: string[] = [];
+  for (const e of (c.experience || []).filter((x) => !x.brief)) {
+    const plain = (e.bullets || []).filter((b) => !/\d/.test(b));
+    if (!plain.length) continue;
+    const b = plain[0].replace(/\.$/, "");
+    const at = e.company ? `At ${e.company.split(",")[0]}` : `As ${e.title}`;
+    if (/website|site|content|video|social|outreach|engagement/i.test(b)) out.push(`${at}, what was the reach or engagement change (visitors, followers, views, sign-ups) from this work?`);
+    else if (/report|dashboard/i.test(b)) out.push(`${at}, how many hours a week did the reporting or dashboards save, or how many people used them?`);
+    else if (/campaign|paid|ads|media/i.test(b)) out.push(`${at}, what budget did you manage, and what changed in cost per lead or conversions?`);
+    else out.push(`${at}, can you put a number on "${b.slice(0, 70)}${b.length > 70 ? "…" : ""}" (people, time saved, revenue, or %)?`);
+    if (out.length >= 4) break;
+  }
+  return out;
 }
 
 /** Text the truth guard and match checks read: the person's own resume. */
