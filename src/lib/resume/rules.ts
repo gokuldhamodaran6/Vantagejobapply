@@ -159,6 +159,14 @@ export function guard(original: ResumeContent, out: ResumeContent, jobText = "")
       }
     }
   }
+  // Projects (products the person built): same name and stack as the source, honest bullets, never dropped.
+  const key = (n: string) => norm(n.split(/[—–(-]/)[0]).trim();
+  const outProjects = r.projects || [];
+  r.projects = (original.projects || []).map((o) => {
+    const p = outProjects.find((x) => key(x.name) === key(o.name) || key(x.name).includes(key(o.name)) || key(o.name).includes(key(x.name)));
+    const bullets = (p?.bullets || []).filter((b) => (b.match(/\d[\d,.]*%?\+?/g) || []).every((n) => numbers.has(n.replace(/[,+]/g, ""))) && !unprovenTerms(b, src, jobText).length);
+    return { name: o.name, ...(o.tech ? { tech: o.tech } : {}), bullets: bullets.length ? bullets : o.bullets };
+  });
   // Never drop a job: append any the model removed, as-is.
   for (const o of original.experience || []) {
     if (!r.experience.some((e) => norm(e.company) === norm(o.company) && e.start === o.start)) r.experience.push(o);

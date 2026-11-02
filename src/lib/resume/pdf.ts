@@ -339,8 +339,16 @@ export async function fitToPages(r0: ResumeContent, pages: number, opts: { style
     capSkills(6),
     () => ((r.skills || []).length > 3 ? (r.skills!.pop(), true) : false),
     cutBullet(3, 1),
+    () => {
+      const p = (r.projects || []).filter((x) => x.bullets.length > 2).sort((a, b) => b.bullets.length - a.bullets.length)[0];
+      return p ? (p.bullets.pop(), true) : false;
+    },
     cap(() => r.certifications, (x) => (r.certifications = x), 2),
     cutBullet(2, 1),
+    () => {
+      const p = (r.projects || []).filter((x) => x.bullets.length > 1).sort((a, b) => b.bullets.length - a.bullets.length)[0];
+      return p ? (p.bullets.pop(), true) : false;
+    },
   ];
   for (let guard = 0; n > pages && guard < 30; guard++) {
     const step = steps.find((s) => s());

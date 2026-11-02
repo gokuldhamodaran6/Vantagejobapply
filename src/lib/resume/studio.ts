@@ -87,6 +87,7 @@ const CRAFT = `WRITING STANDARD (what Google, Meta, Amazon and Fortune 500 hirin
 - The posting's vocabulary may only rename what the source already describes. Never swap one metric for another (cost per lead is not customer acquisition cost; impressions are not traffic), and never add objects the source does not mention (budgets, models, frameworks, roadmaps, revenue, teams).
 - A promotion inside one employer is a strong signal: keep it visible.
 - Awards, a team the person led or mentored, funding rounds or acquisitions they supported, and things they built are high-value proof: surface them when relevant to the job.
+- Projects are products the person designed and built: keep EVERY project from the source with its name and stack, ordered by relevance to this job; 2–3 bullets for relevant ones, at least 1 for the rest. They are major proof of initiative and technical depth.
 - Recruiters read job titles first: never change a title, and write bullets so the first one in each role is the most relevant to this job.
 - Founders and independent ventures: keep the "Founder" title, but write those bullets in the target function's language (owned the roadmap, defined metrics, ran experiments, shipped releases) so a corporate hiring manager sees the job they are hiring for, not an entrepreneur who might leave.
 - Employers, schools and certifications are spelled out in full; no unexplained abbreviations.
