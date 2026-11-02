@@ -75,7 +75,8 @@ export function ResumePaper({ c, highlight = [], style = "classic", country }: {
           <H {...hp}>PROJECTS</H>
           {c.projects.map((p, i) => (
             <div key={i} className="mb-2">
-              <strong>{p.name}</strong>{p.tech ? ` (${p.tech})` : ""}
+              <strong>{p.name}</strong>
+              {p.tech && <p className="italic text-[#444]">{p.tech}</p>}
               <ul className="list-disc pl-4">{p.bullets.map((b, j) => <li key={j}>{hl(b)}</li>)}</ul>
             </div>
           ))}

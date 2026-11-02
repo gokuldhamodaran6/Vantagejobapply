@@ -254,7 +254,9 @@ export async function resumePdf(raw: ResumeContent, opts: { style?: ResumeStyle;
   if (r.projects?.length) {
     heading(c, st, "Projects");
     for (const p of r.projects) {
-      rowWithRight(c, `${p.name}${p.tech ? ` (${p.tech})` : ""}`, "", c.bold, c.size);
+      rowWithRight(c, p.name, "", c.bold, c.size + 0.2);
+      if (p.tech) text(c, p.tech, { font: c.italic, size: c.size - 0.2, color: [0.25, 0.25, 0.25] });
+      c.y -= 1;
       bullets(c, p.bullets);
       c.y -= 2;
     }
