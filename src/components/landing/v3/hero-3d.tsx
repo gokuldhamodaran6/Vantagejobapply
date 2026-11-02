@@ -179,7 +179,14 @@ function Detail({ k, d }: { k: number; d: Demo }) {
 /** Phones: swipe through the four outputs; the one in view lights its beam in the scene above. */
 function MobileCards({ d, active, setActive }: { d: Demo; active: number; setActive: (i: number) => void }) {
   const row = useRef<HTMLDivElement>(null);
-  const touched = useRef(0);
+  // Set while the person is swiping; auto-advance waits until 9 s after their last touch.
+  const touched = useRef(false);
+  const quiet = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const hold = () => {
+    touched.current = true;
+    if (quiet.current) clearTimeout(quiet.current);
+    quiet.current = setTimeout(() => (touched.current = false), 9000);
+  };
   // Which card is centred.
   useEffect(() => {
     const el = row.current;
@@ -195,22 +202,23 @@ function MobileCards({ d, active, setActive }: { d: Demo; active: number; setAct
   useEffect(() => {
     const t = setInterval(() => {
       const el = row.current;
-      if (!el || Date.now() - touched.current < 9000) return;
+      if (!el || touched.current) return;
       const next = (active + 1) % CARDS.length;
       el.scrollTo({ left: (el.scrollWidth / CARDS.length) * next, behavior: "smooth" });
     }, 4500);
     return () => clearInterval(t);
   }, [active]);
-  const go = (i: number) => {
-    touched.current = Date.now();
+  function go(i: number) {
+    hold();
     const el = row.current;
     if (el) el.scrollTo({ left: (el.scrollWidth / CARDS.length) * i, behavior: "smooth" });
-  };
+  }
+
   return (
     <div>
       <div
         ref={row}
-        onTouchStart={() => (touched.current = Date.now())}
+        onTouchStart={hold}
         className="-mx-4 flex snap-x snap-mandatory gap-3 overflow-x-auto px-4 pb-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
         aria-label="What Vantage makes for this job"
       >
