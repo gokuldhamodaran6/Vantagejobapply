@@ -1,6 +1,7 @@
 import type { NextRequest } from "next/server";
 import { json, loadUserContext } from "@/lib/server-user";
 import { runWithAi } from "@/lib/ai-context";
+import { aiOutage } from "@/lib/ai";
 import { buildInterviewKit, type InterviewKit, type Story } from "@/lib/resume/interview";
 import { jobDemand, roleDemand } from "@/lib/resume/recruiter-server";
 import { skillProof } from "@/lib/resume/recruiter";
@@ -53,12 +54,16 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   if (!t) return json({ error: "Not found" }, 404);
   const fresh = req.nextUrl.searchParams.get("fresh") === "1";
   const old = await load(ctx, t.key);
-  if (old && !fresh) return json({ kit: old, cached: true });
+  // A kit built while the AI was down is retried on the next visit.
+  if (old && !fresh && old.ai) return json({ kit: old, cached: true });
   const kit = await runWithAi({ userId: ctx.user.id }, () => buildInterviewKit(t.content, t.target, skillProof(t.content, t.demand.skills)));
   // A rebuild keeps every story the person already filled in.
-  if (old) kit.stories = kit.stories.map((s) => old.stories.find((o) => o.ref === s.ref && o.ready) || s);
+  // The person's own words always survive a rebuild.
+  if (old) kit.stories = kit.stories.map((s) => old.stories.find((o) => o.ref === s.ref && (o.ready || !/^\[/.test(o.situation))) || s);
+  // Without the AI a kit is only blank prompts: keep any earlier one, but save a first one so stories can be filled in.
+  if (!kit.ai && old) return json({ kit: old, cached: true, outage: aiOutage()?.reason || "unavailable" });
   await save(ctx, t.key, kit);
-  return json({ kit, cached: false });
+  return json({ kit, cached: false, outage: kit.ai ? null : aiOutage()?.reason || "unavailable" });
 }
 
 /** Save the person's own words for one story. */

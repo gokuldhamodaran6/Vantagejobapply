@@ -18,6 +18,7 @@ export default function InterviewKitPage({ params }: { params: Promise<{ id: str
   const [busy, setBusy] = useState<string | null>(null);
   const [edit, setEdit] = useState<Story | null>(null);
   const [toast, setToast] = useState<string | null>(null);
+  const [outage, setOutage] = useState<string | null>(null);
 
   async function load(fresh = false) {
     setBusy(fresh ? "fresh" : "load");
@@ -26,6 +27,7 @@ export default function InterviewKitPage({ params }: { params: Promise<{ id: str
     setBusy(null);
     if (!r?.ok) return setErr(d.error || "Couldn't build the interview kit.");
     setKit(d.kit);
+    setOutage(d.outage || null);
   }
   useEffect(() => {
     load();
@@ -65,6 +67,12 @@ export default function InterviewKitPage({ params }: { params: Promise<{ id: str
         <div className="space-y-3"><div className="skeleton h-24" /><div className="grid gap-5 lg:grid-cols-2"><div className="skeleton h-[520px]" /><div className="skeleton h-[520px]" /></div><p className="flex items-center gap-2 text-sm text-muted"><Loader2 size={14} className="animate-spin" /> Turning your strongest lines into stories and likely questions. This takes about 30 seconds the first time.</p></div>
       ) : (
         <>
+          {outage && (
+            <div className="mb-4 rounded-2xl border border-[#fde3c8] bg-[#fff7ef] p-4 text-sm print:hidden">
+              <p className="font-semibold">{outage === "billing" ? "The AI writer is out of credits right now." : "The AI writer isn't responding right now."}</p>
+              <p className="text-ink-2">So the stories below are blank prompts and there are no questions yet. You can still fill each story in your own words; press Rebuild questions once the writer is back.</p>
+            </div>
+          )}
           <div className="mb-5 grid gap-3 sm:grid-cols-3 print:hidden">
             <Stat label="Stories ready" value={`${ready} of ${kit.stories.length}`} sub={kit.stories.length - ready ? `${kit.stories.length - ready} need a detail only you know` : "Every story is ready to tell"} />
             <Stat label="Likely questions" value={String(kit.questions.length)} sub={kit.values.length ? "From your resume, the role and the employer's published hiring criteria" : "From your resume and the role"} />

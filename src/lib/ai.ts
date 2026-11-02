@@ -57,6 +57,17 @@ const GEMINI_FALLBACKS = ["gemini-3.8-flash", "gemini-3.6-flash", "gemini-3.5-fl
 
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+/** The last time the AI provider refused for a reason a retry won't fix (billing, quota, key). */
+let outage: { at: number; reason: string } | null = null;
+function noteOutage(status: number, body: string) {
+  if (status === 402 || /RESOURCE_EXHAUSTED|credit|billing|quota/i.test(body)) outage = { at: Date.now(), reason: "billing" };
+  else if (status === 401 || /API_KEY_INVALID|API key not valid/i.test(body)) outage = { at: Date.now(), reason: "key" };
+}
+/** Whether the AI writer is down right now (within the last 10 minutes), and why. */
+export function aiOutage(): { reason: string } | null {
+  return outage && Date.now() - outage.at < 10 * 60e3 ? { reason: outage.reason } : null;
+}
+
 /* ───────────────────────── Usage meter ─────────────────────────
  * Every request to a provider (including retries and failures) becomes one row in private.ai_usage.
  * Rows are queued in memory and written in batches (every 2 s, or at 25 rows) by one RPC call, off the
@@ -152,6 +163,7 @@ async function callAnthropic(system: string, messages: Msg[], maxTokens: number,
         const body = (await res.text()).slice(0, 500);
         meter("anthropic", model, started, opts, { ok: false, status: res.status, error: body });
         console.error("claude error", res.status, body);
+        noteOutage(res.status, body);
         return null;
       }
       const data = (await res.json()) as { model?: string; content?: { type: string; text?: string }[]; usage?: Parameters<typeof anthropicUsage>[0] };
@@ -191,6 +203,7 @@ async function callGemini(system: string, messages: Msg[], maxTokens: number, op
           // A bad key won't get better with another model.
           if (/API_KEY_INVALID|API key not valid|PERMISSION_DENIED.*key/i.test(body)) {
             console.error("gemini key rejected", res.status, body);
+            noteOutage(401, body);
             return null;
           }
           console.error("gemini model unavailable", model, res.status, body);
@@ -205,6 +218,7 @@ async function callGemini(system: string, messages: Msg[], maxTokens: number, op
           const body = (await res.text()).slice(0, 500);
           meter("gemini", model, started, opts, { ok: false, status: res.status, error: body });
           console.error("gemini error", res.status, body);
+          noteOutage(res.status, body);
           return null;
         }
         const data = (await res.json()) as {

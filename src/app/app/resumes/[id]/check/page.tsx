@@ -4,7 +4,7 @@ import { use, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ArrowLeft, Check as Tick, Loader2, X } from "lucide-react";
 import { ResumePaper } from "@/components/resume-paper";
-import { DOMAIN, type ParseRow, type SkillProof, type LineGrade, type Knockout } from "@/lib/resume/recruiter";
+import { skillLabel, type ParseRow, type SkillProof, type LineGrade, type Knockout, type SkillDemand } from "@/lib/resume/recruiter";
 import type { ResumeContent, ResumeStyle } from "@/lib/types";
 
 type Data = {
@@ -14,6 +14,7 @@ type Data = {
   parse: ParseRow[];
   title: { found: boolean; via: string };
   skills: SkillProof[];
+  industries: SkillDemand[];
   lines: LineGrade[];
   knockouts: Knockout[];
 };
@@ -72,17 +73,17 @@ export default function RecruiterCheck({ params }: { params: Promise<{ id: strin
             Check against
             <select className="input h-11 py-0 text-sm font-medium text-ink" value={d.target.kind === "role" ? d.target.id : ""} onChange={(e) => go("role", e.target.value)}>
               {d.target.kind === "job" && <option value="">{d.target.label}</option>}
-              {d.roles.map((r) => <option key={r.id} value={r.id}>{r.title} · open postings</option>)}
+              {d.roles.map((r) => <option key={r.id} value={r.id}>{tc(r.title)} · recent postings</option>)}
             </select>
           </label>
         )}
       </div>
 
       {!d ? (
-        <div className="grid gap-5 lg:grid-cols-[480px_1fr]"><div className="skeleton h-[620px]" /><div className="skeleton h-[620px]" /></div>
+        <div className="grid gap-5 xl:grid-cols-[480px_1fr]"><div className="skeleton h-[620px]" /><div className="skeleton h-[620px]" /></div>
       ) : (
-        <div className="grid items-start gap-5 lg:grid-cols-[480px_1fr]">
-          <section aria-label="Six-second skim" className="space-y-2.5">
+        <div className="grid items-start gap-5 xl:grid-cols-[480px_1fr]">
+          <section aria-label="Six-second skim" className="w-full max-w-[480px] space-y-2.5">
             <p className="text-sm"><span className="font-semibold">What a recruiter sees in six seconds.</span> <span className="text-muted">Eyes land on titles, employers, dates and <mark className="rounded bg-[#dce7ff] px-1">numbers</mark>.</span></p>
             <div className="relative overflow-hidden rounded-[4px] shadow-[0_10px_30px_rgba(16,24,40,.12)]" style={{ height: 620 }}>
               <div className="absolute left-0 top-0 w-[760px] origin-top-left" style={{ transform: "scale(0.6316)" }}>
@@ -123,7 +124,7 @@ export default function RecruiterCheck({ params }: { params: Promise<{ id: strin
             {tab === "search" && (
               <div className="space-y-3 p-5">
                 <p className="text-sm text-ink-2">
-                  {d.target.kind === "job" ? "The skills this posting names." : d.target.postings ? `The skills recruiters filter on for ${d.target.label}, ranked by how many of ${d.target.postings} recent postings in your job feed ask for them.` : "No open postings for this role in your feed yet, so there's nothing to count."}{" "}
+                  {d.target.kind === "job" ? "The skills this posting names." : d.target.postings ? `The skills recruiters filter on for ${tc(d.target.label)}, ranked by how many of ${d.target.postings} recent postings in your job feed ask for them.` : "No open postings for this role in your feed yet, so there's nothing to count."}{" "}
                   <b>Proven</b> means a bullet shows you using it; <b>listed</b> means it&apos;s only in your skills or summary.
                 </p>
                 <table className="w-full border-collapse text-sm">
@@ -131,15 +132,16 @@ export default function RecruiterCheck({ params }: { params: Promise<{ id: strin
                   <tbody>
                     {d.skills.map((s) => (
                       <tr key={s.skill} className="border-t border-line-2">
-                        <td className="py-2.5 pr-3 font-semibold capitalize">{s.skill}</td>
+                        <td className="py-2.5 pr-3 font-semibold">{skillLabel(s.skill)}</td>
                         {d.target.kind === "role" && <td className="w-48 py-2.5 pr-3"><span className="flex items-center gap-2"><span className="h-1.5 flex-1 rounded-full bg-line-2"><span className="block h-1.5 rounded-full bg-brand" style={{ width: `${s.share}%` }} /></span><span className="w-9 text-right text-xs text-ink-2">{s.share}%</span></span></td>}
                         <td className={`py-2.5 font-medium ${s.status === "proven" ? "text-green-ink" : s.status === "listed" ? "text-orange-ink" : "text-pink-ink"}`}>
-                          {s.status === "proven" ? `Proven · ${s.where.slice(0, 3).join(", ")}` : s.status === "listed" ? "Listed only · back it with a bullet if true" : DOMAIN.has(s.skill) ? "Industry experience · only if you've worked in it" : "Missing · add only if you've done it"}
+                          {s.status === "proven" ? `Proven · ${s.where.slice(0, 3).join(", ")}` : s.status === "listed" ? "Listed only · back it with a bullet if true" : "Missing · add only if you've done it"}
                         </td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
+                {d.industries.length > 0 && <p className="text-[13px] text-ink-2"><b>Industries these postings mention:</b> {d.industries.map((x) => `${skillLabel(x.skill)} (${x.share}%)`).join(", ")}. Worth naming only if you&apos;ve worked in them.</p>}
               </div>
             )}
 
@@ -148,7 +150,7 @@ export default function RecruiterCheck({ params }: { params: Promise<{ id: strin
                 <p className="text-sm text-ink-2">Every bullet, graded on what hiring managers look for: a result or scope, a clear opening verb, one or two lines. Rewrites only ever use facts you give us.</p>
                 {d.lines.map((l) => (
                   <div key={`${l.section}${l.index}-${l.bullet}`} className="rounded-xl border border-line-2 p-3.5">
-                    <p className="text-xs text-muted">{l.role}</p>
+                    <p className="text-xs text-muted">{[l.role, l.org].filter(Boolean).join(" · ")}</p>
                     <p className="mt-0.5 text-sm">{l.text}</p>
                     <div className="mt-2 flex flex-wrap gap-1.5">{l.tags.map((t) => <span key={t.t} className={`chip ${t.good ? "bg-green-tint text-green-ink" : "bg-orange-tint text-orange-ink"}`}>{t.t}</span>)}</div>
                     <p className="mt-1.5 text-[13px] text-ink-2">{l.tip}</p>
@@ -177,3 +179,5 @@ export default function RecruiterCheck({ params }: { params: Promise<{ id: strin
     </div>
   );
 }
+
+const tc = (t: string) => (t === t.toLowerCase() ? t.replace(/(^|\s)([a-z])/g, (_, p, c) => p + c.toUpperCase()) : t);

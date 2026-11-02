@@ -57,7 +57,7 @@ export function parseReadout(src: ResumeContent, read: ResumeContent): ParseRow[
 /* ------------------------------------------------------------------ */
 
 /** Terms too generic to search on, or that mean something else in a posting. */
-const NOT_SEARCHED = new Set(["communication", "leadership", "cross-functional", "data-driven", "platform", "api", "events", "b2b", "b2c", "pipeline", "operations", "sales", "retention", "partnerships", "stakeholder", "discovery", "launch", "messaging", "crm", "rest", "emergency", "teaching", "electrical", "plumbing", "node", "go", "r", "cad", "epic", "platform", "discovery"]);
+const NOT_SEARCHED = new Set(["communication", "leadership", "cross-functional", "data-driven", "platform", "api", "events", "b2b", "b2c", "pipeline", "operations", "sales", "retention", "partnerships", "discovery", "launch", "messaging", "crm", "rest", "emergency", "teaching", "electrical", "plumbing", "node", "go", "r", "cad", "epic", "platform", "discovery"]);
 
 /** Industry context rather than a skill: shown, but never the headline "missing skill". */
 export const DOMAIN = new Set(["supply chain", "procurement", "accounting", "saas", "b2b", "b2c", "logistics", "warehouse", "inventory", "nursing", "patient care", "icu", "auditing", "ifrs", "gaap", "payroll", "compliance", "risk management"]);
@@ -66,6 +66,7 @@ export const DOMAIN = new Set(["supply chain", "procurement", "accounting", "saa
 const SAME: Record<string, string[]> = {
   requirements: ["requirements gathering", "requirements", "business requirements", "brd", "functional requirements"],
   "stakeholder management": ["stakeholder", "stakeholders", "senior leadership", "leadership teams"],
+  stakeholder: ["stakeholder", "stakeholders", "senior leadership", "leadership teams", "stakeholder reporting"],
   agile: ["agile", "scrum", "agile/scrum", "sprint"],
   scrum: ["scrum", "agile/scrum", "scrum product owner"],
   "google analytics": ["google analytics", "ga4", "google analytics 4"],
@@ -100,11 +101,20 @@ const has = (hay: string, term: string) => {
 
 export type SkillDemand = { skill: string; share: number };
 
+const LABEL: Record<string, string> = { "a/b testing": "A/B testing", "power bi": "Power BI", netsuite: "NetSuite", hubspot: "HubSpot", "google analytics": "Google Analytics", "google ads": "Google Ads", "meta ads": "Meta Ads", "linkedin ads": "LinkedIn Ads", "looker studio": "Looker Studio", "ci/cd": "CI/CD", "node.js": "Node.js", javascript: "JavaScript", typescript: "TypeScript", postgresql: "PostgreSQL", mysql: "MySQL", mongodb: "MongoDB", bigquery: "BigQuery", "scikit-learn": "scikit-learn", "go-to-market": "Go-to-market", "fp&a": "FP&A", "sap s/4hana": "SAP S/4HANA", "c++": "C++", "c#": "C#", ".net": ".NET", graphql: "GraphQL", github: "GitHub" };
+const UPPER = new Set(["sql", "seo", "sem", "crm", "abm", "ppc", "api", "etl", "nlp", "llm", "kpis", "okrs", "uat", "aws", "gcp", "cro", "cac", "ltv", "roas", "cpa", "cpl", "ctr", "gtm", "prd", "hris", "saas", "ehr", "ga4", "sap", "vba", "bls", "acls", "dbt", "icu", "ifrs", "gaap", "cdl", "hgv", "cpc", "b2b", "b2c", "ux", "r"]);
+/** How a skill is written on a resume: "SQL", "Power BI", "Process improvement". */
+export function skillLabel(s: string): string {
+  if (LABEL[s]) return LABEL[s];
+  if (UPPER.has(s)) return s.toUpperCase();
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
 /** How many of the postings mention each skill (document frequency), most asked-for first. */
-export function skillDemand(postings: string[], max = 12): SkillDemand[] {
+export function skillDemand(postings: string[], max = 12, kind: "skills" | "industry" = "skills"): SkillDemand[] {
   const docs = postings.map(tokens);
   if (!docs.length) return [];
-  return SKILLS.filter((s) => !NOT_SEARCHED.has(s))
+  return SKILLS.filter((s) => !NOT_SEARCHED.has(s) && (kind === "industry") === DOMAIN.has(s))
     .map((skill) => ({ skill, share: Math.round((docs.filter((d) => has(d, skill)).length / docs.length) * 100) }))
     .filter((x) => x.share >= 5)
     .sort((a, b) => b.share - a.share)
@@ -154,6 +164,8 @@ export type LineGrade = {
   index: number;
   bullet: number;
   role: string;
+  /** The employer (or empty for projects). */
+  org: string;
   text: string;
   grade: "strong" | "fix";
   tags: { t: string; good: boolean }[];
@@ -164,8 +176,8 @@ export function gradeLines(c: ResumeContent): LineGrade[] {
   const issues = lintBullets(c);
   const out: LineGrade[] = [];
   const entries = [
-    ...(c.experience || []).map((e, i) => ({ section: "experience" as const, i, role: [e.title, e.company].filter(Boolean).join(", "), bullets: e.bullets || [] })),
-    ...(c.projects || []).map((p, i) => ({ section: "projects" as const, i, role: p.name.split(/\s+[—–]\s+/)[0], bullets: p.bullets || [] })),
+    ...(c.experience || []).map((e, i) => ({ section: "experience" as const, i, role: e.title || e.company, org: e.title ? e.company || "" : "", bullets: e.bullets || [] })),
+    ...(c.projects || []).map((p, i) => ({ section: "projects" as const, i, role: p.name.split(/\s+[—–]\s+/)[0], org: "Project", bullets: p.bullets || [] })),
   ];
   for (const e of entries) {
     e.bullets.forEach((b, bi) => {
@@ -183,7 +195,7 @@ export function gradeLines(c: ResumeContent): LineGrade[] {
       if (/\bpromot/i.test(b)) tags.push({ t: "Promotion", good: true });
       for (const x of mine) tags.push({ t: x.kind === "weak" ? "Duty, not achievement" : x.kind === "long" ? "Too long" : x.kind === "verb" ? "Weak opening" : x.kind === "repeat" ? "Repeated verb" : x.kind === "pronoun" ? "Pronoun" : "Full sentences", good: false });
       const tip = mine[0]?.tip || (result ? "Strong line. Keep it near the top of this role." : scope ? "Good scope. If you can, add what the team achieved." : number ? "Say what changed because of it: a before/after, time saved, or who used it." : "Add one real number (how many, how much, how often) or the outcome. Never guess one.");
-      out.push({ section: e.section, index: e.i, bullet: bi, role: e.role, text: b, grade: (result || scope) && !mine.length ? "strong" : "fix", tags, tip });
+      out.push({ section: e.section, index: e.i, bullet: bi, role: e.role, org: e.org, text: b, grade: (result || scope) && !mine.length ? "strong" : "fix", tags, tip });
     });
   }
   return out;

@@ -9,7 +9,7 @@ import type { ResumeContent, TargetRole } from "@/lib/types";
 
 /** Write (or rewrite) the one resume for a target role, using what the user told the role coach. */
 export async function writeRoleResume(supabase: SupabaseClient, userId: string, role: TargetRole & { coach?: Coach }, country = "US") {
-  const { data: master } = await supabase.from("resumes").select("content").eq("user_id", userId).eq("is_master", true).maybeSingle();
+  const { data: master } = await supabase.from("resumes").select("content,updated_at").eq("user_id", userId).eq("is_master", true).maybeSingle();
   if (!master) return { error: "Upload your resume first." } as const;
   const kws = await marketKeywords(supabase, role.title, country);
   const coach: Coach = { ...(role.coach || {}) };
@@ -25,7 +25,12 @@ export async function writeRoleResume(supabase: SupabaseClient, userId: string, 
     .slice(0, 6);
   const out = await runWithAi({ userId }, () => roleResume(master.content as ResumeContent, role, kws, country, coach.answers?.length ? { facts: coachFacts(coach.answers), level: coach.fit?.level, courses } : coach.fit ? { facts: "", level: coach.fit.level } : undefined));
   const report = scoreResume(out.content, kws);
-  const { data: cur } = await supabase.from("resumes").select("id").eq("user_id", userId).eq("target_role_id", role.id).eq("kind", "role").maybeSingle();
+  const { data: cur } = await supabase.from("resumes").select("id,updated_at").eq("user_id", userId).eq("target_role_id", role.id).eq("kind", "role").maybeSingle();
+  // When the AI writer is down, never replace a role resume it wrote with a plain copy, unless the master
+  // changed since (then the old one is stale and a faithful copy of the new master is the better choice).
+  if (!out.ai && cur && Date.parse(cur.updated_at) > Date.parse(master.updated_at)) {
+    return { id: cur.id as string, ai: false, kept: true, notes: [], score: null, keywords: kws, missing: report };
+  }
   const patch = { content: out.content, notes: out.notes, ats_score: report.score, name: `${role.title} resume`, kind: "role", updated_at: new Date().toISOString() };
   const res = cur
     ? await supabase.from("resumes").update(patch).eq("id", cur.id).select("id").single()

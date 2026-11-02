@@ -150,7 +150,8 @@ export function checkResume(c: ResumeContent | null | undefined, fullName?: stri
     const k = `${key(e.degree)}|${key(e.school)}`;
     if (edSeen.has(k) && (e.degree || e.school)) add({ id: `edu-${i}-dup`, kind: "auto", section: "education", where: w, index: i, text: "This degree is listed twice — keep one." });
     edSeen.add(k);
-    if (e.end?.trim() && parseWhen(e.end) === null) add({ id: `edu-${i}-date`, kind: "edit", section: "education", where: w, index: i, text: `"${e.end}" isn't a date an ATS can read.` });
+    // "Expected Dec 2026" / "Anticipated May 2027" is the standard way to show a degree in progress.
+    if (e.end?.trim() && parseWhen(e.end.replace(/^(expected|anticipated|exp\.?)\s+/i, "")) === null) add({ id: `edu-${i}-date`, kind: "edit", section: "education", where: w, index: i, text: `"${e.end}" isn't a date an ATS can read.` });
   });
 
   // Skills

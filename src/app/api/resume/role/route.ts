@@ -1,5 +1,6 @@
 import { json, loadUserContext } from "@/lib/server-user";
 import { writeRoleResume } from "@/lib/resume/write-role";
+import { aiOutage } from "@/lib/ai";
 
 export const maxDuration = 120;
 
@@ -12,5 +13,5 @@ export async function POST(req: Request) {
   if (!role) return json({ error: "Choose one of your target roles." }, 400);
   const out = await writeRoleResume(ctx.supabase, ctx.user.id, role, ctx.prefs?.countries?.[0] || "US");
   if ("error" in out) return json({ error: out.error }, 400);
-  return json({ id: out.id, ai: out.ai, notes: out.notes, score: out.score, keywords: out.keywords });
+  return json({ id: out.id, ai: out.ai, kept: "kept" in out ? out.kept : false, outage: aiOutage()?.reason || null, notes: out.notes, score: out.score, keywords: out.keywords });
 }

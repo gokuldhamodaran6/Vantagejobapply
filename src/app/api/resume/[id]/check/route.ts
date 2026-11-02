@@ -42,6 +42,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     parse,
     title: titleFound(content, target.kind === "role" ? target.label : target.label.split(" · ")[0]),
     skills: skillProof(content, demand.skills),
+    industries: demand.industries || [],
     lines: gradeLines(content),
     knockouts: knockouts(country, ctx.auth, ctx.prefs, content.location),
   });

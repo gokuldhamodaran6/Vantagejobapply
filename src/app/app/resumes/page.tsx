@@ -131,7 +131,7 @@ export default function ResumesPage() {
     const d = r ? await r.json().catch(() => ({})) : { error: "Network error" };
     setBusy(null);
     if (!r?.ok) return setToast(d.error || "Couldn't write that resume.");
-    setToast(d.ai ? "Rewritten from your master resume." : "Rewritten. Connect an AI key for recruiter-grade writing.");
+    setToast(d.ai ? "Rewritten from your master resume." : d.outage === "billing" ? "The AI writer is out of credits right now, so nothing was rewritten. Your current version is kept." : d.kept ? "The AI writer didn't respond, so your current version is kept." : "Written as a clean copy of your master. AI tailoring will run once the writer is available.");
     load();
     loadReady();
   }
@@ -165,7 +165,7 @@ export default function ResumesPage() {
   const expBullets = c ? (c.experience || []).reduce((n, e) => n + (e.bullets?.length || 0), 0) : 0;
   const templates: ResumeStyle[] = master && !TEMPLATES.includes((master.style || "classic") as ResumeStyle) ? [...TEMPLATES, master.style as ResumeStyle] : TEMPLATES;
   const foundRoles = ready?.roles.filter((r) => r.found).length || 0;
-  const weakRole = ready?.roles.find((r) => !r.found && r.missing.length);
+  const weakRole = ready?.roles.filter((r) => !r.found && r.missing.length).sort((a, b) => b.missing[0].share - a.missing[0].share)[0];
 
   return (
     <>
@@ -214,7 +214,7 @@ export default function ResumesPage() {
               sub={ready ? (ready.stories ? "Stories behind your strongest lines, ready to tell in two minutes." : "Turn your strongest lines into interview stories before you apply.") : ""} />
           </section>
 
-          <section aria-label="Master resume" className="card mb-6 grid overflow-hidden lg:grid-cols-[320px_1fr]"
+          <section aria-label="Master resume" className="card mb-6 grid overflow-hidden lg:grid-cols-[300px_1fr]"
             onDragOver={(e) => { e.preventDefault(); setDrag(true); }} onDragLeave={() => setDrag(false)}
             onDrop={(e) => { e.preventDefault(); setDrag(false); const f = e.dataTransfer.files?.[0]; if (f) upload(f); }}>
             <Link href={`/app/resumes/${master.id}`} className={`flex justify-center bg-canvas p-6 transition ${drag ? "bg-brand-soft" : ""}`} aria-label="Open master resume">
@@ -222,7 +222,7 @@ export default function ResumesPage() {
             </Link>
             <div className="flex min-w-0 flex-col gap-4 p-5">
               <div className="flex flex-wrap items-start gap-3">
-                <div className="min-w-0 flex-1">
+                <div className="min-w-0 flex-[1_1_260px]">
                   <p className="text-xs font-semibold uppercase tracking-wider text-brand">Master resume · source of truth</p>
                   <h2 className="mt-1 text-xl font-bold">{titleCase(c.name || "Your resume")}</h2>
                   <p className="text-sm text-muted">{[`${expBullets} experience bullets`, c.projects?.length ? `${c.projects.length} projects` : "", c.certifications?.length ? `${c.certifications.length} certifications` : "", `updated ${timeAgo(master.updated_at)}`].filter(Boolean).join(" · ")}</p>

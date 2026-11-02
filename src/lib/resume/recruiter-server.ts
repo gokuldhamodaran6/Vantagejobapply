@@ -38,10 +38,10 @@ async function cached<T>(supabase: SupabaseClient, userId: string, key: string, 
   return v;
 }
 
-export type RoleDemand = { postings: number; skills: SkillDemand[] };
+export type RoleDemand = { postings: number; skills: SkillDemand[]; industries?: SkillDemand[] };
 
 export async function roleDemand(supabase: SupabaseClient, userId: string, title: string, country = "US"): Promise<RoleDemand> {
-  return cached(supabase, userId, `demand2:${country}:${title.toLowerCase().trim()}`, 24, async () => {
+  return cached(supabase, userId, `demand3:${country}:${title.toLowerCase().trim()}`, 24, async () => {
     const since = new Date(Date.now() - 90 * 864e5).toISOString();
     // The exact title (plus one close variant) keeps the search on the index and under the statement timeout;
     // broad variant lists made big families like "Product Manager" time out and come back empty.
@@ -50,13 +50,14 @@ export async function roleDemand(supabase: SupabaseClient, userId: string, title
     if (error) ({ data, error } = await run([title]));
     if (error) console.error("role demand search failed", title, error.message);
     const rows = ((data as { title: string; description: string | null }[]) || []).filter((j) => (j.description || "").length > 400);
-    return { postings: rows.length, skills: skillDemand(rows.map((j) => j.description || ""), 12) };
+    const texts = rows.map((j) => j.description || "");
+    return { postings: rows.length, skills: skillDemand(texts, 12), industries: skillDemand(texts, 4, "industry") };
   });
 }
 
 /** One posting's skills (for checking against a specific job). */
 export function jobDemand(description: string): RoleDemand {
-  return { postings: 1, skills: skillDemand([description], 14).map((s) => ({ ...s, share: 100 })) };
+  return { postings: 1, skills: skillDemand([description], 14).map((s) => ({ ...s, share: 100 })), industries: skillDemand([description], 4, "industry") };
 }
 
 /** The questions that remove candidates before a resume is read, answered from the person's own settings. */
