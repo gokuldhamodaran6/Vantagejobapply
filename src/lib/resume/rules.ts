@@ -79,6 +79,18 @@ export function coverage(sentence: string, src: string) {
  * Words in a bullet that look like a named tool, platform or skill ("Snowflake", "dbt", "Tableau") and are in the job
  * posting but nowhere in the candidate's own resume: the classic way a writer stuffs unproven keywords.
  */
+const properCache = new Map<string, Set<string>>();
+/** Words the posting capitalises mid-sentence (tool and product names), lower-cased. */
+function properInJob(jobText: string): Set<string> {
+  const hit = properCache.get(jobText);
+  if (hit) return hit;
+  const set = new Set<string>();
+  for (const m of jobText.matchAll(/(?<=[a-z0-9,;:(]\s)([A-Z][A-Za-z0-9+#.]*)/g)) set.add(norm(m[1]).trim());
+  if (properCache.size > 50) properCache.clear();
+  properCache.set(jobText, set);
+  return set;
+}
+
 export function unprovenTerms(bullet: string, src: string, jobText: string, anyCapital = false): string[] {
   if (!jobText) return [];
   const job = norm(jobText);
@@ -89,6 +101,8 @@ export function unprovenTerms(bullet: string, src: string, jobText: string, anyC
     if (!looksNamed || w.length < 2) continue;
     const k = norm(w).trim();
     if (!k || src.includes(` ${k} `)) continue;
+    // In a title-case headline every word is capitalised; there only count names the posting itself capitalises mid-sentence.
+    if (anyCapital && !properInJob(jobText).has(k)) continue;
     if (job.includes(` ${k} `)) out.push(w);
   }
   return out;
