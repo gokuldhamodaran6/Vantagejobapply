@@ -84,6 +84,7 @@ const CRAFT = `WRITING STANDARD (what Google, Meta, Amazon and Fortune 500 hirin
 - Every role keeps its title, employer and dates exactly. Roles marked "brief" stay one line with no bullets. Lead roles get 4–5 bullets, other recent roles 2–4, compressed roles 1–2. A role with only one source bullet may be split into two bullets only by separating facts already in it, never by adding new ones.
 - Each bullet uses only facts from its own role. Never move a detail from one role to another, and never add frequencies (daily, weekly), audiences, scale words (enterprise, global, cross-functional), adjectives or results that the source does not state for that role.
 - Keep the strength of every claim: where the source says "contributed to", "supported" or "helped", the rewrite keeps shared credit (e.g. "Contributed to a 35% increase in qualified pipeline by …"). Never upgrade it to "drove", "led", "delivered" or "grew".
+- The posting's vocabulary may only rename what the source already describes. Never swap one metric for another (cost per lead is not customer acquisition cost; impressions are not traffic), and never add objects the source does not mention (budgets, models, frameworks, roadmaps, revenue, teams).
 - A promotion inside one employer is a strong signal: keep it visible.
 - Awards, a team the person led or mentored, funding rounds or acquisitions they supported, and things they built are high-value proof: surface them when relevant to the job.
 - Recruiters read job titles first: never change a title, and write bullets so the first one in each role is the most relevant to this job.
@@ -192,13 +193,14 @@ async function review(draft: ResumeContent, original: ResumeContent, job: Studio
   const out = await claude(
     `You are the hiring manager for ${job.title} at ${job.company}, reviewing with a senior recruiter. You give each resume 30 seconds, then decide who gets a call.
 Read the DRAFT the way you really would: headline and current title first, then the top bullet of each role, then skills.
-Find every weakness: vague or duty-style bullets, outcomes buried at the end, duplicated metrics, weak or repeated verbs, buzzwords, irrelevant bullets ranked high, missing exact posting phrases where the ORIGINAL proves the skill, a headline or summary that is generic or overclaims, skills that are padded, anything that reads like AI.
+FACT CHECK FIRST: compare every bullet, the headline and the summary with the ORIGINAL, phrase by phrase. Any detail not stated in the ORIGINAL for that same role — a different metric (e.g. "customer acquisition cost" where it says "cost per lead"), an added object (budget reallocation, analytical models, KPI frameworks, revenue), an added frequency, scale or audience, or stronger credit than the ORIGINAL gives — is a fabrication: rewrite it with the ORIGINAL's facts. A hiring manager will ask about every line in the interview.
+Then find every weakness: vague or duty-style bullets, outcomes buried at the end, duplicated metrics, weak or repeated verbs, buzzwords, irrelevant bullets ranked high, missing exact posting phrases where the ORIGINAL proves the skill, a headline or summary that is generic or overclaims, skills that are padded, anything that reads like AI.
 Then FIX every one of them yourself in a revised resume, under the same rules:
 ${TRUTH}
 ${CRAFT}
 ${playbookPrompt(pb)}
 Score the REVISED version honestly (do not inflate; 70 = would interview, 85 = strong yes, 95 = rare).
-Return ONLY JSON: {"review":{"score":0-100,"scores":{"first_impression":1-10,"relevance":1-10,"impact":1-10,"clarity":1-10,"credibility":1-10,"ats":1-10},"strengths":[3 short],"fixes":[up to 8 short descriptions of what you changed],"risks":[up to 3 things a recruiter may still question]},"resume": ${SCHEMA}}`,
+Return ONLY JSON: {"review":{"score":0-100,"scores":{"first_impression":1-10,"relevance":1-10,"impact":1-10,"clarity":1-10,"credibility":1-10,"ats":1-10},"strengths":[3 short],"fixes":[up to 8 short descriptions of what you changed, fact-check corrections first],"risks":[up to 3 things a recruiter may still question]},"resume": ${SCHEMA}}`,
     [{ role: "user", content: `JOB POSTING:\n${(job.description || "").slice(0, 7000)}\n\nPOSITIONING PLAN: ${json({ identity: st.identity, angle: st.angle, keywords: st.keywords })}\n\nORIGINAL RESUME (the only source of facts):\n${json(original)}\n\nDRAFT TO REVIEW:\n${json(draft)}` }],
     9000,
     { model: "writer", temperature: 0.2, feature: "tailor-review" },
