@@ -161,7 +161,8 @@ function headerBlock(c: Ctx, st: (typeof RESUME_STYLES)[ResumeStyle], r: Pick<Re
 
 function heading(c: Ctx, st: (typeof RESUME_STYLES)[ResumeStyle], label: string) {
   c.y -= st.sectionGap * 0.7;
-  ensure(c, st.heading * 3.2);
+  // A heading never sits alone at the foot of a page: keep it with the first few lines below it.
+  ensure(c, st.heading * 1.8 + c.size * c.lineGap * 5);
   const lab = safe(label.toUpperCase());
   const size = st.heading;
   const x = st.center ? (c.pageSize[0] - c.bold.widthOfTextAtSize(lab, size)) / 2 : c.left;
@@ -232,6 +233,8 @@ export async function resumePdf(raw: ResumeContent, opts: { style?: ResumeStyle;
   if (r.projects?.length) {
       heading(c, st, "Projects");
       for (const p of r.projects) {
+        // Never strand a project name at the foot of a page: keep it with its stack line and first bullet.
+        ensure(c, c.size * c.lineGap * 4);
         rowWithRight(c, p.name, "", c.bold, c.size + 0.2);
         if (p.tech) text(c, p.tech, { font: c.italic, size: c.size - 0.2, color: [0.25, 0.25, 0.25] });
         c.y -= 1;
@@ -246,6 +249,8 @@ export async function resumePdf(raw: ResumeContent, opts: { style?: ResumeStyle;
     const brief = r.experience.filter((e) => e.brief);
     for (const e of full) {
       const dates = [e.start, e.end].filter(Boolean).join(" – ");
+      // Keep a role's title with its company line and first two bullet lines, never orphaned at a page foot.
+      ensure(c, c.size * c.lineGap * 4.5);
       rowWithRight(c, e.title || e.company, dates, c.bold, c.size + 0.2);
       const org = [e.title ? e.company : "", e.location, e.url].filter(Boolean).join(" · ");
       if (org) text(c, org, { font: c.italic, size: c.size - 0.2, color: [0.25, 0.25, 0.25] });
@@ -255,6 +260,7 @@ export async function resumePdf(raw: ResumeContent, opts: { style?: ResumeStyle;
     }
     if (brief.length) {
       // Older roles: one line each, so the page stays on what matters.
+      ensure(c, c.size * c.lineGap * (brief.length + 1));
       text(c, "Earlier experience", { font: c.bold, size: c.size - 0.2, color: [0.2, 0.2, 0.2] });
       for (const e of brief) {
         const dates = [e.start, e.end].filter(Boolean).join(" – ");
