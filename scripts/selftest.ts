@@ -29,7 +29,7 @@ import { resumeIssues, tidyResume } from "../src/lib/resume/health";
 import { lintLetter } from "../src/lib/tailor";
 import { repairResume, splitItems } from "../src/lib/resume/repair";
 import { cleanSkills, deCliche, honestHeadline, orderExperience, tightenSummary } from "../src/lib/resume/polish";
-import { guard, unprovenTerms, norm } from "../src/lib/resume/rules";
+import { guard, unprovenTerms, norm, grounded } from "../src/lib/resume/rules";
 import { playbookFor } from "../src/lib/resume/playbooks";
 import type { Job, TargetPrefs, TargetRole, WorkAuth } from "../src/lib/types";
 import { AI_PRICES, FALLBACK_PRICE, anthropicUsage, costUsd, geminiUsage, priceFor } from "../src/lib/ai-pricing";
@@ -740,6 +740,10 @@ function studioChecks() {
   const sk2 = guard(r, { ...r, skills: [{ group: "Data", items: ["SQL (window functions)", "Python (pandas, FastAPI)", "Tableau"] }] }, "SQL Python Excel Tableau");
   const items2 = sk2.skills?.flatMap((g) => g.items) || [];
   ok(items2.includes("SQL") && items2.some((i) => i.startsWith("Python (pandas")) && items2.includes("Advanced Excel"), "guard: proven skills kept from bracketed forms; dropped posting skill restored");
+
+  const src3 = ["Directed brand and creative for the A91 funding round and the Dunn Solutions acquisition.", "Ran A/B tests on creatives and audiences across Google Ads, LinkedIn and Meta."];
+  const g3 = grounded(["Directed brand and creative initiatives supporting the corporate A91 funding round and the Dunn Solutions acquisition, collaborating with executive stakeholders across multiple functions.", "Ran A/B tests on creatives and audiences across Google Ads, LinkedIn, and Meta."], src3);
+  ok(g3[0] === src3[0] && g3[1].startsWith("Ran A/B tests"), "guard: padded bullet replaced by the person's own; grounded rewrite kept");
 
   // Playbooks
   ok(playbookFor("Google LLC").key === "google" && playbookFor("Meta Platforms").key === "meta" && playbookFor("Amazon Web Services (AWS)").key === "amazon", "playbook: big tech by name");

@@ -108,6 +108,34 @@ export function unprovenTerms(bullet: string, src: string, jobText: string, anyC
   return out;
 }
 
+const STOP = new Set("the and for with from into across using that this were was are their its our your all each per via while including within over".split(" "));
+/** Share of a bullet's content words found in the source text (light stemming). */
+export function grounding(bullet: string, source: string): number {
+  const src = norm(source);
+  const toks = norm(bullet).trim().split(" ").filter((w) => w.length > 2 && !STOP.has(w));
+  if (!toks.length) return 1;
+  return toks.filter((w) => src.includes(` ${w} `) || src.includes(` ${w.replace(/(ing|ed|es|s)$/, "")}`)).length / toks.length;
+}
+
+/** Keep well-grounded rewrites; swap padded ones for the closest unused original bullet. */
+export function grounded(bullets: string[], sourceBullets: string[], extra: string[] = [], min = 0.62): string[] {
+  const source = [...sourceBullets, ...extra].join(" \n ");
+  const used = new Set<string>();
+  const out: string[] = [];
+  for (const b of bullets) {
+    if (grounding(b, source) >= min) {
+      out.push(b);
+      continue;
+    }
+    const best = sourceBullets.filter((x) => !used.has(x)).map((x) => ({ x, s: grounding(b, x) })).sort((a, c) => c.s - a.s)[0];
+    if (best && !out.includes(best.x)) {
+      used.add(best.x);
+      out.push(best.x);
+    }
+  }
+  return out.length ? out : sourceBullets.slice(0, Math.max(1, bullets.length));
+}
+
 export function guard(original: ResumeContent, out: ResumeContent, jobText = ""): ResumeContent {
   const src = norm(resumeText(original));
   const numbers = new Set((resumeText(original).match(/\d[\d,.]*%?\+?/g) || []).map((n) => n.replace(/[,+]/g, "")));
@@ -173,13 +201,20 @@ export function guard(original: ResumeContent, out: ResumeContent, jobText = "")
       }
     }
   }
+  // Padding check: a bullet whose words mostly aren't in that role's own source ("collaborating with executive stakeholders
+  // across multiple functions") is replaced by the person's closest original bullet for that role.
+  for (const e of r.experience) {
+    const o = (original.experience || []).find((x) => norm(x.company) === norm(e.company) && x.start === e.start);
+    if (!o || o.brief || !(o.bullets || []).length) continue;
+    e.bullets = grounded(e.bullets, o.bullets, [o.title, o.company, ...(original.skills || []).flatMap((g) => g.items)]);
+  }
   // Projects (products the person built): same name and stack as the source, honest bullets, never dropped.
   const key = (n: string) => norm(n.split(/[—–(-]/)[0]).trim();
   const outProjects = r.projects || [];
   r.projects = (original.projects || []).map((o) => {
     const p = outProjects.find((x) => key(x.name) === key(o.name) || key(x.name).includes(key(o.name)) || key(o.name).includes(key(x.name)));
     const bullets = (p?.bullets || []).filter((b) => (b.match(/\d[\d,.]*%?\+?/g) || []).every((n) => numbers.has(n.replace(/[,+]/g, ""))) && !unprovenTerms(b, src, jobText).length);
-    return { name: o.name, ...(o.tech ? { tech: o.tech } : {}), bullets: bullets.length ? bullets : o.bullets };
+    return { name: o.name, ...(o.tech ? { tech: o.tech } : {}), bullets: bullets.length ? grounded(bullets, o.bullets, [o.name, o.tech || ""]) : o.bullets };
   });
   // Never drop a job: append any the model removed, as-is.
   for (const o of original.experience || []) {
