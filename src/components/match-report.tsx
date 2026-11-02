@@ -83,3 +83,91 @@ export function MatchReport({ match, harvard, format }: { match: MatchReportMatc
     </div>
   );
 }
+
+export type StudioInfo = {
+  strategy?: { identity: string; angle: string; pillars: { theme: string; proof: string }[]; gaps: { requirement: string; bridge: string }[]; questions: string[] };
+  review?: { score: number; scores: Record<string, number>; strengths: string[]; fixes: string[]; risks: string[] } | null;
+  knockouts?: { requirement: string; status: string; note: string }[];
+  employer?: { name: string; kind: string; values: string[] };
+};
+
+const SCORE_LABELS: Record<string, string> = { first_impression: "6-second impression", relevance: "Relevance to this job", impact: "Impact & numbers", clarity: "Clarity", credibility: "Credibility", ats: "ATS keywords" };
+
+/** How the person is presented for this job, the hiring-manager review, screening checks and questions that add real numbers. */
+export function StudioReport({ info }: { info: StudioInfo }) {
+  const { strategy, review, knockouts = [], employer } = info;
+  const flagged = knockouts.filter((k) => k.status !== "met");
+  if (!strategy?.identity && !review) return null;
+  return (
+    <div className="space-y-4">
+      {strategy?.identity && (
+        <section className="rounded-xl border border-line p-4">
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted">How you&apos;re presented{employer?.name ? ` to ${employer.name}` : ""}</p>
+          <p className="mt-1 font-semibold">{strategy.identity}</p>
+          {strategy.angle && <p className="mt-1 text-sm text-ink-2">{strategy.angle}</p>}
+          {strategy.pillars?.length > 0 && (
+            <ul className="mt-3 space-y-1.5 text-sm">
+              {strategy.pillars.map((p) => (
+                <li key={p.theme} className="flex gap-2">
+                  <CheckCircle2 size={15} className="mt-0.5 shrink-0 text-green-ink" aria-hidden />
+                  <span><span className="font-medium">{p.theme}:</span> <span className="text-muted">{p.proof}</span></span>
+                </li>
+              ))}
+            </ul>
+          )}
+          {employer?.values?.length ? <p className="mt-3 text-xs text-muted">Framed for what {employer.name} says it hires for: {employer.values.slice(0, 4).join(" · ")}</p> : null}
+        </section>
+      )}
+
+      {review && review.score > 0 && (
+        <section className="rounded-xl border border-line p-4">
+          <div className="flex items-baseline justify-between gap-3">
+            <p className="font-semibold">Hiring-manager review</p>
+            <p className="text-2xl font-bold tabular-nums">{review.score}<span className="text-sm font-medium text-muted">/100</span></p>
+          </div>
+          <p className="text-xs text-muted">An AI read of the final resume as this job&apos;s hiring manager would see it. 70 means they&apos;d call you.</p>
+          <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 text-xs">
+            {Object.entries(review.scores).filter(([, v]) => v > 0).map(([k, v]) => (
+              <div key={k}>
+                <dt className="flex justify-between text-muted"><span>{SCORE_LABELS[k] || k}</span><span className="tabular-nums text-ink-2">{v}/10</span></dt>
+                <dd className="mt-1 h-1.5 rounded-full bg-line"><span className="block h-1.5 rounded-full bg-brand" style={{ width: `${v * 10}%` }} /></dd>
+              </div>
+            ))}
+          </dl>
+          {review.fixes.length > 0 && (
+            <>
+              <p className="mt-3 text-sm font-medium">Fixed in the review</p>
+              <ul className="mt-1 list-disc space-y-0.5 pl-5 text-sm text-ink-2">{review.fixes.slice(0, 6).map((f, i) => <li key={i}>{f}</li>)}</ul>
+            </>
+          )}
+          {review.risks.length > 0 && (
+            <>
+              <p className="mt-3 text-sm font-medium">A recruiter may still ask about</p>
+              <ul className="mt-1 list-disc space-y-0.5 pl-5 text-sm text-ink-2">{review.risks.map((f, i) => <li key={i}>{f}</li>)}</ul>
+            </>
+          )}
+        </section>
+      )}
+
+      {flagged.length > 0 && (
+        <section className="rounded-xl border border-orange/40 bg-orange-tint/40 p-4">
+          <p className="font-semibold">Check before you apply</p>
+          <p className="text-xs text-muted">Screening requirements that filter people out before anyone reads the resume.</p>
+          <ul className="mt-2 space-y-1.5 text-sm">
+            {flagged.map((k) => (
+              <li key={k.requirement}><span className="font-medium">{k.requirement}</span> <span className="text-orange-ink">({k.status})</span>{k.note ? <span className="block text-muted">{k.note}</span> : null}</li>
+            ))}
+          </ul>
+        </section>
+      )}
+
+      {strategy?.questions?.length ? (
+        <section className="rounded-xl border border-line p-4">
+          <p className="font-semibold">Make it stronger with a real number</p>
+          <p className="text-xs text-muted">We never invent numbers. Add any of these to your master resume and every future resume uses them.</p>
+          <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-ink-2">{strategy.questions.map((q, i) => <li key={i}>{q}</li>)}</ul>
+        </section>
+      ) : null}
+    </div>
+  );
+}

@@ -27,7 +27,7 @@ const EMAIL_RE = /[\w.+-]+@[\w-]+\.[\w.-]+/;
 const PHONE_RE = /(?:\+?\d{1,3}[\s.-]?)?\(?\d{2,4}\)?[\s.-]?\d{3,4}[\s.-]?\d{3,4}/;
 const URL_RE = /\b(?:https?:\/\/)?(?:www\.)?[a-z0-9-]+(?:\.[a-z0-9-]+)*\.(?:com|io|dev|me|net|org|co|ai|app|in|uk|ca|au|xyz|tech|site|page|design|portfolio)(?:\/[^\s|,;]*)?/gi;
 
-const TITLE_WORDS = /\b(manager|analyst|engineer|specialist|assistant|intern|executive|developer|designer|consultant|coordinator|director|lead|associate|officer|representative|scientist|researcher|teacher|nurse|driver|founder|co-founder|head|president|strategist|administrator|architect|accountant|editor|writer|producer|technician|operator|supervisor|agent|advisor|owner|partner|fellow|trainee|apprentice|graduate assistant|teaching assistant|research assistant|marketing|sales|programmer|recruiter|controller|vp|chief|cto|ceo|cfo|cmo|principal|member)\b/i;
+const TITLE_WORDS = /\b(aide|tutor|ambassador|volunteer|clerk|cashier|barista|chef|cook|server|nanny|caregiver|manager|analyst|engineer|specialist|assistant|intern|executive|developer|designer|consultant|coordinator|director|lead|associate|officer|representative|scientist|researcher|teacher|nurse|driver|founder|co-founder|head|president|strategist|administrator|architect|accountant|editor|writer|producer|technician|operator|supervisor|agent|advisor|owner|partner|fellow|trainee|apprentice|graduate assistant|teaching assistant|research assistant|marketing|sales|programmer|recruiter|controller|vp|chief|cto|ceo|cfo|cmo|principal|member)\b/i;
 const SCHOOL_WORDS = /\b(university|college|institute|school|academy|polytechnic|universit[éa]|iit|nit)\b/i;
 const DEGREE_WORDS = /\b(bachelor|master|mba|m\.?b\.?a|ph\.?d|doctor|associate'?s? degree|diploma|certificate|b\.?\s?s\.?c?|m\.?\s?s\.?c?|b\.?a\.?|m\.?a\.?|bba|bca|mca|b\.?tech|m\.?tech|b\.?e\.?|m\.?e\.?|b\.?com|m\.?com|llb|llm|md|bsn|msn|high school|gcse|a-levels)\b/i;
 const LOCATION_RE = /^(remote|hybrid|[A-Z][a-zA-Z.' -]+,\s*(?:[A-Z]{2}|[A-Z][a-zA-Z ]+)(?:,\s*[A-Z][a-zA-Z ]+)?)$/;
@@ -84,7 +84,7 @@ function normDate(d: string | undefined): string | undefined {
 
 type Exp = NonNullable<ResumeContent["experience"]>[number];
 
-function parseHeader(headerLines: string[]): { title: string; company: string; location?: string; start?: string; end?: string } {
+function parseHeader(headerLines: string[]): { title: string; company: string; location?: string; start?: string; end?: string; url?: string } {
   const joined = headerLines.join("   ");
   const range = joined.match(RANGE_RE);
   let start: string | undefined, end: string | undefined;
@@ -100,7 +100,44 @@ function parseHeader(headerLines: string[]): { title: string; company: string; l
       rest = joined.replace(single[1], "   ");
     }
   }
-  rest = rest.replace(/[()]/g, " ");
+  rest = rest.replace(/\(\s*[–—-]?\s*\)/g, " ");
+  // A product or company site in the header ("| gd360-analytics.onrender.com") is the role's link, never part of the company.
+  // Only a whole segment or an http(s) link counts, so "Booking.com, Amsterdam" stays a company.
+  let url: string | undefined;
+  const SITE = /^(?:https?:\/\/)?(?:www\.)?[a-z0-9-]+(?:\.[a-z0-9-]+)+(?:\/\S*)?$/i;
+  rest = rest
+    .split(/(\s+\|\s+|\s{3,})/)
+    .map((seg) => {
+      const t = seg.trim();
+      if (t && !/@/.test(t) && SITE.test(t) && (/^https?:/i.test(t) || /[-/]|\.[a-z0-9-]+\./i.test(t) || /\.(io|dev|app|ai|xyz|tech|site|page|so|sh)$/i.test(t))) {
+        url ||= t.replace(/^https?:\/\/(www\.)?/i, "").replace(/\/$/, "");
+        return "";
+      }
+      return seg;
+    })
+    .join("")
+    .replace(/(\s+\|\s*)+$/, " ")
+    .replace(/^\s*\|\s+/, "")
+    .replace(/https?:\/\/\S+/gi, (u) => {
+      url ||= u.replace(/^https?:\/\/(www\.)?/i, "").replace(/\/$/, "");
+      return " ";
+    });
+  // "Title | Company, City, ST": the first segment is the title unless only the second one reads like a title.
+  const segs = rest.split(/\s+\|\s+/).map((x) => x.trim()).filter(Boolean);
+  if (segs.length >= 2 && !/\s{3,}/.test(segs[0])) {
+    const COMPANYISH = /\b(inc|llc|ltd|limited|corp|corporation|company|companies|group|labs?|tech|technologies|solutions|systems|consulting|partners|agency|studios?|media|bank|capital|ventures|university|college|institute|school|foundation|services|global|international|pvt|gmbh|plc)\b/i;
+    let [a, b] = segs;
+    if ((COMPANYISH.test(a) || SCHOOL_WORDS.test(a)) && !TITLE_WORDS.test(a) && TITLE_WORDS.test(b)) [a, b] = [b, a];
+    let location: string | undefined;
+    const m = b.match(/^(.+?),\s*([A-Z][a-zA-Z.' ]+(?:,\s*[A-Z][a-zA-Z ]+)?)$/);
+    let company = b;
+    if (m && !TITLE_WORDS.test(m[2]) && !COMPANYISH.test(m[2])) {
+      company = m[1].trim();
+      location = m[2].trim();
+    }
+    for (const extra of segs.slice(2)) if (!location && LOCATION_RE.test(extra)) location = extra;
+    return { title: a.replace(/\s+/g, " ").trim(), company: company.replace(/\s+/g, " ").trim(), location, start, end, url };
+  }
   const parts: string[] = [];
   for (const line of rest.split(/\s{3,}/)) parts.push(...splitParts(line));
   // Split "Company, City, ST" into company + location.
@@ -135,10 +172,71 @@ function parseHeader(headerLines: string[]): { title: string; company: string; l
     title = t;
     company = c || "";
   }
-  return { title: title.trim(), company: company.trim(), location, start, end };
+  return { title: title.replace(/\s+/g, " ").trim(), company: company.replace(/\s+/g, " ").trim(), location, start, end, url };
 }
 
-function parseExperience(lines: string[]): Exp[] {
+/**
+ * "Earlier experience: Marketing Executive, Yoyo Lunch Box (Nov 2020 – Jan 2021) • Intern, O2Savar (Sep 2020 – Nov 2020)"
+ * → one brief entry per role. Also reads a trailing "Nov 2018, Dec 2019" left by PDF text extraction.
+ */
+const EARLIER = /^(earlier|additional|previous|prior|other|selected|early[- ]career)\s+(experience|roles|positions|work|career)\s*[:—–-]\s*/i;
+export function parseBriefRoles(text: string): Exp[] {
+  const out: Exp[] = [];
+  const body = text.replace(EARLIER, "").replace(/^[•·\s]+/, "");
+  for (const piece of body.split(/\s+[•·;]\s+|\s+\|\s+/)) {
+    const p = piece.trim().replace(/^[•·]\s*/, "");
+    if (!p) continue;
+    let head = p;
+    let start: string | undefined, end: string | undefined;
+    const paren = p.match(new RegExp(`\\(\\s*(${DATE})\\s*(?:–|—|-|to|,)\\s*(${DATE}|present|current)\\s*\\)\\s*$`, "i"));
+    const tail = p.match(new RegExp(`\\s(${DATE})\\s*(?:–|—|-|to|,)\\s*(${DATE}|present|current)\\s*$`, "i"));
+    const one = p.match(new RegExp(`\\(\\s*(${DATE})\\s*\\)\\s*$`, "i"));
+    const hit = paren || tail;
+    if (hit) {
+      start = normDate(hit[1]);
+      end = normDate(hit[2]);
+      head = p.slice(0, hit.index).trim();
+    } else if (one) {
+      end = normDate(one[1]);
+      head = p.slice(0, one.index).trim();
+    }
+    head = head.replace(/[,;|–—-]\s*$/, "").trim();
+    let title = head, company = "";
+    const at = head.match(/^(.+?)\s+(?:at|@)\s+(.+)$/i);
+    const comma = head.lastIndexOf(", ");
+    if (at) [title, company] = [at[1], at[2]];
+    else if (comma > 0) [title, company] = [head.slice(0, comma), head.slice(comma + 2)];
+    if (!title) continue;
+    out.push({ title: title.trim(), company: company.trim(), start, end, bullets: [], brief: true });
+  }
+  return out;
+}
+
+/** Pull "Earlier experience: …" lines (and their wrapped continuations) out of the section. */
+function takeBriefLines(lines: string[]): { rest: string[]; brief: Exp[] } {
+  const rest: string[] = [];
+  const brief: Exp[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    const l = lines[i].trim();
+    if (!EARLIER.test(l)) {
+      rest.push(lines[i]);
+      continue;
+    }
+    let text = l;
+    while (i + 1 < lines.length) {
+      const n = lines[i + 1].trim();
+      if (!n || /^[•●▪\-–*]\s/.test(n) || /\s\|\s/.test(n) || headingOf(n)) break;
+      if (!(new RegExp(`\\(\\s*${DATE}`, "i").test(n) || /[•·,]\s*$/.test(text) || !/\)\s*$/.test(text))) break;
+      text = `${text} ${n}`;
+      i++;
+    }
+    brief.push(...parseBriefRoles(text));
+  }
+  return { rest, brief };
+}
+
+function parseExperience(all: string[]): Exp[] {
+  const { rest: lines, brief } = takeBriefLines(all);
   const blocks = toBlocks(lines);
   const jobs: Exp[] = [];
   let header: string[] = [];
@@ -146,7 +244,7 @@ function parseExperience(lines: string[]): Exp[] {
   const flush = () => {
     if (!header.length) return;
     const h = parseHeader(header);
-    cur = { title: h.title, company: h.company, location: h.location, start: h.start, end: h.end, bullets: [] };
+    cur = { title: h.title, company: h.company, location: h.location, start: h.start, end: h.end, bullets: [], ...(h.url ? { url: h.url } : {}) };
     jobs.push(cur);
     header = [];
   };
@@ -168,7 +266,7 @@ function parseExperience(lines: string[]): Exp[] {
     (cur as Exp).bullets.push(b.text);
   }
   if (header.length) flush();
-  return jobs
+  return [...jobs, ...brief]
     .map((j) => ({ ...j, bullets: j.bullets.map((x) => x.replace(/\s+/g, " ").trim()).filter((x) => x.length > 2) }))
     .filter((j) => j.title || j.company || j.bullets.length);
 }
@@ -180,8 +278,13 @@ function parseEducation(lines: string[]): NonNullable<ResumeContent["education"]
   for (const text of blocks) {
     const range = text.match(RANGE_RE);
     const single = text.match(SINGLE_DATE_RE);
-    const end = normDate(range?.[2] || single?.[1]);
-    const stripped = text.replace(range?.[0] || "", " ").replace(range ? "" : single?.[1] || "", " ").replace(/\s{2,}/g, " ").replace(/[|,–—-]\s*$/, "").trim();
+    let end = normDate(range?.[2] || single?.[1]);
+    let stripped = text.replace(range?.[0] || "", " ").replace(range ? "" : single?.[1] || "", " ").replace(/\s{2,}/g, " ").replace(/[|,–—-]\s*$/, "").trim();
+    // "… Normal, IL   Expected Dec 2026": the word belongs to the date, never to the place.
+    if (end && /\b(expected|anticipated|exp\.)(\s+graduation)?:?\s*$/i.test(stripped)) {
+      stripped = stripped.replace(/[\s|,]*\b(expected|anticipated|exp\.)(\s+graduation)?:?\s*$/i, "").trim();
+      end = `Expected ${end}`;
+    }
     const parts = splitParts(stripped);
     const hasSchool = SCHOOL_WORDS.test(stripped);
     const hasDegree = DEGREE_WORDS.test(stripped);
@@ -309,7 +412,7 @@ export function parseResumeText(raw: string, fallbackName = ""): ResumeContent {
     }
     if (location) break;
   }
-  const headline = headerLines.find((l) => l !== nameLine && !EMAIL_RE.test(l) && !PHONE_RE.test(l) && !URL_RE.test(l) && l.length < 90 && TITLE_WORDS.test(l) && !LOCATION_RE.test(l.trim()));
+  const headline = headerLines.find((l) => l !== nameLine && !EMAIL_RE.test(l) && !PHONE_RE.test(l) && !new RegExp(URL_RE.source, "i").test(l) && l.length < 150 && TITLE_WORDS.test(l) && !LOCATION_RE.test(l.trim()));
   URL_RE.lastIndex = 0;
   const headerSummary = headerLines.filter((l) => l.length > 90 && !EMAIL_RE.test(l));
 

@@ -1,3 +1,4 @@
+import { repairNotes, repairResume } from "@/lib/resume/repair";
 import type { ResumeContent } from "@/lib/types";
 
 /**
@@ -88,6 +89,8 @@ export function checkResume(c: ResumeContent | null | undefined, fullName?: stri
   if (!c) return [];
   const out: ResumeProblem[] = [];
   const add = (p: ResumeProblem) => out.push(p);
+  // Layout damage from an earlier import (glued links, split titles, broken "Earlier experience"): fixable in one click.
+  for (const [i, note] of repairNotes(c, repairResume(c)).entries()) add({ id: `repair-${i}`, kind: "auto", section: "experience", where: "Layout", text: `${note}.` });
   const now = new Date();
   const nowN = now.getFullYear() * 12 + now.getMonth();
 
@@ -163,7 +166,7 @@ export function checkResume(c: ResumeContent | null | undefined, fullName?: stri
 
 /** Apply every safe fix (the "auto" problems). Never adds facts; only cleans, joins, de-duplicates, orders and formats. */
 export function autoFix(c0: ResumeContent, fullName?: string): ResumeContent {
-  const c: ResumeContent = JSON.parse(fixMojibake(JSON.stringify(c0)));
+  const c: ResumeContent = repairResume(JSON.parse(fixMojibake(JSON.stringify(c0))));
   const name = (c.name || "").trim();
   if (fullName && fullName.trim().split(/\s+/).length >= 2 && (!name || name.split(/\s+/).length < 2 || fullName.trim().split(/\s+/).length > name.split(/\s+/).length)) c.name = titleCase(fullName.trim());
   else if (name && (isCaps(name) || name === name.toLowerCase())) c.name = titleCase(name);

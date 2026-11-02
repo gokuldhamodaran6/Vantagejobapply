@@ -53,13 +53,21 @@ export function ResumePaper({ c, highlight = [], style = "classic", country }: {
       {!!c.experience?.length && (
         <>
           <H {...hp}>EXPERIENCE</H>
-          {c.experience.map((e, i) => (
+          {c.experience.filter((e) => !e.brief).map((e, i) => (
             <div key={i} className="mb-2.5">
               <div className="flex justify-between gap-3"><strong>{e.title || e.company}</strong><span className="shrink-0 text-[#333]">{[e.start, e.end].filter(Boolean).join(" – ")}</span></div>
-              {(e.title ? e.company : "") || e.location ? <p className="italic text-[#444]">{[e.title ? e.company : "", e.location].filter(Boolean).join(" · ")}</p> : null}
+              {(e.title ? e.company : "") || e.location || e.url ? <p className="italic text-[#444]">{[e.title ? e.company : "", e.location, e.url].filter(Boolean).join(" · ")}</p> : null}
               <ul className="mt-0.5 list-disc pl-4">{e.bullets.map((b, j) => <li key={j}>{hl(b)}</li>)}</ul>
             </div>
           ))}
+          {c.experience.some((e) => e.brief) && (
+            <div className="mb-2.5">
+              <p className="font-semibold text-[#333]">Earlier experience</p>
+              {c.experience.filter((e) => e.brief).map((e, i) => (
+                <div key={i} className="flex justify-between gap-3"><span>{[e.title, e.company].filter(Boolean).join(", ")}</span><span className="shrink-0 text-[#333]">{[e.start, e.end].filter(Boolean).join(" – ")}</span></div>
+              ))}
+            </div>
+          )}
         </>
       )}
       {!!c.projects?.length && (

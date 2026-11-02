@@ -10,6 +10,7 @@ import { extractKeywords, resumeText, scoreResume } from "@/lib/ats";
 import { searchVariants } from "@/lib/jobs/roles";
 import { RESUME_STYLES } from "@/lib/resume/styles";
 import { autoFix, checkResume } from "@/lib/resume/check";
+import { splitItems } from "@/lib/resume/repair";
 import { harvardScore, lintBullets } from "@/lib/resume/harvard";
 import { COUNTRY_FORMATS, DEFAULT_FORMAT, FORMAT_CODES, formatFor, formatLine, pagesFor } from "@/lib/resume/country";
 import type { Resume, ResumeContent, ResumeStyle } from "@/lib/types";
@@ -282,7 +283,7 @@ export default function ResumeEditor({ params }: { params: Promise<{ id: string 
             {(c.skills || []).map((g, i) => (
               <div key={i} className="flex gap-2">
                 <input className="input w-36" aria-label="Skill group" value={g.group} onChange={(e) => up({ skills: c.skills!.map((x, j) => (j === i ? { ...x, group: e.target.value } : x)) })} />
-                <input className="input" aria-label="Skills" value={g.items.join(", ")} onChange={(e) => up({ skills: c.skills!.map((x, j) => (j === i ? { ...x, items: e.target.value.split(",").map((s) => s.trim()).filter(Boolean) } : x)) })} />
+                <input className="input" aria-label="Skills" value={g.items.join(", ")} onChange={(e) => up({ skills: c.skills!.map((x, j) => (j === i ? { ...x, items: splitItems(e.target.value) } : x)) })} />
                 <button className="rounded-lg p-2 text-subtle hover:text-red-ink" aria-label="Remove group" onClick={() => up({ skills: c.skills!.filter((_, j) => j !== i) })}><Trash2 size={16} /></button>
               </div>
             ))}
@@ -331,7 +332,7 @@ export default function ResumeEditor({ params }: { params: Promise<{ id: string 
               </div>
             ))}
             <label className="block text-sm font-semibold">Certifications (comma separated)
-              <input className="input mt-1.5" value={(c.certifications || []).join(", ")} onChange={(e) => up({ certifications: e.target.value.split(",").map((s) => s.trim()).filter(Boolean) })} />
+              <input className="input mt-1.5" value={(c.certifications || []).join(", ")} onChange={(e) => up({ certifications: splitItems(e.target.value) })} />
             </label>
           </section>
         </div>

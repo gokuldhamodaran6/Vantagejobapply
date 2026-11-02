@@ -2,7 +2,8 @@ import { json, loadUserContext } from "@/lib/server-user";
 import { prepareAndQueue } from "@/lib/agent/prepare";
 import { applyTarget } from "@/lib/agent/jobs";
 import { rpc } from "@/lib/agent/svc";
-import { buildReport, saveReport } from "@/lib/agent/report";
+import { buildReport, extraFrom, saveReport } from "@/lib/agent/report";
+import type { TailorResult } from "@/lib/tailor";
 import { matchJob } from "@/lib/jobs/match";
 import type { Job, LetterTone, ResumeContent, ResumeStyle } from "@/lib/types";
 
@@ -16,7 +17,7 @@ export const maxDuration = 120;
 export async function POST(req: Request) {
   const ctx = await loadUserContext();
   if (!ctx) return json({ error: "Log in first." }, 401);
-  const b = (await req.json().catch(() => ({}))) as {
+  const b = (await req.json().catch(() => ({}))) as Partial<Pick<TailorResult, "strategy" | "review" | "knockouts" | "employer">> & {
     jobId?: string; roleId?: string | null; resume?: ResumeContent; coverLetter?: string; style?: ResumeStyle; tone?: LetterTone; atsScore?: number; force?: boolean;
     match?: { covered: number; total: number; skills: { skill: string; evidence: string | null }[] };
     format?: { code: string; label?: string; docName: string; paper: string; pages?: number; note: string };
@@ -64,7 +65,7 @@ export async function POST(req: Request) {
 
   // What this resume covers, for the extension's panel (counts come from the tailoring the person just saw).
   if (b.match && b.format && b.harvard && Array.isArray(b.match.skills)) {
-    await saveReport(task.id, buildReport({ match: { covered: Number(b.match.covered) || 0, total: Number(b.match.total) || 0, skills: b.match.skills.slice(0, 12).map((x) => ({ skill: String(x.skill).slice(0, 80), evidence: x.evidence ? String(x.evidence).slice(0, 200) : null })) }, format: b.format, harvard: { ok: Number(b.harvard.ok) || 0, total: Number(b.harvard.total) || 0 }, resumeId: resumeId || task.resume_id }));
+    await saveReport(task.id, buildReport({ match: { covered: Number(b.match.covered) || 0, total: Number(b.match.total) || 0, skills: b.match.skills.slice(0, 12).map((x) => ({ skill: String(x.skill).slice(0, 80), evidence: x.evidence ? String(x.evidence).slice(0, 200) : null })) }, format: b.format, harvard: { ok: Number(b.harvard.ok) || 0, total: Number(b.harvard.total) || 0 }, resumeId: resumeId || task.resume_id, extra: clipExtra(extraFrom({ strategy: b.strategy, review: b.review, knockouts: b.knockouts, employer: b.employer })) }));
   }
 
   // In Applications as "Ready" (never moves an application backwards).
@@ -88,4 +89,19 @@ export async function POST(req: Request) {
 
   const target = applyTarget(job);
   return json({ ok: true, taskId: task.id, url: task.apply_url || target.url || job.url, job: { title: job.title, company: job.company }, match: match.score, ats: target.ats });
+}
+
+/** Sent by the browser, so every field is trimmed before it's stored. */
+function clipExtra(x: ReturnType<typeof extraFrom>): ReturnType<typeof extraFrom> {
+  const t = (v: unknown, n: number) => (typeof v === "string" ? v.slice(0, n) : undefined);
+  const list = (v: unknown, n: number, len: number) => (Array.isArray(v) ? v.filter((s) => typeof s === "string").slice(0, n).map((s) => (s as string).slice(0, len)) : []);
+  return {
+    identity: t(x.identity, 80),
+    angle: t(x.angle, 300),
+    review: typeof x.review === "number" ? Math.max(0, Math.min(100, Math.round(x.review))) : null,
+    fixes: list(x.fixes, 5, 200),
+    questions: list(x.questions, 4, 240),
+    knockouts: (Array.isArray(x.knockouts) ? x.knockouts : []).slice(0, 4).map((k) => ({ requirement: String(k?.requirement || "").slice(0, 160), status: String(k?.status || "").slice(0, 12), note: String(k?.note || "").slice(0, 200) })),
+    employer: t(x.employer, 80),
+  };
 }

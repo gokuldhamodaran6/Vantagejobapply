@@ -15,6 +15,17 @@ export type TaskReport = {
   format: { code: string; label: string; docName: string; paper: string; pages?: number; note: string };
   harvard: { ok: number; total: number };
   resumeId?: string | null;
+  /** How the person is presented ("Business & Data Analyst") and why they fit, in one line. */
+  identity?: string;
+  angle?: string;
+  /** Hiring-manager review of the final resume (AI estimate, 0–100). */
+  review?: number | null;
+  fixes?: string[];
+  /** Screening requirements that aren't clearly met (work authorization, degree, years…). */
+  knockouts?: { requirement: string; status: string; note: string }[];
+  /** Questions that would add a real number to this resume. */
+  questions?: string[];
+  employer?: string;
 };
 
 type FormatLike = { code: string; label?: string; name?: string; docName: string; paper: string; pages?: number; note: string };
@@ -24,6 +35,7 @@ export function buildReport(input: {
   format: FormatLike;
   harvard: { ok: number; total: number };
   resumeId?: string | null;
+  extra?: Pick<TaskReport, "identity" | "angle" | "review" | "fixes" | "knockouts" | "questions" | "employer">;
 }): TaskReport {
   const { match, format, harvard } = input;
   return {
@@ -34,11 +46,25 @@ export function buildReport(input: {
     format: { code: format.code, label: format.label || `${format.code} ${format.docName}`, docName: format.docName, paper: format.paper, pages: format.pages, note: format.note },
     harvard: { ok: harvard.ok, total: harvard.total },
     resumeId: input.resumeId ?? null,
+    ...(input.extra || {}),
   };
 }
 
 export function reportFromTailoring(t: TailorResult, own: ResumeContent, resumeId: string | null): TaskReport {
-  return buildReport({ match: matchFrom(t.analysis, t.keywords, own), format: t.format, harvard: t.harvard, resumeId });
+  return buildReport({ match: matchFrom(t.analysis, t.keywords, own), format: t.format, harvard: t.harvard, resumeId, extra: extraFrom(t) });
+}
+
+/** The studio's positioning, review and screening checks, trimmed for the report. */
+export function extraFrom(t: Pick<TailorResult, "strategy" | "review" | "knockouts" | "employer">): NonNullable<Parameters<typeof buildReport>[0]["extra"]> {
+  return {
+    identity: t.strategy?.identity || undefined,
+    angle: t.strategy?.angle || undefined,
+    review: t.review?.score ?? null,
+    fixes: (t.review?.fixes || []).slice(0, 5),
+    knockouts: (t.knockouts || []).filter((k) => k.status !== "met").slice(0, 4),
+    questions: (t.strategy?.questions || []).slice(0, 4),
+    employer: t.employer?.name,
+  };
 }
 
 export async function saveReport(taskId: string, report: TaskReport) {

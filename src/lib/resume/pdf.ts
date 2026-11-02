@@ -77,6 +77,27 @@ function wrap(text: string, font: PDFFont, size: number, width: number): string[
   return lines;
 }
 
+/** Wrap a list without ever splitting an item across lines (unless one item alone is wider than the line). */
+function wrapItems(items: string[], sep: string, font: PDFFont, size: number, width: number): string[] {
+  const lines: string[] = [];
+  let cur = "";
+  for (const raw of items) {
+    const it = safe(raw);
+    const next = cur ? `${cur}${sep}${it}` : it;
+    if (font.widthOfTextAtSize(next, size) <= width) cur = next;
+    else {
+      if (cur) lines.push(`${cur}${sep.trim() === "," ? "," : ""}`);
+      if (font.widthOfTextAtSize(it, size) > width) {
+        const parts = wrap(it, font, size, width);
+        lines.push(...parts.slice(0, -1));
+        cur = parts[parts.length - 1] || "";
+      } else cur = it;
+    }
+  }
+  if (cur) lines.push(cur);
+  return lines;
+}
+
 function text(c: Ctx, s: string, opts: { x?: number; font?: PDFFont; size?: number; color?: [number, number, number]; width?: number; indent?: number; align?: "left" | "center" } = {}) {
   const font = opts.font || c.font;
   const size = opts.size || c.size;
@@ -196,25 +217,37 @@ export async function resumePdf(raw: ResumeContent, opts: { style?: ResumeStyle;
     for (const g of r.skills) {
       const label = `${safe(g.group)}: `;
       const lw = c.bold.widthOfTextAtSize(label.trim(), c.size) + c.size * 0.38;
-      const lines = wrap(g.items.join(", "), c.font, c.size, c.right - c.left - lw);
+      // Wrapped lines hang under the first item, so each group reads as one block.
+      const lines = wrapItems(g.items, ", ", c.font, c.size, c.right - c.left - lw);
       ensure(c, c.size * c.lineGap);
       c.page.drawText(label, { x: c.left, y: c.y - c.size, size: c.size, font: c.bold, color: rgb(0.07, 0.07, 0.07) });
-      lines.forEach((l, i) => {
+      lines.forEach((l) => {
         ensure(c, c.size * c.lineGap);
-        c.page.drawText(l, { x: c.left + (i === 0 ? lw : 0), y: c.y - c.size, size: c.size, font: c.font, color: rgb(0.07, 0.07, 0.07) });
+        c.page.drawText(l, { x: c.left + lw, y: c.y - c.size, size: c.size, font: c.font, color: rgb(0.07, 0.07, 0.07) });
         c.y -= c.size * c.lineGap;
       });
     }
   }
   if (r.experience?.length) {
     heading(c, st, "Experience");
-    for (const e of r.experience) {
+    const full = r.experience.filter((e) => !e.brief);
+    const brief = r.experience.filter((e) => e.brief);
+    for (const e of full) {
       const dates = [e.start, e.end].filter(Boolean).join(" – ");
       rowWithRight(c, e.title || e.company, dates, c.bold, c.size + 0.2);
-      const org = [e.title ? e.company : "", e.location].filter(Boolean).join(" · ");
+      const org = [e.title ? e.company : "", e.location, e.url].filter(Boolean).join(" · ");
       if (org) text(c, org, { font: c.italic, size: c.size - 0.2, color: [0.25, 0.25, 0.25] });
       c.y -= 1;
       bullets(c, e.bullets);
+      c.y -= 3;
+    }
+    if (brief.length) {
+      // Older roles: one line each, so the page stays on what matters.
+      text(c, "Earlier experience", { font: c.bold, size: c.size - 0.2, color: [0.2, 0.2, 0.2] });
+      for (const e of brief) {
+        const dates = [e.start, e.end].filter(Boolean).join(" – ");
+        rowWithRight(c, [e.title, e.company].filter(Boolean).join(", "), dates, c.font, c.size - 0.2);
+      }
       c.y -= 3;
     }
   }
@@ -229,7 +262,7 @@ export async function resumePdf(raw: ResumeContent, opts: { style?: ResumeStyle;
   if (!educationFirst) education();
   if (r.certifications?.length) {
     heading(c, st, "Certifications");
-    text(c, r.certifications.join("  •  "));
+    for (const l of wrapItems(r.certifications, "  •  ", c.font, c.size, c.right - c.left)) text(c, l);
   }
   if (r.awards?.length) {
     heading(c, st, "Awards");

@@ -283,16 +283,16 @@ async function pilotTurns(tabId, t) {
 
     if (plan.status === "ready" && pendingFiles.length) {
       // Everything else is filled: wait for the files (the panel shows progress), attach them, then check the page again.
-      for (let w = 0; w < 40 && pendingFiles.length; w++) {
+      for (let w = 0; w < 60 && pendingFiles.length; w++) {
         const now = await store.tab(tabId);
         if (!now || now.paused) return;
         if (now.fileReady) pendingFiles = await attachPending(tabId, now, files, pendingFiles);
         if (!pendingFiles.length) break;
-        await showPanel(tabId, { ...t.base, steps: steps(1), note: `Every other field is filled. Your ${pendingFiles.includes("resume") ? "resume" : "cover letter"} for this job is almost written — attaching it as soon as it's ready (${w * 3} s)…`, noteTone: "ok", buttons: [{ text: "Use my saved resume instead", action: "own_resume", ghost: true }, { text: "Pause", action: "pause", ghost: true }] });
+        await showPanel(tabId, { ...t.base, steps: steps(1), note: `Every other field is filled. Your ${pendingFiles.includes("resume") ? "resume" : "cover letter"} for this job is being written and reviewed — attaching it as soon as it's ready (${w * 3} s)…`, noteTone: "ok", buttons: [{ text: "Use my saved resume instead", action: "own_resume", ghost: true }, { text: "Pause", action: "pause", ghost: true }] });
         await sleep(3000);
       }
       if (pendingFiles.length) {
-        // Still not ready after two minutes: stop waiting; the person can attach it (or use their saved resume).
+        // Still not ready after three minutes: stop waiting; the person can attach it (or use their saved resume).
         pendingFiles = [];
         await showPanel(tabId, { ...t.base, steps: steps(1), note: "Your files for this job are taking longer than usual. Use your saved resume, or attach it yourself.", noteTone: "warn", buttons: [{ text: "Use my saved resume instead", action: "own_resume" }, { text: "Continue", action: "continue", ghost: true }] });
         await markWaiting(tabId);

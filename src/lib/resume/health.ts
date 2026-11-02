@@ -1,3 +1,4 @@
+import { repairResume } from "@/lib/resume/repair";
 import type { ResumeContent } from "@/lib/types";
 
 /**
@@ -27,7 +28,7 @@ export function resumeIssues(c: ResumeContent | null | undefined, fullName?: str
 
 /** Repair what can be repaired safely (never inventing anything) so the PDF reads like a professional resume. */
 export function tidyResume(c: ResumeContent, fullName?: string): ResumeContent {
-  const r: ResumeContent = JSON.parse(JSON.stringify(c));
+  const r: ResumeContent = repairResume(c);
   const name = (r.name || "").trim();
   r.name = titleCase(fullName && fullName.split(/\s+/).length > name.split(/\s+/).length ? fullName : name || fullName || "");
   if (r.summary && (isUrl(r.summary) || r.summary.trim().length < 25)) {

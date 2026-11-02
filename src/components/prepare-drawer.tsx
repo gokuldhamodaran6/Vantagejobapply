@@ -10,7 +10,8 @@ import { useMe, track } from "@/lib/me";
 import { workAuthAnswers } from "@/lib/answers";
 import { money, timeAgo } from "@/lib/format";
 import { Badge } from "@/components/ui";
-import { MatchReport, type MatchReportFormat, type MatchReportHarvard, type MatchReportMatch } from "@/components/match-report";
+import { ResumePaper } from "@/components/resume-paper";
+import { MatchReport, StudioReport, type StudioInfo, type MatchReportFormat, type MatchReportHarvard, type MatchReportMatch } from "@/components/match-report";
 import type { Job, LetterTone, MatchResult, ResumeContent, ResumeStyle } from "@/lib/types";
 
 type Tailored = {
@@ -28,7 +29,7 @@ type Tailored = {
   match?: MatchReportMatch;
   harvard?: MatchReportHarvard;
   format?: MatchReportFormat;
-};
+} & StudioInfo;
 
 export function PrepareDrawer({ item, onClose, onSaved }: { item: { job: Job; match: MatchResult } | null; onClose: () => void; onSaved: (msg: string) => void }) {
   const { auth, userId } = useMe();
@@ -155,7 +156,7 @@ export function PrepareDrawer({ item, onClose, onSaved }: { item: { job: Job; ma
     const r = await fetch("/api/apply", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ jobId: j.id, roleId: item!.match.role?.id || null, resume: t.resume, coverLetter: cover || t.coverLetter, style: t.style, tone: t.tone, atsScore: t.report?.score, force, match: t.match, format: t.format, harvard: t.harvard ? { ok: t.harvard.ok, total: t.harvard.total } : undefined }),
+      body: JSON.stringify({ jobId: j.id, roleId: item!.match.role?.id || null, resume: t.resume, coverLetter: cover || t.coverLetter, style: t.style, tone: t.tone, atsScore: t.report?.score, force, match: t.match, format: t.format, harvard: t.harvard ? { ok: t.harvard.ok, total: t.harvard.total } : undefined, strategy: t.strategy, review: t.review, knockouts: t.knockouts, employer: t.employer }),
     }).catch(() => null);
     const d = r ? await r.json().catch(() => ({})) : { error: "Network error. Try again." };
     setBusy("");
@@ -249,6 +250,16 @@ export function PrepareDrawer({ item, onClose, onSaved }: { item: { job: Job; ma
               {error && <p role="alert" className="mt-3 rounded-lg bg-red-tint px-3 py-2 text-sm text-red-ink">{error}{error.includes("resume first") && <> · <Link href="/app/resumes" className="font-semibold underline">Add resume</Link></>}</p>}
               {tailored && (
                 <div className="mt-4 space-y-4">
+                  <details className="group rounded-xl border border-line" open>
+                    <summary className="flex cursor-pointer items-center justify-between px-4 py-3 text-sm font-semibold">
+                      <span className="flex items-center gap-2"><FileText size={16} aria-hidden /> The resume written for this job</span>
+                      <span className="text-xs font-medium text-muted group-open:hidden">Show</span>
+                    </summary>
+                    <div className="max-h-[70vh] overflow-auto border-t border-line bg-canvas p-3">
+                      <div className="origin-top-left shadow-sm"><ResumePaper c={tailored.resume} style={tailored.style} country={j.country} highlight={tailored.keywords.slice(0, 18)} /></div>
+                    </div>
+                  </details>
+                  <StudioReport info={tailored} />
                   {tailored.match && tailored.harvard && tailored.format ? (
                     <MatchReport match={tailored.match} harvard={tailored.harvard} format={tailored.format} />
                   ) : (

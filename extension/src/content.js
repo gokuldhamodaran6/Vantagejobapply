@@ -277,10 +277,13 @@
       const gaps = (r.missing || []).slice(0, 4).map((m) => `<span class="chip">${esc(m)}</span>`).join("");
       return `<div class="rep"><div class="t">Resume and cover letter written for this job</div><div class="bar">${bars}</div>
         <div>Covers <b>${r.covered} of ${r.total}</b> key skills${fmt ? ` · ${fmt}` : ""}${r.harvard && r.harvard.total ? ` · ${r.harvard.ok}/${r.harvard.total} bullets pass Harvard checks` : ""}</div>
+        ${r.identity ? `<div style="margin-top:6px">Presented as <b>${esc(r.identity)}</b>${r.employer ? ` for ${esc(r.employer)}` : ""}${typeof r.review === "number" && r.review > 0 ? ` · hiring-manager review <b>${r.review}/100</b>` : ""}</div>` : ""}
+        ${r.angle ? `<div class="muted" style="margin-top:3px">${esc(r.angle)}</div>` : ""}
         ${gaps ? `<div class="muted" style="margin-top:6px">Not in your history (never added):</div><div class="chips">${gaps}</div>` : ""}
+        ${(r.knockouts || []).length ? `<div style="margin-top:6px;color:#b4520a"><b>Check before you submit:</b> ${(r.knockouts || []).map((k) => esc(k.requirement)).join("; ")}</div>` : ""}
         ${r.resumeId ? `<div style="margin-top:8px;display:flex;gap:14px;flex-wrap:wrap"><a href="${APP}/api/resume/${esc(r.resumeId)}/pdf?inline=1" target="_blank" rel="noopener">Resume (PDF) ↗</a><a href="${APP}/api/resume/${esc(r.resumeId)}/pdf?kind=cover&inline=1" target="_blank" rel="noopener">Cover letter (PDF) ↗</a><a href="${APP}/app/resumes/${esc(r.resumeId)}" target="_blank" rel="noopener">Edit ↗</a></div>` : ""}</div>`;
     }
-    if (tailoring) return `<div class="rep"><span class="spin"></span><b>Writing your resume and cover letter for this job…</b><div class="muted" style="margin-top:4px">Usually 20–40 seconds. Vantage fills the rest of the form meanwhile and attaches the resume when it's ready.</div></div>`;
+    if (tailoring) return `<div class="rep"><span class="spin"></span><b>Writing your resume and cover letter for this job…</b><div class="muted" style="margin-top:4px">Planned for this employer, written, then reviewed as the hiring manager would: about a minute. Vantage fills the rest of the form meanwhile and attaches the files when they're ready.</div></div>`;
     return "";
   };
   let heartbeat = null;

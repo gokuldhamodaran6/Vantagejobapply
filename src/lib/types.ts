@@ -125,7 +125,8 @@ export type ResumeContent = {
   links?: string[];
   summary?: string;
   skills?: { group: string; items: string[] }[];
-  experience?: { title: string; company: string; location?: string; start?: string; end?: string; bullets: string[] }[];
+  /** `url`: the product or company site for this role. `brief`: an older role shown as one line under "Earlier experience". */
+  experience?: { title: string; company: string; location?: string; start?: string; end?: string; bullets: string[]; url?: string; brief?: boolean }[];
   projects?: { name: string; tech?: string; bullets: string[] }[];
   education?: { degree: string; school: string; location?: string; end?: string; details?: string }[];
   certifications?: string[];

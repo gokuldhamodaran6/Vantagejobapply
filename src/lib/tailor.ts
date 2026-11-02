@@ -1,57 +1,18 @@
 import "server-only";
 import { aiConfigured, claude, extractJson } from "@/lib/ai";
 import { extractKeywords, resumeText, scoreResume } from "@/lib/ats";
+import { studio, type JobBrief, type Review, type Strategy } from "@/lib/resume/studio";
+import { polishResume } from "@/lib/resume/polish";
+import { repairResume } from "@/lib/resume/repair";
+import { SCHEMA, clean, coverage, formatPrompt, lintLetter, norm } from "@/lib/resume/rules";
 import { parseResumeText } from "@/lib/resume/parse";
-import { LETTER_TONES } from "@/lib/resume/styles";
 import { formatFor, pagesFor, type CountryFormat } from "@/lib/resume/country";
-import { HARVARD_PROMPT, harvardScore, lintBullets, type HarvardSummary } from "@/lib/resume/harvard";
+import { harvardScore, lintBullets, type HarvardSummary } from "@/lib/resume/harvard";
 import type { LetterTone, ResumeContent } from "@/lib/types";
-
-/* ------------------------------------------------------------------ */
-/* Shared rules                                                        */
-/* ------------------------------------------------------------------ */
-
-const TRUTH = `NON-NEGOTIABLE TRUTH RULES
-- Use only facts present in the candidate's resume. Never invent employers, titles, dates, degrees, tools, certifications, metrics, team sizes or outcomes.
-- You may rephrase, merge, reorder, trim and emphasise existing facts, and use the job's vocabulary when the resume already shows that work.
-- Numbers: keep every number exactly as given. Never add a number that is not in the resume.
-- If a requirement is not supported by the resume, leave it out. Do not imply experience the candidate does not have.`;
-
-const RESUME_CRAFT = `RESUME CRAFT (what top recruiters and hiring managers reward)
-- Bullets follow "accomplished [X] as measured by [Y] by doing [Z]" when the facts allow. Lead with the outcome, then the how.
-- Start every bullet with a strong, specific past-tense verb (present tense for a current role). Vary verbs; never repeat the same opening verb within a role.
-- No first person (I, my, we), no "Responsible for", "Helped", "Worked on", "Tasked with", no filler adjectives (dynamic, passionate, results-driven, hard-working, detail-oriented, team player).
-- One idea per bullet, 1–2 lines (under ~200 characters). Most relevant bullets first. 3–5 bullets for recent roles, 1–3 for older or less relevant ones.
-- Summary: 2–3 lines, no pronouns. Who they are (target-role language + years of experience computed from dates), their sharpest specialism, and 1–2 signature results with real numbers.
-- Headline: the target role title plus 2–3 core specialisms separated by " | " (only specialisms the resume proves).
-- Skills: 3–5 groups with standard names (e.g. "Marketing", "Analytics", "Tools", "Languages"). Most relevant first. Remove items irrelevant to the target. No soft skills in the skills section.
-- Keep all jobs (no unexplained gaps); keep dates exactly. Keep standard section names so every ATS can parse it.
-- Spelling: follow the job's country (US vs UK/Commonwealth spelling).`;
-
-const BANNED = [
-  "i am writing to express", "i am excited to apply", "i am thrilled", "i'm thrilled", "passionate about", "dynamic", "synergy", "go-getter", "team player",
-  "hard-working", "hardworking", "detail-oriented", "results-driven", "i believe i would be a great fit", "perfect fit", "leverage my skills",
-  "fast-paced environment", "esteemed", "to whom it may concern", "dear sir", "dear madam", "delve", "tapestry", "testament to", "in today's",
-  "ever-evolving", "unwavering", "spearheaded a culture", "i am confident that i", "look no further", "game-changer", "cutting-edge", "seamlessly",
-  "rest assured", "embark", "journey", "realm", "elevate", "foster a culture", "aligns perfectly", "resonates deeply", "honed", "invaluable",
-];
-
-/** Country rules for the writer: spelling, profile, length, and what never goes on a resume. */
-export function formatPrompt(fmt: CountryFormat, c?: ResumeContent): string {
-  const pages = pagesFor(fmt, c);
-  return `COUNTRY FORMAT: ${fmt.label} (${fmt.name})
-- Spelling: ${fmt.spelling === "us" ? "US spelling (organize, color, center, analyze)." : fmt.spellingNote || "UK/Commonwealth spelling (organise, colour, centre, analyse)."}
-- ${fmt.personalStatement ? `Top of the ${fmt.docName}: a short personal statement in "summary" (2–4 lines, no pronouns): who they are in the target role's language, their strongest proven skills, and what they bring. Facts from the resume only.` : "Summary: 2–3 lines, no pronouns, facts from the resume only."}
-- Length: aim for ${pages === 1 ? "1 page" : "no more than 2 pages"} on ${fmt.paper === "a4" ? "A4" : "US Letter"}.
-- Never add a photo, date of birth, age, nationality, marital status, gender, religion or a "References available on request" line.
-- Keep every date exactly as written.`;
-}
 
 /* ------------------------------------------------------------------ */
 /* Structuring an uploaded/pasted resume                               */
 /* ------------------------------------------------------------------ */
-
-const SCHEMA = `{"name":string,"headline":string,"location":string,"email":string,"phone":string,"links":string[],"summary":string,"skills":[{"group":string,"items":string[]}],"experience":[{"title":string,"company":string,"location":string,"start":string,"end":string,"bullets":string[]}],"projects":[{"name":string,"tech":string,"bullets":string[]}],"education":[{"degree":string,"school":string,"location":string,"end":string,"details":string}],"certifications":string[],"awards":string[],"additional":string[]}`;
 
 export async function structureResume(raw: string, name: string): Promise<{ content: ResumeContent; ai: boolean }> {
   const parsed = parseResumeText(raw, name);
@@ -98,32 +59,16 @@ export async function roleResume(
     : master;
   const switching = coach?.level === "switch" || coach?.level === "adjacent";
   if (aiConfigured()) {
-    const out = await claude(
-      `You are a senior recruiter turned executive resume writer. You have screened tens of thousands of resumes for ${role.title} roles at top companies and know exactly what earns an interview.
-Rewrite the candidate's master resume into a resume targeted at ${role.title} roles (${role.levels.join("/")} level) in ${country}.
-${TRUTH}
-${RESUME_CRAFT}
-${HARVARD_PROMPT}
-${formatPrompt(formatFor(country), master)}
-Use these keywords from live ${role.title} job postings ONLY where the resume genuinely supports them: ${marketKeywords.join(", ")}.${switching ? `
-CAREER MOVE: the candidate is moving into ${role.title} from a related or different field. Write it the way the best recruiters position career switchers:
-- Headline and summary bridge their proven results to what a ${role.title} does; lead with transferable strengths, never pretend they already held the title.
-- Reframe existing bullets toward ${role.title} work (stakeholders, decisions, customers, data, delivery) only where the facts genuinely show it; most relevant bullets first.
-- If they gave training or projects, add "Relevant Training" (inside certifications) and "Projects" sections and place projects right after the summary's focus.
-- Keep every claim proportionate to what they said: "completed a course" never becomes "expert".` : ""}${coach?.facts ? `
-The candidate also told us the following in their own words. Treat these as facts you may use (with the same truth rules):
-${coach.facts.slice(0, 4000)}` : ""}
-Also return "notes": up to 5 short, specific suggestions where the candidate could strengthen the resume with facts only they know (e.g. "Add the size of the budget you managed at Kaar Tech"). Never put these suggestions inside the resume.
-Return ONLY JSON: {"resume": ${SCHEMA}, "notes": string[]}`,
-      [{ role: "user", content: `MASTER RESUME JSON:\n${JSON.stringify(master)}` }],
-      6000,
-      { model: "writer", temperature: 0.3, feature: "resume-write" },
-    );
-    const j = extractJson<{ resume: ResumeContent; notes?: string[] }>(out);
-    if (j?.resume?.experience?.length) {
-      const content = guard(facts, j.resume);
-      content.additional = master.additional; // the Q&A itself never appears on the resume
-      return { content, notes: (j.notes || []).slice(0, 5), ai: true };
+    const description = `Target: ${role.title} roles (${role.levels.join("/")} level) in ${country}. This is a role-level master resume, not one posting: optimise for what most ${role.title} hiring managers screen for.
+Skills and phrases that appear most often in live ${role.title} postings: ${marketKeywords.join(", ")}.${switching ? `
+The candidate is moving into ${role.title} from a related or different field: lead with transferable results, bridge them to what a ${role.title} does, and never pretend they held the title. Put projects and relevant training where they help.` : ""}${coach?.facts ? `
+The candidate also told us (their own words, usable as facts):
+${coach.facts.slice(0, 4000)}` : ""}`;
+    const s = await studio(repairResume(facts), { title: role.title, company: `${role.title} employers`, description, country }, { fmt: formatFor(country), onePage: pagesFor(formatFor(country), master) === 1, tone: "confident", keywords: marketKeywords, withLetter: false }).catch(() => null);
+    if (s) {
+      const content = { ...s.resume, additional: master.additional }; // the Q&A itself never appears on the resume
+      const notes = [...s.strategy.questions, ...(s.review?.risks || [])].slice(0, 5);
+      return { content, notes: notes.length ? notes : ruleNotes(master), ai: true };
     }
   }
   const content = ruleRoleResume(master, role.title, marketKeywords);
@@ -147,65 +92,53 @@ export type TailorResult = {
   format: CountryFormat & { pages: 1 | 2 };
   /** Harvard bullet checks run on the tailored resume (no AI). */
   harvard: HarvardSummary;
+  /** How the person is presented for this job, honest gaps, and questions that would add real numbers. */
+  strategy?: Pick<Strategy, "identity" | "angle" | "pillars" | "gaps" | "questions">;
+  /** The hiring-manager review of the final version (AI estimate). */
+  review?: Review | null;
+  /** Hard screening requirements in the posting and whether the resume shows them. */
+  knockouts?: JobBrief["knockouts"];
+  employer?: { name: string; kind: string; values: string[] };
+  stages?: string[];
 };
 
 type JobIn = { title: string; company: string; description: string | null; country: string; location?: string | null };
 
-export async function tailorForJob(base: ResumeContent, job: JobIn, candidateName: string, tone: LetterTone = "confident", country: string = job.country): Promise<TailorResult> {
+export async function tailorForJob(base0: ResumeContent, job: JobIn, candidateName: string, tone: LetterTone = "confident", country: string = job.country): Promise<TailorResult> {
+  // Stored resumes from older imports can carry layout damage; repair it before anything reads it.
+  const base = repairResume(base0);
   const keywords = extractKeywords(`${job.title} ${job.title} ${job.description || ""}`, 22);
-  const name = base.name || candidateName;
+  if (!base.name) base.name = candidateName;
   const fmt = formatFor(country || job.country);
   const format = { ...fmt, pages: pagesFor(fmt, base) };
   const checked = (resume: ResumeContent) => harvardScore(resume, lintBullets(resume));
   if (aiConfigured()) {
-    const out = await claude(
-      `You are an elite recruiter and resume writer. Tailor this candidate's resume to ONE specific job so it passes ATS screening and makes the hiring manager want to call — then write the cover letter.
-${TRUTH}
-${RESUME_CRAFT}
-${HARVARD_PROMPT}
-${formatPrompt(fmt, base)}
-STEP 1 — Analyse the job: list its 6–8 most important requirements. For each, quote the strongest supporting evidence from the resume, or null if none.
-STEP 2 — Tailor the resume: mirror the job's exact wording for skills and responsibilities the resume genuinely shows; move the most relevant bullets to the top of each role; sharpen the headline and summary for this job. Keep it to ${format.pages === 1 ? "one page" : "two pages at most"}.
-STEP 3 — Write the cover letter (${tone}: ${LETTER_TONES[tone].guide})
-- 220–320 words, 4 short paragraphs. Greeting: "Dear ${job.company} Hiring Team,".
-- P1 (2–3 sentences): name the role; one specific, non-generic reason this company/role (use a concrete detail from the posting: product, problem, customer, mission) and the candidate's headline credential.
-- P2: the 2 strongest proof points mapped to the job's top requirements, told as mini-stories with the real numbers.
-- P3: what they would bring/do in this role, tied to 1–2 responsibilities in the posting. Optionally one line on a transferable strength.
-- P4 (1–2 sentences): confident close and invitation to talk. No begging, no "I hope".
-- Sign off "Sincerely," then "${name}" on the next line (for "warm" tone use "Best regards,").
-- Write like a sharp human professional: varied sentence length, plain words, no clichés, no exclamation marks, at most one dash in the whole letter, never start more than two sentences with "I". Never mention AI, tools, visas or salary. ${fmt.spelling === "us" ? "US spelling." : fmt.spellingNote || "UK/Commonwealth spelling."}
-- Banned phrases: ${BANNED.slice(0, 26).join("; ")}.
-Return ONLY JSON: {"analysis":[{"requirement":string,"evidence":string|null}],"resume": ${SCHEMA},"coverLetter":string}`,
-      [
-        {
-          role: "user",
-          content: `JOB: ${job.title} at ${job.company} (${job.location || job.country})\n${(job.description || "").slice(0, 9000)}\n\nATS KEYWORDS SEEN IN THE POSTING (use only if supported): ${keywords.join(", ")}\n\nCANDIDATE RESUME JSON:\n${JSON.stringify(base)}`,
-        },
-      ],
-      7000,
-      { model: "tailor", temperature: 0.4, feature: "tailor" },
-    );
-    const j = extractJson<{ analysis?: TailorResult["analysis"]; resume: ResumeContent; coverLetter: string }>(out);
-    if (j?.resume?.experience?.length && j.coverLetter) {
-      let letter = tidyLetter(j.coverLetter);
-      let issues = lintLetter(letter, job.company);
-      if (issues.length) {
-        const fixed = await claude(
-          `You are a meticulous editor. Fix ONLY these problems in the cover letter and return the full corrected letter as plain text, nothing else. Keep every fact. Problems: ${issues.join("; ")}.`,
-          [{ role: "user", content: letter }],
-          1500,
-          { model: "writer", temperature: 0.2, feature: "tailor-fix" },
-        );
-        if (fixed && lintLetter(tidyLetter(fixed), job.company).length < issues.length) {
-          letter = tidyLetter(fixed);
-          issues = lintLetter(letter, job.company);
-        }
-      }
-      const resume = guard(base, j.resume);
-      return { resume, coverLetter: letter, keywords, ai: true, tone, analysis: (j.analysis || []).slice(0, 8), letterIssues: issues, format, harvard: checked(resume) };
+    const s = await studio(base, job, { fmt, onePage: format.pages === 1, tone, keywords }).catch((e) => {
+      console.error("resume studio failed", (e as Error).message);
+      return null;
+    });
+    if (s) {
+      const letter = s.coverLetter || ruleLetter(s.resume, job, keywords, tone);
+      const analysis = s.strategy.requirements.map((r) => ({ requirement: r.requirement, evidence: r.evidence ?? null })).filter((r) => r.requirement);
+      return {
+        resume: s.resume,
+        coverLetter: letter,
+        keywords: [...new Set([...(s.strategy.keywords || []), ...keywords])].slice(0, 30),
+        ai: true,
+        tone,
+        analysis: analysis.slice(0, 8),
+        letterIssues: s.coverLetter ? s.letterIssues : lintLetter(letter, job.company),
+        format,
+        harvard: checked(s.resume),
+        strategy: { identity: s.strategy.identity, angle: s.strategy.angle, pillars: s.strategy.pillars, gaps: s.strategy.gaps, questions: s.strategy.questions },
+        review: s.review,
+        knockouts: s.brief?.knockouts || [],
+        employer: s.playbook,
+        stages: s.stages,
+      };
     }
   }
-  const resume = ruleRoleResume(base, job.title, keywords);
+  const resume = polishResume(ruleRoleResume(base, job.title, keywords), { jobTitle: job.title, identity: (base.headline || "").split(" | ")[0] || base.experience?.[0]?.title || "", original: base });
   const letter = ruleLetter(resume, job, keywords, tone);
   return { resume, coverLetter: letter, keywords, ai: false, tone, analysis: [], letterIssues: lintLetter(letter, job.company), format, harvard: checked(resume) };
 }
@@ -259,94 +192,6 @@ export function matchFrom(analysis: { requirement: string; evidence: string | nu
       })
     : [...new Set(keywords.map((k) => k.trim()).filter(Boolean))].slice(0, 10).map((k) => ({ skill: k, evidence: evidenceFor(k, own) }));
   return { covered: skills.filter((s) => s.evidence).length, total: skills.length, skills };
-}
-
-/* ------------------------------------------------------------------ */
-/* Quality checks                                                      */
-/* ------------------------------------------------------------------ */
-
-export function lintLetter(text: string, company: string): string[] {
-  const t = text.toLowerCase();
-  const issues: string[] = [];
-  const words = text.split(/\s+/).filter(Boolean).length;
-  if (words < 170) issues.push(`too short (${words} words, aim for 220–320)`);
-  if (words > 380) issues.push(`too long (${words} words, aim for 220–320)`);
-  for (const b of BANNED) if (t.includes(b)) issues.push(`remove the cliché "${b}"`);
-  if (/\[[^\]]{2,40}\]|\{[^}]{2,40}\}|<[^>]{2,40}>/.test(text)) issues.push("remove placeholder brackets");
-  if (/[—–-]\s*[.,;]/.test(text) || /\s[,.;]/.test(text)) issues.push("fix broken punctuation");
-  if ((text.match(/—/g) || []).length > 1) issues.push("use at most one em dash");
-  if (/!/.test(text)) issues.push("remove exclamation marks");
-  const sentences = text.split(/(?<=[.?!])\s+/).filter((s) => s.length > 3);
-  const iStarts = sentences.filter((s) => /^I\b/.test(s.trim())).length;
-  if (sentences.length && iStarts / sentences.length > 0.35) issues.push("too many sentences start with “I”; vary the openings");
-  if (company && !t.includes(company.toLowerCase().split(/[ ,]/)[0])) issues.push(`mention ${company} by name`);
-  if (/\b(ai|chatgpt|claude|language model|vantage)\b/i.test(text)) issues.push("remove any mention of tools or AI");
-  return issues;
-}
-
-function tidyLetter(s: string) {
-  return s.replace(/\r/g, "").replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").replace(/ {2,}/g, " ").trim();
-}
-
-/* ------------------------------------------------------------------ */
-/* Guards                                                              */
-/* ------------------------------------------------------------------ */
-
-function norm(s: string) {
-  return ` ${s.toLowerCase().replace(/[^a-z0-9%$+#.& ]/g, " ").replace(/\s+/g, " ")} `;
-}
-function coverage(sentence: string, src: string) {
-  const toks = norm(sentence).trim().split(" ").filter((w) => w.length > 2);
-  if (!toks.length) return 1;
-  return toks.filter((w) => src.includes(` ${w} `)).length / toks.length;
-}
-
-/** Keep the AI's rewrite honest: same jobs and dates, no invented skills or numbers. */
-function guard(original: ResumeContent, out: ResumeContent): ResumeContent {
-  const src = norm(resumeText(original));
-  const numbers = new Set((resumeText(original).match(/\d[\d,.]*%?\+?/g) || []).map((n) => n.replace(/[,+]/g, "")));
-  const r = clean(out);
-  r.name = original.name || r.name;
-  r.email = original.email;
-  r.phone = original.phone;
-  r.links = original.links;
-  r.location = original.location || r.location;
-  // Skills must exist in the original.
-  r.skills = (r.skills || []).map((g) => ({ ...g, items: g.items.filter((i) => src.includes(norm(i))) })).filter((g) => g.items.length);
-  // Jobs and dates must match the original; bullets must not introduce new numbers.
-  const byKey = new Map((original.experience || []).map((e) => [`${norm(e.company)}|${(e.start || "").toLowerCase()}`, e]));
-  r.experience = (r.experience || []).map((e) => {
-    const o = byKey.get(`${norm(e.company)}|${(e.start || "").toLowerCase()}`) || (original.experience || []).find((x) => norm(x.company) === norm(e.company) && norm(x.title) === norm(e.title));
-    const bullets = e.bullets.filter((b) => (b.match(/\d[\d,.]*%?\+?/g) || []).every((n) => numbers.has(n.replace(/[,+]/g, ""))));
-    return o ? { ...e, title: o.title, company: o.company, start: o.start, end: o.end, location: o.location, bullets: bullets.length ? bullets : o.bullets } : null;
-  }).filter((e): e is NonNullable<typeof e> => Boolean(e));
-  // Never drop a job: append any the model removed, as-is.
-  for (const o of original.experience || []) {
-    if (!r.experience.some((e) => norm(e.company) === norm(o.company) && e.start === o.start)) r.experience.push(o);
-  }
-  r.education = original.education;
-  r.certifications = (r.certifications || []).filter((c) => (original.certifications || []).some((o) => norm(o).includes(norm(c).trim().split(" ").slice(0, 2).join(" "))));
-  if (!r.certifications.length) r.certifications = original.certifications;
-  r.awards = original.awards;
-  if (r.summary && (r.summary.match(/\d[\d,.]*%?\+?/g) || []).some((n) => !numbers.has(n.replace(/[,+]/g, "")) && !/^\d{1,2}$/.test(n))) r.summary = original.summary;
-  return r;
-}
-
-function clean(c: ResumeContent): ResumeContent {
-  const s = (x?: string) => (x || "").replace(/\s+/g, " ").trim();
-  return {
-    ...c,
-    name: s(c.name),
-    headline: s(c.headline) || undefined,
-    summary: s(c.summary) || undefined,
-    skills: (c.skills || []).map((g) => ({ group: s(g.group) || "Skills", items: (g.items || []).map(s).filter(Boolean) })).filter((g) => g.items.length),
-    experience: (c.experience || []).map((e) => ({ ...e, title: s(e.title), company: s(e.company), bullets: (e.bullets || []).map(s).filter((b) => b.length > 2) })),
-    projects: (c.projects || []).map((p) => ({ ...p, bullets: (p.bullets || []).map(s).filter(Boolean) })),
-    education: (c.education || []).map((e) => ({ ...e, degree: s(e.degree), school: s(e.school) })),
-    certifications: (c.certifications || []).map(s).filter(Boolean),
-    awards: (c.awards || []).map(s).filter(Boolean),
-    additional: (c.additional || []).map(s).filter(Boolean),
-  };
 }
 
 /* ------------------------------------------------------------------ */
@@ -426,3 +271,5 @@ function yearsOf(r: ResumeContent): number {
   if (!ys.length) return 0;
   return Math.max(0, Math.max(...ys) - Math.min(...ys));
 }
+
+export { lintLetter, formatPrompt };
