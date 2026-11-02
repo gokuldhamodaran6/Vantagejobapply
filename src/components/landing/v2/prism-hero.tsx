@@ -174,13 +174,13 @@ function Studio() {
   };
 
   return (
-    <div ref={ref} onPointerMove={onMove} onPointerLeave={() => { mx.set(0); my.set(0); }} className="relative mx-auto w-full max-w-[580px] lg:h-[560px]">
+    <div ref={ref} onPointerMove={onMove} onPointerLeave={() => { mx.set(0); my.set(0); }} className="relative mx-auto w-full max-w-[580px] xl:h-[560px]">
       {/* light behind the glass */}
       <div aria-hidden className="pointer-events-none absolute -inset-10 -z-10 opacity-70 blur-3xl [background:radial-gradient(40%_35%_at_70%_40%,#c9d8ff,transparent),radial-gradient(30%_30%_at_35%_75%,#f6d6f0,transparent),radial-gradient(25%_25%_at_80%_85%,#ffe2c4,transparent)]" />
 
-      <div className="flex flex-col gap-3 lg:block">
+      <div className="flex flex-col gap-3 xl:block">
         {/* the posting */}
-        <motion.div style={far} className="glass relative z-10 rounded-2xl p-4 lg:absolute lg:left-0 lg:top-0 lg:w-[300px]">
+        <motion.div style={far} className="glass relative z-10 rounded-2xl p-4 xl:absolute xl:left-0 xl:top-0 xl:w-[300px]">
           <AnimatePresence mode="wait">
             <motion.div key={d.company} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }} transition={{ duration: 0.35 }}>
               <div className="flex items-center gap-2.5">
@@ -201,12 +201,12 @@ function Studio() {
         </motion.div>
 
         {/* the prism */}
-        <div className="pointer-events-none relative z-0 mx-auto hidden h-[170px] w-[240px] lg:absolute lg:left-[6px] lg:top-[214px] lg:block">
+        <div className="pointer-events-none relative z-0 mx-auto hidden h-[170px] w-[240px] xl:absolute xl:left-[6px] xl:top-[214px] xl:block">
           <Prism cycle={i} />
         </div>
 
         {/* the resume written for this job */}
-        <motion.div style={near} className="relative z-20 rounded-2xl bg-white p-5 shadow-[0_40px_80px_-30px_rgba(11,26,58,0.45),0_0_0_1px_rgba(11,26,58,0.06)] lg:absolute lg:right-0 lg:top-[150px] lg:w-[380px]">
+        <motion.div style={near} className="relative z-20 rounded-2xl bg-white p-5 shadow-[0_40px_80px_-30px_rgba(11,26,58,0.45),0_0_0_1px_rgba(11,26,58,0.06)] xl:absolute xl:right-0 xl:top-[150px] xl:w-[380px]">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
               <p className="text-[15px] font-bold tracking-tight">Priya Raman</p>
@@ -243,7 +243,7 @@ function Studio() {
         </motion.div>
 
         {/* the hiring-manager review */}
-        <motion.div style={near} className="glass prism-edge spin relative z-30 flex items-center gap-3 rounded-2xl px-4 py-3 lg:absolute lg:left-0 lg:top-[420px] lg:w-[196px]">
+        <motion.div style={near} className="glass prism-edge spin relative z-30 flex items-center gap-3 rounded-2xl px-4 py-3 xl:absolute xl:left-0 xl:top-[420px] xl:w-[196px]">
           <ScoreRing score={d.score} play={stage >= 3} />
           <div>
             <p className="text-[12.5px] font-semibold leading-tight">Hiring-manager review</p>
@@ -257,13 +257,13 @@ function Studio() {
           initial={false}
           animate={{ opacity: stage >= 3 ? 1 : 0, y: stage >= 3 ? 0 : 6 }}
           transition={{ duration: 0.4, delay: 0.3 }}
-          className="glass relative z-30 flex items-center gap-2 rounded-full px-3.5 py-2 text-[11.5px] font-medium lg:absolute lg:right-0 lg:top-[96px]"
+          className="glass relative z-30 flex items-center gap-2 rounded-full px-3.5 py-2 text-[11.5px] font-medium xl:absolute xl:right-0 xl:top-[96px]"
         >
           {d.check.ok ? <Check size={14} className="text-[var(--verify)]" strokeWidth={2.6} /> : <TriangleAlert size={14} className="text-[#c26a12]" />}
           {d.check.ok ? d.check.text : `Check first: ${d.check.text}`}
         </motion.div>
       </div>
-      <p className="mt-4 text-center text-[11px] text-[var(--deep-3)] lg:absolute lg:bottom-0 lg:left-0 lg:right-0 lg:mt-0">Illustrative example with a fictional candidate and employers.</p>
+      <p className="mt-4 text-center text-[11px] text-[var(--deep-3)] xl:absolute xl:bottom-0 xl:left-0 xl:right-0 xl:mt-0">Illustrative example with a fictional candidate and employers.</p>
     </div>
   );
 }
@@ -274,7 +274,7 @@ export function PrismHero() {
   return (
     <section className="relative overflow-hidden pb-20 pt-10 lg:pb-28 lg:pt-16">
       <div aria-hidden className="lp-grid pointer-events-none absolute inset-0 -z-10" />
-      <div className="mx-auto grid max-w-[1200px] items-center gap-14 px-4 sm:px-6 lg:grid-cols-[1fr_1.08fr]">
+      <div className="mx-auto grid max-w-[1200px] items-center gap-14 px-4 sm:px-6 xl:grid-cols-[1fr_1.08fr]">
         <div>
           <motion.p {...enter(0)} className="inline-flex items-center gap-2 rounded-full border border-[rgba(11,26,58,0.1)] bg-white/70 px-3 py-1.5 text-[13px] font-medium text-[var(--deep-2)]">
             <span className="live-dot h-2 w-2 rounded-full bg-[var(--verify)]" /> Free while in early access
