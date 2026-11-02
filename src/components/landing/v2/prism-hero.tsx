@@ -278,7 +278,7 @@ export function PrismHero() {
       <div className="mx-auto grid max-w-[1200px] items-center gap-10 px-4 sm:px-6 xl:grid-cols-[1fr_1.08fr] xl:gap-14">
         <div className="min-w-0">
           <motion.p {...enter(0)} className="inline-flex items-center gap-2 rounded-full border border-[rgba(11,26,58,0.1)] bg-white/70 px-3 py-1.5 text-[13px] font-medium text-[var(--deep-2)]">
-            <span className="live-dot h-2 w-2 rounded-full bg-[var(--verify)]" /> Free while in early access
+            <span className="live-dot h-2 w-2 rounded-full bg-[var(--verify)]" /> For jobs at home or abroad · free in early access
           </motion.p>
           <motion.h1 {...enter(0.06)} className="display mt-6 text-[44px] font-[680] leading-[1.0] sm:text-[62px] lg:text-[72px]">
             A resume for every job. Every word still true.

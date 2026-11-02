@@ -364,30 +364,30 @@ export default function HeroScene({ demo, demoKey, focus, setFocus, hovered, set
                       <p className="truncate text-[11px] text-[var(--deep-3)]">{demo.company} · {demo.place}</p>
                     </div>
                   </div>
-                  <p className="mt-2.5 text-[10.5px] font-medium text-[var(--deep-3)]">The job asks for</p>
+                  <p className="mt-2.5 text-[11.5px] font-medium text-[var(--deep-3)]">The job asks for</p>
                   <div className="mt-1 flex flex-wrap gap-1">
-                    {demo.reqs.map((r) => <span key={r} className="rounded-full border border-[rgba(11,26,58,0.1)] bg-white/90 px-2 py-0.5 text-[10.5px] font-medium">{r}</span>)}
+                    {demo.reqs.map((r) => <span key={r} className="rounded-full border border-[rgba(11,26,58,0.1)] bg-white/90 px-2 py-0.5 text-[11.5px] font-medium">{r}</span>)}
                   </div>
                 </div>
           </Posting>
 
           <Card i={0} pos={SLOTS[0]} active={focus === 0} dim={focus !== null && focus !== 0} hovered={hovered === 0} onHover={setHovered} onPick={setFocus}>
-            <Head i={0} sub={`Written for ${demo.company.split(" ")[0]}`} right={<span className="rounded-full bg-[#eef2fe] px-2 py-0.5 text-[10.5px] font-bold text-[#2448c8]">Review {demo.score}</span>} />
-            <p className="mt-2 line-clamp-1 text-[10.5px] font-semibold text-[var(--deep-2)]">{demo.headline}</p>
-            <p className="mt-1 line-clamp-2 text-[10.5px] leading-snug text-[var(--deep-3)]">• {demo.bullet}</p>
+            <Head i={0} sub={`Written for ${demo.company.split(" ")[0]}`} right={<span className="rounded-full bg-[#eef2fe] px-2 py-0.5 text-[11.5px] font-bold text-[#2448c8]">Review {demo.score}</span>} />
+            <p className="mt-2 line-clamp-1 text-[11.5px] font-semibold text-[var(--deep-2)]">{demo.headline}</p>
+            <p className="mt-1 line-clamp-2 text-[11.5px] leading-snug text-[var(--deep-3)]">• {demo.bullet}</p>
           </Card>
           <Card i={1} pos={SLOTS[1]} active={focus === 1} dim={focus !== null && focus !== 1} hovered={hovered === 1} onHover={setHovered} onPick={setFocus}>
             <Head i={1} sub="One page, this job only" />
-            <p className="mt-2 text-[10.5px] leading-snug text-[var(--deep-3)]">Dear {demo.company} team, the {demo.reqs[0]} work in this role is exactly what I&apos;ve done…</p>
+            <p className="mt-2 text-[11.5px] leading-snug text-[var(--deep-3)]">Dear {demo.company} team, the {demo.reqs[0]} work in this role is exactly what I&apos;ve done…</p>
           </Card>
           <Card i={2} pos={SLOTS[2]} active={focus === 2} dim={focus !== null && focus !== 2} hovered={hovered === 2} onHover={setHovered} onPick={setFocus}>
             <Head i={2} sub={`${demo.company} careers site`} />
             <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-[rgba(11,26,58,0.08)]"><div className="v3-fill h-full rounded-full bg-[#e0457b]" key={demoKey} /></div>
-            <p className="mt-1.5 text-[10.5px] text-[var(--deep-3)]">{demo.fields} of {demo.fields} fields filled · you press Submit</p>
+            <p className="mt-1.5 text-[11.5px] text-[var(--deep-3)]">{demo.fields} of {demo.fields} fields filled · you press Submit</p>
           </Card>
           <Card i={3} pos={SLOTS[3]} active={focus === 3} dim={focus !== null && focus !== 3} hovered={hovered === 3} onHover={setHovered} onPick={setFocus}>
             <Head i={3} sub="Defend every line" />
-            <p className="mt-2 text-[10.5px] leading-snug text-[var(--deep-3)]">3 stories ready · 12 likely questions · 1 gap with an honest answer</p>
+            <p className="mt-2 text-[11.5px] leading-snug text-[var(--deep-3)]">3 stories ready · 12 likely questions · 1 gap with an honest answer</p>
           </Card>
           </>}
         </Rig>
@@ -403,7 +403,7 @@ function Head({ i, sub, right }: { i: number; sub: string; right?: React.ReactNo
       <span className="mt-0.5 h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: CARDS[i].color, boxShadow: `0 0 12px ${CARDS[i].color}` }} />
       <div className="min-w-0 flex-1">
         <p className="text-[13px] font-bold leading-tight text-[var(--deep)]">{CARDS[i].label}</p>
-        <p className="truncate text-[10.5px] text-[var(--deep-3)]">{sub}</p>
+        <p className="truncate text-[11.5px] text-[var(--deep-3)]">{sub}</p>
       </div>
       {right}
     </div>

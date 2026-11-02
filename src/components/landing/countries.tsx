@@ -21,6 +21,8 @@ const webgl = () => {
 
 export function CountryRules() {
   const [active, setActive] = useState("GB");
+  // Two routes and two checks first; the rest one tap away, so the section stays short.
+  const [more, setMore] = useState(false);
   const c = COUNTRIES.find((x) => x.code === active)!;
   const reduce = useReducedMotion();
   const gl = useSyncExternalStore(subscribe, webgl, () => false);
@@ -43,18 +45,18 @@ export function CountryRules() {
               <div aria-hidden className="pointer-events-none absolute inset-[8%] -z-10 rounded-full opacity-70 blur-3xl [background:radial-gradient(circle,#c9d8ff,transparent_70%)]" />
               <GlobeScene pins={pins} active={active} onPick={setActive} />
             </div>
-            <p className="mt-1 flex items-center justify-center gap-1.5 text-[12px] text-muted"><Hand size={13} /> Drag to spin · click a country</p>
+            <p className="mt-1 hidden items-center justify-center gap-1.5 text-[12px] text-muted sm:flex"><Hand size={13} /> Drag to spin · click a country</p>
           </div>
         )}
         <div className="min-w-0">
-        <div className="flex flex-wrap gap-2" role="tablist" aria-label="Country">
+        <div className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-1 [scrollbar-width:none] sm:mx-0 sm:flex-wrap sm:overflow-visible sm:px-0 [&::-webkit-scrollbar]:hidden" role="tablist" aria-label="Country">
           {COUNTRIES.map((x) => (
             <button
               key={x.code}
               role="tab"
               aria-selected={active === x.code}
-              onClick={() => setActive(x.code)}
-              className={`min-h-10 rounded-full border px-4 text-sm font-semibold transition ${
+              onClick={() => { setActive(x.code); setMore(false); }}
+              className={`min-h-11 shrink-0 rounded-full border px-4 text-sm font-semibold transition ${
                 active === x.code ? "border-brand bg-brand text-white" : "border-line bg-white text-ink-2 hover:border-[#c9d5fb]"
               }`}
             >
@@ -72,32 +74,35 @@ export function CountryRules() {
             transition={{ duration: 0.25 }}
             className={`mt-6 grid gap-5 ${gl && !reduce ? "" : "lg:grid-cols-[1.2fr_1fr]"}`}
           >
-            <div className="glass rounded-[24px] p-7">
+            <div className="glass rounded-[24px] p-5 sm:p-7">
               <h3 className="text-lg font-semibold">Ways to work in {c.name}</h3>
               <ul className="mt-5 space-y-4">
-                {c.routes.map((r) => (
+                {c.routes.slice(0, more ? 99 : 2).map((r) => (
                   <li key={r.name} className="rounded-xl bg-canvas p-4">
                     <p className="font-semibold">{r.name}</p>
                     <p className="mt-1 text-[15px] leading-relaxed text-muted">{r.summary}</p>
                   </li>
                 ))}
               </ul>
-              <p className="mt-5 text-[15px] leading-relaxed"><span className="font-semibold">For students: </span>{c.studentPath}</p>
+              {more && <p className="mt-5 text-[15px] leading-relaxed"><span className="font-semibold">For students: </span>{c.studentPath}</p>}
             </div>
-            <div className="glass flex flex-col rounded-[24px] p-7">
+            <div className="glass flex flex-col rounded-[24px] p-5 sm:p-7">
               <h3 className="text-lg font-semibold">What Vantage checks for you</h3>
               <ul className="mt-5 space-y-3 text-[15px] leading-relaxed">
-                {c.facts.map((f) => (
+                {c.facts.slice(0, more ? 99 : 2).map((f) => (
                   <li key={f} className="flex gap-3">
                     <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-pink" />
                     <span>{f}</span>
                   </li>
                 ))}
               </ul>
-              {c.sponsorData && (
+              {!more && (c.routes.length > 2 || c.facts.length > 2) && (
+                <button type="button" onClick={() => setMore(true)} className="mt-5 min-h-11 self-start rounded-full border border-line bg-white px-4 text-sm font-semibold text-brand-ink">Show all {c.name} rules</button>
+              )}
+              {more && c.sponsorData && (
                 <p className="mt-5 rounded-lg bg-brand-tint px-4 py-3 text-sm text-brand-ink">Data source: {c.sponsorData}</p>
               )}
-              <div className="mt-auto pt-6">
+              <div className={`${more ? "" : "hidden"} mt-auto pt-6`}>
                 <p className="text-xs text-muted">Official sources · rules reviewed October 2026</p>
                 <ul className="mt-2 flex flex-wrap gap-x-4 gap-y-1">
                   {c.sources.map((s) => (

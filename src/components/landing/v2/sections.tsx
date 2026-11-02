@@ -83,7 +83,7 @@ export function KeptTrue() {
             </p>
           </div>
           <div className="glass overflow-hidden rounded-[28px]">
-            <div className="grid grid-cols-[0.7fr_1fr_1fr] gap-x-4 border-b border-[rgba(11,26,58,0.08)] px-5 py-3.5 text-[12.5px] font-semibold text-[var(--deep-3)] sm:px-6">
+            <div className="hidden grid-cols-[0.7fr_1fr_1fr] gap-x-4 border-b border-[rgba(11,26,58,0.08)] px-5 py-3.5 text-[12.5px] font-semibold text-[var(--deep-3)] sm:grid sm:px-6">
               <span />
               <span>A typical AI writer</span>
               <span className="text-[var(--deep)]">Vantage</span>
@@ -96,11 +96,11 @@ export function KeptTrue() {
                   whileInView={{ opacity: 1 }}
                   viewport={{ once: true, margin: "-40px" }}
                   transition={{ delay: i * 0.08 }}
-                  className="grid grid-cols-[0.7fr_1fr_1fr] items-start gap-x-4 border-b border-[rgba(11,26,58,0.06)] px-5 py-4 text-[13.5px] last:border-0 sm:px-6 sm:text-[14.5px]"
+                  className="grid gap-y-1.5 border-b border-[rgba(11,26,58,0.06)] px-5 py-4 text-[15px] last:border-0 sm:grid-cols-[0.7fr_1fr_1fr] sm:items-start sm:gap-x-4 sm:px-6 sm:text-[14.5px]"
                 >
                   <span className="font-semibold">{r.what}</span>
-                  <span className="flex items-start gap-1.5 text-[var(--deep-3)]"><X size={15} className="mt-0.5 shrink-0 text-[#d9534f]" /> {r.typical}</span>
-                  <span className="flex items-start gap-1.5 text-[var(--deep)]"><Check size={15} strokeWidth={2.6} className="mt-0.5 shrink-0 text-[var(--verify)]" /> {r.ours}</span>
+                  <span className="flex items-start gap-1.5 text-[var(--deep-3)]"><X size={15} className="mt-1 shrink-0 text-[#d9534f]" /><span><span className="font-medium sm:hidden">Typical AI writer: </span>{r.typical}</span></span>
+                  <span className="flex items-start gap-1.5 text-[var(--deep)]"><Check size={15} strokeWidth={2.6} className="mt-1 shrink-0 text-[var(--verify)]" /><span><span className="font-medium sm:hidden">Vantage: </span>{r.ours}</span></span>
                 </motion.li>
               ))}
             </ul>
@@ -148,7 +148,7 @@ export function Kit() {
 
 export function FinalCall() {
   return (
-    <section className="px-3 pb-6">
+    <section id="final-call" className="px-3 pb-6">
       <div className="relative mx-auto max-w-[1200px] overflow-hidden rounded-[36px] bg-[var(--deep)] px-6 py-20 text-white sm:px-12 lg:py-28">
         <svg aria-hidden viewBox="0 0 600 420" className="pointer-events-none absolute right-0 top-1/2 hidden h-[78%] -translate-y-1/2 lg:block" preserveAspectRatio="xMaxYMid meet">
           <defs>

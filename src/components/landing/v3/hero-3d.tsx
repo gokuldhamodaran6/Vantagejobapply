@@ -2,7 +2,7 @@
 import dynamic from "next/dynamic";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
-import { ArrowLeft, Hand, MousePointerClick, ShieldCheck } from "lucide-react";
+import { ArrowLeft, ShieldCheck } from "lucide-react";
 import { CARDS, type HeroDemo } from "./cards";
 
 const HeroScene = dynamic(() => import("./hero-scene"), { ssr: false });
@@ -135,11 +135,7 @@ export function Hero3D({ fallback }: { fallback: React.ReactNode }) {
           </button>
         ))}
       </div>
-      <p className="mt-3 flex flex-wrap items-center justify-center gap-x-4 gap-y-1 text-[11.5px] text-[var(--deep-3)]">
-        <span className="inline-flex items-center gap-1.5"><Hand size={13} /> Drag to turn the scene</span>
-        <span className="inline-flex items-center gap-1.5"><MousePointerClick size={13} /> Click a card to open it</span>
-        <span>Fictional candidate and employers.</span>
-      </p>
+      <p className="mt-2 text-center text-[11.5px] text-[var(--deep-3)]">Click a card to open it · fictional candidate and employers</p>
     </div>
   );
 }

@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
-import { AnimatePresence, motion, useMotionValueEvent, useReducedMotion, useScroll } from "motion/react";
+import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { CalendarDays, Check, FileText, Mail, Paperclip, ShieldCheck, TriangleAlert } from "lucide-react";
 
 const STEPS = [
@@ -253,94 +253,91 @@ export const STEP_TITLES = STEPS.map((s) => s.title);
 /* ---------- section ---------- */
 
 export function Story() {
-  const ref = useRef<HTMLDivElement>(null);
   const [active, setActive] = useState(0);
-  const { scrollYProgress } = useScroll({ target: ref, offset: ["start start", "end end"] });
-  useMotionValueEvent(scrollYProgress, "change", (v) => setActive(Math.min(STEPS.length - 1, Math.max(0, Math.floor(v * STEPS.length)))));
+  const [paused, setPaused] = useState(false);
+  const [inView, setInView] = useState(false);
+  const ref = useRef<HTMLElement>(null);
+  const reduce = useReducedMotion();
+  // Plays itself while on screen; any click or tap hands control to the reader. No scroll-jacking.
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const io = new IntersectionObserver(([e]) => setInView(e.isIntersecting), { threshold: 0.35 });
+    io.observe(el);
+    return () => io.disconnect();
+  }, []);
+  useEffect(() => {
+    if (paused || !inView || reduce) return;
+    const t = setTimeout(() => setActive((a) => (a + 1) % STEPS.length), 7000);
+    return () => clearTimeout(t);
+  }, [active, paused, inView, reduce]);
+  const pick = (i: number) => {
+    setPaused(true);
+    setActive(i);
+  };
   const Visual = VISUALS[active];
+  const s = STEPS[active];
 
   return (
-    <section id="story" className="relative border-t border-[rgba(11,26,58,0.06)] bg-white/40">
-      <div className="mx-auto max-w-[1200px] px-4 pt-24 sm:px-6">
-        <h2 className="display max-w-3xl text-[36px] font-[680] leading-[1.04] sm:text-[52px]">Watch one application, from posting to interview.</h2>
-        <p className="mt-5 max-w-2xl text-[17px] leading-relaxed text-[var(--deep-2)]">The same five steps run for every job you choose. Scroll to follow one through.</p>
-      </div>
+    <section ref={ref} id="story" className="relative border-t border-[rgba(11,26,58,0.06)] bg-white/40 py-20 lg:py-28">
+      <div className="mx-auto max-w-[1200px] px-4 sm:px-6">
+        <h2 className="display max-w-3xl text-[34px] font-[680] leading-[1.05] sm:text-[52px]">How it works</h2>
+        <p className="mt-4 max-w-2xl text-[17px] leading-relaxed text-[var(--deep-2)]">Five steps run for every job you choose. Tap a step to see it.</p>
 
-      {/* Desktop: pinned stage that changes as you scroll */}
-      <div ref={ref} className="relative hidden lg:block" style={{ height: `${STEPS.length * 85}vh` }}>
-        <div className="sticky top-0 flex h-screen items-center">
-          <div className="mx-auto grid w-full max-w-[1200px] grid-cols-[0.9fr_1.1fr] items-center gap-16 px-6">
-            <ol className="space-y-2">
-              {STEPS.map((s, i) => (
-                <li key={s.title}>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const el = ref.current;
-                      if (!el) return;
-                      const top = el.getBoundingClientRect().top + window.scrollY + (el.offsetHeight - window.innerHeight) * ((i + 0.5) / STEPS.length);
-                      window.scrollTo({ top, behavior: "smooth" });
-                    }}
-                    className={`w-full rounded-2xl px-5 py-4 text-left transition-colors ${i === active ? "glass" : "hover:bg-white/50"}`}
-                    aria-current={i === active ? "step" : undefined}
-                  >
-                    <span className="flex items-baseline gap-4">
-                      <span className={`display text-[15px] font-[700] tabular-nums ${i === active ? "text-[var(--blue)]" : "text-[var(--deep-3)]"}`}>{i + 1}</span>
-                      <span>
-                        <span className={`block text-[19px] font-semibold tracking-tight ${i === active ? "text-[var(--deep)]" : "text-[var(--deep-3)]"}`}>{s.title}</span>
-                        <AnimatePresence initial={false}>
-                          {i === active && (
-                            <motion.span initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="block overflow-hidden">
-                              <span className="block pt-2 text-[15px] leading-relaxed text-[var(--deep-2)]">{s.body}</span>
-                            </motion.span>
-                          )}
-                        </AnimatePresence>
-                      </span>
+        {/* Phones: step chips in one row */}
+        <div className="-mx-4 mt-8 flex gap-2 overflow-x-auto px-4 pb-1 [scrollbar-width:none] lg:hidden [&::-webkit-scrollbar]:hidden" role="tablist" aria-label="Steps">
+          {STEPS.map((x, i) => (
+            <button key={x.title} type="button" role="tab" aria-selected={i === active} onClick={() => pick(i)}
+              className={`flex min-h-11 shrink-0 items-center gap-2 rounded-full border px-4 text-[14px] font-semibold ${i === active ? "border-transparent bg-[var(--deep)] text-white" : "border-[rgba(11,26,58,0.12)] bg-white/80 text-[var(--deep-2)]"}`}>
+              <span className="tabular-nums opacity-70">{i + 1}</span> {SHORT[i]}
+            </button>
+          ))}
+        </div>
+
+        <div className="mt-6 grid items-start gap-8 lg:mt-12 lg:grid-cols-[0.9fr_1.1fr] lg:gap-16">
+          {/* Desktop: the steps as a list */}
+          <ol className="hidden space-y-2 lg:block" role="tablist" aria-label="Steps">
+            {STEPS.map((x, i) => (
+              <li key={x.title}>
+                <button type="button" role="tab" aria-selected={i === active} onClick={() => pick(i)}
+                  className={`w-full rounded-2xl px-5 py-4 text-left transition-colors ${i === active ? "glass" : "hover:bg-white/60"}`}>
+                  <span className="flex items-baseline gap-4">
+                    <span className={`display text-[15px] font-[700] tabular-nums ${i === active ? "text-[var(--blue)]" : "text-[var(--deep-3)]"}`}>{i + 1}</span>
+                    <span>
+                      <span className={`block text-[19px] font-semibold tracking-tight ${i === active ? "text-[var(--deep)]" : "text-[var(--deep-3)]"}`}>{x.title}</span>
+                      {i === active && <span className="block pt-2 text-[15px] leading-relaxed text-[var(--deep-2)]">{x.body}</span>}
                     </span>
-                  </button>
-                </li>
-              ))}
-            </ol>
-            <div className="glass prism-edge relative rounded-[28px] p-6">
+                  </span>
+                  {i === active && !paused && !reduce && inView && <span aria-hidden className="mt-3 block h-[3px] overflow-hidden rounded-full bg-[rgba(11,26,58,0.08)]"><span key={active} className="story-bar block h-full rounded-full bg-[var(--blue)]" /></span>}
+                </button>
+              </li>
+            ))}
+          </ol>
+
+          <div>
+            {/* Phones: the step's words above its picture */}
+            <div className="mb-4 lg:hidden">
+              <h3 className="text-[21px] font-semibold tracking-tight">{s.title}</h3>
+              <p className="mt-2 text-[15.5px] leading-relaxed text-[var(--deep-2)]">{s.body}</p>
+            </div>
+            <div className="glass prism-edge relative rounded-[24px] p-4 sm:p-6">
               <div aria-hidden className="pointer-events-none absolute -inset-16 -z-10 opacity-60 blur-3xl [background:radial-gradient(40%_40%_at_70%_30%,#cfdcff,transparent),radial-gradient(35%_35%_at_30%_80%,#f4d9f0,transparent)]" />
               <AnimatePresence mode="wait">
-                <motion.div key={active} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -12 }} transition={{ duration: 0.35 }} className="min-h-[420px]">
+                <motion.div key={active} initial={reduce ? false : { opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} transition={{ duration: 0.3 }} className="min-h-[300px] lg:min-h-[420px]">
                   <Visual />
                 </motion.div>
               </AnimatePresence>
             </div>
+            <div className="mt-4 flex items-center justify-between gap-3 lg:hidden">
+              <button type="button" onClick={() => pick((active + STEPS.length - 1) % STEPS.length)} className="min-h-11 rounded-full border border-[rgba(11,26,58,0.12)] bg-white/80 px-4 text-[14px] font-semibold">← Back</button>
+              <span className="text-[13px] text-[var(--deep-3)]">Step {active + 1} of {STEPS.length}</span>
+              <button type="button" onClick={() => pick((active + 1) % STEPS.length)} className="min-h-11 rounded-full bg-[var(--deep)] px-4 text-[14px] font-semibold text-white">Next →</button>
+            </div>
           </div>
         </div>
       </div>
-
-      {/* Mobile and tablet: the same steps, one after another */}
-      <ol className="mx-auto max-w-[680px] space-y-14 px-4 pb-24 pt-12 sm:px-6 lg:hidden">
-        {STEPS.map((s, i) => {
-          const V = VISUALS[i];
-          return (
-            <li key={s.title}>
-              <p className="display text-[15px] font-[700] text-[var(--blue)]">{i + 1}</p>
-              <h3 className="mt-1 text-[22px] font-semibold tracking-tight">{s.title}</h3>
-              <p className="mt-2 text-[15.5px] leading-relaxed text-[var(--deep-2)]">{s.body}</p>
-              <MobileVisual><V /></MobileVisual>
-            </li>
-          );
-        })}
-      </ol>
     </section>
   );
 }
 
-/** Mount the visual only when it scrolls into view, so its animation plays for the reader. */
-function MobileVisual({ children }: { children: React.ReactNode }) {
-  const ref = useRef<HTMLDivElement>(null);
-  const [seen, setSeen] = useState(false);
-  useEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    const io = new IntersectionObserver(([e]) => e.isIntersecting && setSeen(true), { rootMargin: "-15% 0px" });
-    io.observe(el);
-    return () => io.disconnect();
-  }, []);
-  return <div ref={ref} className="glass mt-5 min-h-[200px] rounded-3xl p-4">{seen ? children : null}</div>;
-}
+const SHORT = ["Reads the job", "Writes your resume", "Fact-checks", "Fills the form", "Tracks replies"];

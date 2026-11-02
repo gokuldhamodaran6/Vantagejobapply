@@ -208,3 +208,5 @@ body {
 .v3-fill { animation: v3-fill 2.4s cubic-bezier(0.2, 0.8, 0.2, 1) forwards; width: 0; }
 @keyframes v3-fill { to { width: 100%; } }
 .v3-tilt { transform-style: preserve-3d; transition: transform 0.25s cubic-bezier(0.2, 0.8, 0.2, 1); will-change: transform; }
+.story-bar { width: 0; animation: story-bar 7s linear forwards; }
+@keyframes story-bar { to { width: 100%; } }

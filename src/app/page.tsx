@@ -3,6 +3,7 @@ import { PrismHero } from "@/components/landing/v2/prism-hero";
 import { Story } from "@/components/landing/v2/story";
 import { CountryRules } from "@/components/landing/countries";
 import { Faq, Footer } from "@/components/landing/faq";
+import { MobileCta } from "@/components/landing/v3/mobile-cta";
 
 export default function Home() {
   return (
@@ -18,6 +19,7 @@ export default function Home() {
         <FinalCall />
       </main>
       <Footer />
+      <MobileCta />
     </div>
   );
 }
