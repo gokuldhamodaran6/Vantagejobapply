@@ -336,6 +336,11 @@ export async function fitToPages(r0: ResumeContent, pages: number, opts: { style
     capSkills(8),
     cap(() => r.awards, (x) => (r.awards = x), 2),
     cutBullet(4, 2),
+    // Less relevant projects (listed later) shrink to one line before real experience does.
+    () => {
+      const p = (r.projects || []).slice(2).find((x) => x.bullets.length > 1);
+      return p ? (p.bullets.pop(), true) : false;
+    },
     cap(() => r.certifications, (x) => (r.certifications = x), 3),
     cap(() => r.awards, (x) => (r.awards = x), 1),
     capSkills(6),

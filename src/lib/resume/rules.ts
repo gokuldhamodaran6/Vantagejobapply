@@ -211,7 +211,13 @@ export function guard(original: ResumeContent, out: ResumeContent, jobText = "")
   // Projects (products the person built): same name and stack as the source, honest bullets, never dropped.
   const key = (n: string) => norm(n.split(/[—–(-]/)[0]).trim();
   const outProjects = r.projects || [];
-  r.projects = (original.projects || []).map((o) => {
+  const matchOf = (o: { name: string }) => outProjects.findIndex((x) => key(x.name) === key(o.name) || key(x.name).includes(key(o.name)) || key(o.name).includes(key(x.name)));
+  // Keep the writer's order (most relevant to this job first); projects it left out go last.
+  const ordered = [...(original.projects || [])].sort((a, b) => {
+    const ia = matchOf(a), ib = matchOf(b);
+    return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib);
+  });
+  r.projects = ordered.map((o) => {
     const p = outProjects.find((x) => key(x.name) === key(o.name) || key(x.name).includes(key(o.name)) || key(o.name).includes(key(x.name)));
     const bullets = (p?.bullets || []).filter((b) => (b.match(/\d[\d,.]*%?\+?/g) || []).every((n) => numbers.has(n.replace(/[,+]/g, ""))) && !unprovenTerms(b, src, jobText).length);
     return { name: o.name, ...(o.tech ? { tech: o.tech } : {}), bullets: bullets.length ? grounded(bullets, o.bullets, [o.name, o.tech || ""]) : o.bullets };
