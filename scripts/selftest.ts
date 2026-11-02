@@ -696,25 +696,25 @@ import { ROUNDS as CAL_ROUNDS } from "../src/lib/calendar";
 
 function studioChecks() {
   // Parser: the real upload that used to come out broken.
-  const p = parseResumeText(readFileSync("scripts/fixtures/gokul-raw.txt", "utf8"), "Gokul Dhamodaran");
+  const p = parseResumeText(readFileSync("scripts/fixtures/messy-resume.txt", "utf8"), "Sam Rivera");
   const ex = p.experience || [];
   ok(!!(p.headline?.startsWith("Business Analyst")), "parse: headline line kept");
-  ok(ex[0]?.title === "Founder & Product Lead (Independent Project)" && ex[0]?.company === "Euliv Tech" && ex[0]?.url === "gd360-analytics-web.onrender.com" && ex[0]?.location === "Bloomington, IL", "parse: title | company, city | site → clean fields + url");
-  ok(ex[2]?.title === "Academic Aide, Data Analytics" && ex[2]?.company === "Illinois State University" && ex[2]?.location === "Normal, IL", "parse: 'Aide' title not swapped into location");
+  ok(ex[0]?.title === "Founder & Product Lead (Independent Project)" && ex[0]?.company === "Northwind Labs" && ex[0]?.url === "nw360-analytics-web.onrender.com" && ex[0]?.location === "Springfield, IL", "parse: title | company, city | site → clean fields + url");
+  ok(ex[2]?.title === "Academic Aide, Data Analytics" && ex[2]?.company === "Prairie State University" && ex[2]?.location === "Peoria, IL", "parse: 'Aide' title not swapped into location");
   const brief = ex.filter((e) => e.brief);
-  ok(brief.length === 3 && brief[1].title === "Digital Marketing & Business Development Intern" && brief[1].company === "O2Savar" && brief[2].start === "Nov 2018" && brief[2].end === "Dec 2019", "parse: 'Earlier experience' line → 3 brief roles with dates");
-  ok(p.education?.[0]?.end === "Expected Dec 2026" && p.education?.[0]?.location === "Normal, IL", "parse: 'Expected' belongs to the date");
+  ok(brief.length === 3 && brief[1].title === "Digital Marketing & Business Development Intern" && brief[1].company === "AirFresh" && brief[2].start === "Nov 2018" && brief[2].end === "Dec 2019", "parse: 'Earlier experience' line → 3 brief roles with dates");
+  ok(p.education?.[0]?.end === "Expected Dec 2026" && p.education?.[0]?.location === "Peoria, IL", "parse: 'Expected' belongs to the date");
   const p2 = parseResumeText("Jane Doe\nEXPERIENCE\nData Analyst | Booking.com, Amsterdam, Netherlands    Jan 2022 – Present\n• Built dashboards for 40 markets used by pricing teams every week.\n", "Jane Doe");
   ok(p2.experience?.[0]?.company === "Booking.com" && !p2.experience?.[0]?.url, "parse: a company named like a site stays the company");
 
   // Repair: the stored broken version of the same resume.
-  const stored = JSON.parse(readFileSync("scripts/fixtures/gokul-stored.json", "utf8"));
+  const stored = JSON.parse(readFileSync("scripts/fixtures/messy-stored.json", "utf8"));
   const r = repairResume(stored);
   const rx = r.experience || [];
-  ok(!!(rx[0].company === "Euliv Tech" && rx[0].url?.includes("onrender.com") && rx[0].title.endsWith("(Independent Project)")), "repair: site out of the company, qualifier back in brackets");
-  ok(rx[2].title === "Academic Aide, Data Analytics" && rx[2].location === "Normal, IL", "repair: title moved back out of location");
-  ok(rx.filter((e) => e.brief).map((e) => e.company).join(",") === "Yoyo Lunch Box,O2Savar,Powersports International", "repair: garbled earlier roles rebuilt");
-  ok(r.education?.[0].end === "Expected Dec 2026" && r.education?.[0].location === "Normal, IL", "repair: Expected moved to the date");
+  ok(!!(rx[0].company === "Northwind Labs" && rx[0].url?.includes("onrender.com") && rx[0].title.endsWith("(Independent Project)")), "repair: site out of the company, qualifier back in brackets");
+  ok(rx[2].title === "Academic Aide, Data Analytics" && rx[2].location === "Peoria, IL", "repair: title moved back out of location");
+  ok(rx.filter((e) => e.brief).map((e) => e.company).join(",") === "Bento Box Co,AirFresh,Trailspeed International", "repair: garbled earlier roles rebuilt");
+  ok(r.education?.[0].end === "Expected Dec 2026" && r.education?.[0].location === "Peoria, IL", "repair: Expected moved to the date");
   ok(r.skills?.[1].items[0] === "SQL (PostgreSQL, DuckDB)", "repair: skill cut inside brackets rejoined");
   ok(JSON.stringify(repairResume(r)) === JSON.stringify(r), "repair: idempotent");
   ok(splitItems("SQL (PostgreSQL, DuckDB), Python (pandas), Excel").length === 3, "editor: comma split keeps brackets together");
@@ -725,7 +725,7 @@ function studioChecks() {
   ok(!!(honestHeadline("Digital Marketing Specialist | SEO", "Marketing Specialist", r, "X")?.startsWith("Digital Marketing Specialist")), "polish: a title they held is allowed");
   const sk = cleanSkills([{ group: "Sales", items: ["A/B Testing"] }, { group: "CRM", items: ["Salesforce", "HubSpot", "HubSpot CRM & Marketing Automation", "Demandbase"] }, { group: "BI", items: ["Power BI", "Tableau", "SQL", "Salesforce"] }], ["HubSpot CRM & Marketing Automation"]);
   ok(sk.length === 2 && !sk.some((g) => g.items.includes("HubSpot CRM & Marketing Automation")) && sk.flatMap((g) => g.items).filter((i) => i === "Salesforce").length === 1, "polish: skills de-duplicated, cert removed, 1-item group folded");
-  ok(tightenSummary("Analyst with 5+ years. Built a platform I designed end to end. Based in Bloomington, IL.") === "Analyst with 5+ years. Built a platform designed end to end.", "polish: filler sentence and pronoun removed");
+  ok(tightenSummary("Analyst with 5+ years. Built a platform I designed end to end. Based in Springfield, IL.") === "Analyst with 5+ years. Built a platform designed end to end.", "polish: filler sentence and pronoun removed");
   ok(orderExperience([...rx].reverse())[0].title.startsWith("Founder") && orderExperience([...rx].reverse()).slice(-3).every((e) => e.brief), "polish: current role first, brief roles last");
 
   // Truth guard

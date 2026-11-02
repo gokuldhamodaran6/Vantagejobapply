@@ -1,9 +1,9 @@
-GOKUL DHAMODARAN
-Bloomington, IL | (309) 205-1920 | gokuldhamodaran6@gmail.com | linkedin.com/in/gokuldhamodaran
+SAM RIVERA
+Springfield, IL | (555) 010-0199 | sam.rivera@example.com | linkedin.com/in/samrivera
 Business Analyst | SQL · Python · Power BI · Requirements & KPI Design · Data Storytelling
 PROFESSIONAL SUMMARY
 Business and data analyst with 5+ years turning marketing and operations data into decisions for leadership teams across North America,
-Europe and APAC. Founder of Euliv Analytics, a live AI analytics platform I designed and delivered end to end: requirements, data modeling,
+Europe and APAC. Founder of Northwind Analytics, a live AI analytics platform I designed and delivered end to end: requirements, data modeling,
 testing and release. MBA candidate, Management Science & Quantitative Methods.
 CORE SKILLS
 Business Analysis: Requirements gathering, user stories & acceptance criteria, KPI and metric definitions, root-cause analysis, UAT & data
@@ -12,8 +12,8 @@ Data & Analytics: SQL (PostgreSQL, DuckDB), Python (pandas), Advanced Excel, Pow
 testing, forecasting, predictive modeling
 Tools & Platforms: JIRA, Asana, Salesforce, HubSpot, Figma, GitHub, Supabase, Render, REST APIs, Microsoft Office Suite
 PROFESSIONAL EXPERIENCE
-Founder & Product Lead (Independent Project) | Euliv Tech, Bloomington, IL | gd360-analytics-web.onrender.com Jan 2026 – Present
-• Conceived and launched Euliv Analytics (working name GD360), a live AI analytics platform, as sole owner of product, data and delivery:
+Founder & Product Lead (Independent Project) | Northwind Labs, Springfield, IL | nw360-analytics-web.onrender.com Jan 2026 – Present
+• Conceived and launched Northwind Analytics (working name NW360), a live AI analytics platform, as sole owner of product, data and delivery:
 idea to live production within 10 months with AI-assisted development (Python/FastAPI, React/TypeScript, PostgreSQL).
 • Wrote requirements, wireframes and acceptance criteria for 58+ release cycles, and verified each one with automated API and browser
 test suites before deploying.
@@ -23,30 +23,30 @@ answer traces back to its source query.
 Ads, HubSpot, Shopify and Stripe, through API/OAuth connectors and scheduled syncs.
 • Ran root-cause analysis on defects using logs and SQL, documented decisions in 130+ specs, and benchmarked Hex, Looker Studio,
 Metabase and Mode to define three-tier pricing.
-Marketing & Communications Graduate Assistant | Illinois State University, Normal, IL    Jul 2025 – May 2026
+Marketing & Communications Graduate Assistant | Prairie State University, Peoria, IL    Jul 2025 – May 2026
 • Built Excel and Power BI dashboards tracking social, email and website engagement, and used the results to improve departmental
 outreach.
-Academic Aide, Data Analytics | Illinois State University, Normal, IL    Feb 2025 – Jul 2025
+Academic Aide, Data Analytics | Prairie State University, Peoria, IL    Feb 2025 – Jul 2025
 • Supported 20+ graduate students in RapidMiner and applied analytics: data preparation, modeling and interpretation.
-Senior Analyst, Growth Marketing | Kaar Tech, Chennai, India    Nov 2023 – Dec 2024
+Senior Analyst, Growth Marketing | Acme Tech, Pune, India    Nov 2023 – Dec 2024
 • Built Power BI and Google Analytics dashboards with SQL and Python to track ROAS, CPL, CTR and pipeline contribution; delivered
 weekly performance reports with optimization recommendations to senior leadership.
 • Analyzed account and persona data for an account-based marketing program covering 100+ enterprise accounts (HubSpot,
 Demandbase, ZoomInfo, Apollo), contributing to a 35% increase in qualified pipeline.
-Digital Marketing Analyst | Kaar Tech, Chennai, India    Nov 2022 – Oct 2023
+Digital Marketing Analyst | Acme Tech, Pune, India    Nov 2022 – Oct 2023
 • Ran A/B tests on creatives and audiences across Google Ads, LinkedIn and Meta, and adjusted bids and targeting from daily
 performance data.
 • Tracked organic performance in SEMrush and Google Analytics to guide keyword and on-page work, contributing to a 140% increase in
 digital impressions.
-Digital Marketing Specialist | RLT Group of Companies, Chennai, India    Nov 2020 – Nov 2022
+Digital Marketing Specialist | Contoso Group of Companies, Pune, India    Nov 2020 – Nov 2022
 • Automated weekly reporting with SQL and Python into Power BI, Tableau and Excel dashboards, giving leadership and clients visibility
 into CPL, CTR, ROAS and lead quality.
 • Managed paid media for multiple B2B industrial brands and grew combined social following by 60%+.
-Earlier experience: Digital Marketing Executive, Yoyo Lunch Box (Nov 2020 – Jan 2021) • Digital Marketing & Business Development
-Intern, O2Savar (Sep 2020 – Nov 2020) • Marketing Analyst Intern, Powersports International (Nov 2018 – Dec 2019)
+Earlier experience: Digital Marketing Executive, Bento Box Co (Nov 2020 – Jan 2021) • Digital Marketing & Business Development
+Intern, AirFresh (Sep 2020 – Nov 2020) • Marketing Analyst Intern, Trailspeed International (Nov 2018 – Dec 2019)
 EDUCATION
-MBA, Management Science & Quantitative Methods | Illinois State University, Normal, IL    Expected Dec 2026
-BBA, Management | Hindustan College of Arts & Science, Chennai, India    Apr 2020
+MBA, Management Science & Quantitative Methods | Prairie State University, Peoria, IL    Expected Dec 2026
+BBA, Management | Coastal College of Arts & Science, Pune, India    Apr 2020
 CERTIFICATIONS
 Google Data Analytics • Meta Marketing Analytics • CSPO (Scrum Alliance) • HubSpot CRM & Marketing Automation • UVA
 Foundations of Business Strategy
