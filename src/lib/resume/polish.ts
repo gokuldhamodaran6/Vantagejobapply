@@ -169,6 +169,25 @@ export function polishResume(r: ResumeContent, opts: { jobTitle: string; identit
   out.summary = tightenSummary(out.summary);
   out.headline = honestHeadline(out.headline, opts.jobTitle, opts.original, opts.identity);
   out.skills = cleanSkills(out.skills, out.certifications || []);
-  out.projects = (out.projects || []).map((p) => ({ ...p, bullets: (p.bullets || []).map((b) => period(deCliche(b))) }));
+  out.projects = projectBudget(
+    (out.projects || []).map((p) => ({ ...p, bullets: (p.bullets || []).map((b) => period(deCliche(b))) })),
+    (out.experience || []).reduce((n, e) => n + (e.bullets || []).length, 0),
+  );
+  return out;
+}
+
+/**
+ * Projects support the experience; they never outweigh it. Hiring managers read titles and roles first, so a resume
+ * with more project lines than job lines reads as "builds side things" rather than "delivers at work".
+ * Keeps at most 4 projects (already in relevance order): 2 bullets for the first two, 1 for the rest, and trims
+ * further until project bullets are fewer than experience bullets.
+ */
+export function projectBudget(projects: NonNullable<ResumeContent["projects"]>, experienceBullets: number): NonNullable<ResumeContent["projects"]> {
+  const out = projects.slice(0, 4).map((p, i) => ({ ...p, bullets: (p.bullets || []).slice(0, i < 2 ? 2 : 1) }));
+  const total = () => out.reduce((n, p) => n + p.bullets.length, 0);
+  for (let i = out.length - 1; total() >= experienceBullets && experienceBullets > 0 && i >= 0; i--) {
+    if (out[i].bullets.length > 1) out[i].bullets = out[i].bullets.slice(0, 1);
+    else if (out.length > 2) out.splice(i, 1);
+  }
   return out;
 }

@@ -2,7 +2,7 @@ import "server-only";
 import { tidyResume } from "@/lib/resume/health";
 import { PDFDocument, PDFFont, PDFPage, StandardFonts, rgb } from "pdf-lib";
 import { RESUME_STYLES } from "./styles";
-import { formatFor, projectsFirst, sectionOrderFor } from "./country";
+import { formatFor, sectionOrderFor } from "./country";
 import type { ResumeContent, ResumeStyle } from "@/lib/types";
 
 /* Characters the standard PDF fonts (WinAnsi) can draw; everything else is mapped to a close ASCII form. */
@@ -228,7 +228,6 @@ export async function resumePdf(raw: ResumeContent, opts: { style?: ResumeStyle;
       });
     }
   }
-  const projFirst = projectsFirst(r);
   const projectsBlock = () => {
   if (r.projects?.length) {
       heading(c, st, "Projects");
@@ -241,7 +240,6 @@ export async function resumePdf(raw: ResumeContent, opts: { style?: ResumeStyle;
       }
     }
   };
-  if (projFirst) projectsBlock();
   if (r.experience?.length) {
     heading(c, st, "Experience");
     const full = r.experience.filter((e) => !e.brief);
@@ -265,7 +263,7 @@ export async function resumePdf(raw: ResumeContent, opts: { style?: ResumeStyle;
       c.y -= 3;
     }
   }
-  if (!projFirst) projectsBlock();
+  projectsBlock();
   if (!educationFirst) education();
   if (r.certifications?.length) {
     heading(c, st, "Certifications");

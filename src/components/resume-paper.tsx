@@ -1,5 +1,5 @@
 import { RESUME_STYLES } from "@/lib/resume/styles";
-import { formatFor, projectsFirst, sectionOrderFor } from "@/lib/resume/country";
+import { formatFor, sectionOrderFor } from "@/lib/resume/country";
 import type { ResumeContent, ResumeStyle } from "@/lib/types";
 
 function H({ children, accent, center }: { children: React.ReactNode; accent: string; center: boolean }) {
@@ -16,7 +16,6 @@ export function ResumePaper({ c, highlight = [], style = "classic", country }: {
   const st = (RESUME_STYLES[style] || RESUME_STYLES.classic).css;
   const fmt = formatFor(country || "US");
   const educationFirst = sectionOrderFor(c) === "education-first";
-  const projFirst = projectsFirst(c);
   const hl = (text: string) => {
     if (!highlight.length) return text;
     const re = new RegExp(`(${highlight.map((k) => k.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|")})`, "gi");
@@ -65,7 +64,6 @@ export function ResumePaper({ c, highlight = [], style = "classic", country }: {
           {c.skills.map((g, i) => <p key={i}><strong>{g.group}:</strong> {hl(g.items.join(", "))}</p>)}
         </>
       )}
-      {projFirst && projects}
       {!!c.experience?.length && (
         <>
           <H {...hp}>EXPERIENCE</H>
@@ -86,7 +84,7 @@ export function ResumePaper({ c, highlight = [], style = "classic", country }: {
           )}
         </>
       )}
-      {!projFirst && projects}
+      {projects}
       {!educationFirst && education}
       {!!c.certifications?.length && (<><H {...hp}>CERTIFICATIONS</H><p>{c.certifications.join("  •  ")}</p></>)}
       {!!c.awards?.length && (<><H {...hp}>AWARDS</H><ul className="list-disc pl-4">{c.awards.map((a, i) => <li key={i}>{a}</li>)}</ul></>)}

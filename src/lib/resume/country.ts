@@ -128,17 +128,6 @@ export function sectionOrderFor(c: Pick<ResumeContent, "experience" | "education
   return (c.education || []).length && isEarlyCareer(c, now) ? "education-first" : "experience-first";
 }
 
-/**
- * Projects go before Experience when every current role is a student or part-time one (assistant, aide, intern,
- * fellow) and there are projects to show: the strongest recent work is then the projects, as for MBA candidates.
- */
-export function projectsFirst(c: Pick<ResumeContent, "experience" | "projects">): boolean {
-  if (!(c.projects || []).length) return false;
-  const current = (c.experience || []).filter((e) => !e.brief && /present|current|now/i.test(e.end || ""));
-  if (!current.length) return false;
-  return current.every((e) => /\b(assistant|aide|intern|internship|student|fellow|tutor|volunteer|trainee)\b/i.test(e.title || ""));
-}
-
 /** Pages this person should aim for: 1 early in a career; US/CA keep 1 page until 10+ years; otherwise the country's cap. */
 export function pagesFor(fmt: CountryFormat, c?: Pick<ResumeContent, "experience" | "education">, now = new Date()): 1 | 2 {
   if (!c) return fmt.maxPages;
