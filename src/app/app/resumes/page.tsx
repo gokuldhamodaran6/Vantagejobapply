@@ -2,22 +2,30 @@
 import { repairResume } from "@/lib/resume/repair";
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ArrowRight, Check, ClipboardPaste, Download, FileText, Loader2, MessageSquareText, PenLine, RefreshCw, Sparkles, Target, TrendingUp, UploadCloud, X } from "lucide-react";
+import { ArrowRight, ClipboardPaste, Download, FileText, History, Loader2, MessageSquareText, MoreHorizontal, PenLine, RefreshCw, Search, Sparkles, Target, UploadCloud, X } from "lucide-react";
 import { EmptyState, PageHeader } from "@/components/app-shell";
 import { Toast } from "@/components/ui";
 import { useMe } from "@/lib/me";
 import { supabaseBrowser } from "@/lib/supabase/client";
 import { timeAgo } from "@/lib/format";
-import { LETTER_TONES, RESUME_STYLES } from "@/lib/resume/styles";
-import { rate, styleStats } from "@/lib/resume/learn";
+import { RESUME_STYLES } from "@/lib/resume/styles";
 import { checkResume } from "@/lib/resume/check";
 import type { Coach } from "@/lib/resume/coach";
 import { RoleCoach } from "@/components/role-coach";
-import type { LetterTone, Resume, ResumeStyle } from "@/lib/types";
+import { ResumePaper } from "@/components/resume-paper";
+import type { Resume, ResumeStyle } from "@/lib/types";
 
 type R = Resume & { notes?: string[]; kind?: string | null };
 type RoleRow = { id: string; title: string; levels: string[]; active: boolean; coach: Coach };
-type AppLite = { status: string; target_role_id: string | null; resume_style: string | null; letter_tone: string | null };
+type AppLite = { status: string; target_role_id: string | null; resume_id: string | null; created_at: string };
+type Readiness = {
+  parse: { ok: number; total: number; bad: string[] };
+  roles: { id: string; title: string; postings: number; skills: number; have: number; proven: number; missing: { skill: string; share: number }[]; titleFound: boolean; titleVia: string; found: boolean }[];
+  lines: { strong: number; total: number };
+  fixes: { role: string; text: string; tip: string; tags: string[] }[];
+  stories: { ready: number; total: number } | null;
+  versions: { id: string; created_at: string; reason: string }[];
+};
 
 const FIT = {
   strong: { label: "Strong fit", cls: "bg-green-tint text-green-ink" },
@@ -25,34 +33,53 @@ const FIT = {
   switch: { label: "Career move", cls: "bg-pink-tint text-pink-ink" },
 } as const;
 
+/** Templates recruiters read without friction. Modern stays available to anyone already using it. */
+const TEMPLATES: ResumeStyle[] = ["classic", "compact", "executive"];
+const SENT = (s: string) => !["saved", "ready"].includes(s);
+const REPLIED = (s: string) => ["in_review", "assessment", "interview", "offer", "rejected"].includes(s);
+const INTERVIEW = (s: string) => ["interview", "offer"].includes(s);
+
 export default function ResumesPage() {
   const { userId, profile } = useMe();
   const [list, setList] = useState<R[] | null>(null);
+  const [copies, setCopies] = useState<R[]>([]);
   const [roles, setRoles] = useState<RoleRow[]>([]);
   const [apps, setApps] = useState<AppLite[]>([]);
+  const [ready, setReady] = useState<Readiness | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [paste, setPaste] = useState<string | null>(null);
   const [drag, setDrag] = useState(false);
+  const [more, setMore] = useState(false);
   const [coachFor, setCoachFor] = useState<RoleRow | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const assessing = useRef(false);
 
+  const loadReady = useCallback(async () => {
+    const r = await fetch("/api/resume/readiness").catch(() => null);
+    const d = r?.ok ? await r.json() : null;
+    if (d?.parse) setReady(d as Readiness);
+  }, []);
+
   const load = useCallback(async () => {
     const s = supabaseBrowser();
-    const [r, t, a] = await Promise.all([
+    const [r, t, a, c] = await Promise.all([
       s.from("resumes").select("id,target_role_id,name,is_master,level_format,style,content,ats_score,updated_at,notes,kind").neq("kind", "tailored").order("updated_at", { ascending: false }),
       s.from("target_roles").select("id,title,levels,active,coach").order("priority").order("created_at"),
-      s.from("applications").select("status,target_role_id,resume_style,letter_tone").eq("user_id", userId || "").limit(5000),
+      s.from("applications").select("status,target_role_id,resume_id,created_at").eq("user_id", userId || "").limit(5000),
+      s.from("resumes").select("id,name,style,updated_at,kind,target_role_id").eq("kind", "tailored").order("updated_at", { ascending: false }).limit(8),
     ]);
-    // Older imports could store a broken layout; show it repaired (the editor offers to save the fix).
     setList(((r.data as R[]) || []).map((x) => ({ ...x, content: repairResume(x.content) })));
     setRoles(((t.data as RoleRow[]) || []).filter((x) => x.active));
     setApps((a.data as AppLite[]) || []);
+    setCopies((c.data as R[]) || []);
   }, [userId]);
   useEffect(() => {
-    if (userId) load();
-  }, [userId, load]);
+    if (userId) {
+      load();
+      loadReady();
+    }
+  }, [userId, load, loadReady]);
 
   const master = list?.find((r) => r.is_master);
 
@@ -80,9 +107,10 @@ export default function ResumesPage() {
     const d = r ? await r.json().catch(() => ({})) : { error: "Network error" };
     setBusy(null);
     if (!r?.ok) return setToast(d.error || "Couldn't read that file.");
-    setToast(d.roles ? `Resume imported. Rewriting your ${d.roles} role resumes now — about a minute.` : "Resume imported.");
+    setToast(d.roles ? `Resume imported. Your earlier version is saved in Version history. Rewriting your ${d.roles} role resumes now — about a minute.` : "Resume imported. Your earlier version is saved in Version history.");
     load();
-    if (d.roles) setTimeout(load, 40000);
+    loadReady();
+    if (d.roles) setTimeout(() => (load(), loadReady()), 45000);
   }
   async function importText() {
     if (!paste) return;
@@ -94,7 +122,8 @@ export default function ResumesPage() {
     setPaste(null);
     setToast("Resume imported. Check it and fix anything we misread.");
     load();
-    if (d.roles) setTimeout(load, 40000);
+    loadReady();
+    if (d.roles) setTimeout(() => (load(), loadReady()), 45000);
   }
   async function writeRole(roleId: string) {
     setBusy(roleId);
@@ -102,36 +131,50 @@ export default function ResumesPage() {
     const d = r ? await r.json().catch(() => ({})) : { error: "Network error" };
     setBusy(null);
     if (!r?.ok) return setToast(d.error || "Couldn't write that resume.");
-    setToast(`Rewritten — ATS ${d.score}.${d.ai ? "" : " Connect an AI key for recruiter-grade writing."}`);
+    setToast(d.ai ? "Rewritten from your master resume." : "Rewritten. Connect an AI key for recruiter-grade writing.");
     load();
+    loadReady();
   }
   async function rebuild() {
+    setMore(false);
     setBusy("rebuild");
     const r = await fetch("/api/resume/rebuild", { method: "POST" }).catch(() => null);
     const d = r ? await r.json().catch(() => ({})) : { error: "Network error" };
     setBusy(null);
     if (!r?.ok) return setToast(d.error || "Couldn't rebuild.");
-    setToast(`${d.rebuilt ? "Master resume re-read from your file. " : ""}Rewriting your ${d.roles} role resumes like a top recruiter — about a minute.`);
+    setToast(`Rewriting your ${d.roles} role resumes from your master — about a minute.`);
+    setTimeout(() => (load(), loadReady()), 60000);
+  }
+  async function restore(versionId: string) {
+    if (!master) return;
+    setBusy(`v:${versionId}`);
+    const r = await fetch(`/api/resume/${master.id}/versions`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ versionId }) }).catch(() => null);
+    setBusy(null);
+    if (!r?.ok) return setToast("Couldn't restore that version.");
+    setToast("Restored. The version you replaced is kept in Version history.");
     load();
-    setTimeout(load, 45000);
-    setTimeout(load, 90000);
+    loadReady();
   }
   async function setStyle(id: string, style: ResumeStyle) {
     await supabaseBrowser().from("resumes").update({ style }).eq("id", id);
     setList((l) => l?.map((r) => (r.id === id ? { ...r, style } : r)) || null);
   }
 
-  const st = styleStats(apps);
-  const totalSent = apps.filter((a) => !["saved", "ready"].includes(a.status)).length;
+  const c = master?.content;
+  const fixCount = master ? checkResume(master.content, profile?.full_name || undefined).length : 0;
+  const expBullets = c ? (c.experience || []).reduce((n, e) => n + (e.bullets?.length || 0), 0) : 0;
+  const templates: ResumeStyle[] = master && !TEMPLATES.includes((master.style || "classic") as ResumeStyle) ? [...TEMPLATES, master.style as ResumeStyle] : TEMPLATES;
+  const foundRoles = ready?.roles.filter((r) => r.found).length || 0;
+  const weakRole = ready?.roles.find((r) => !r.found && r.missing.length);
 
   return (
     <>
       <PageHeader
         title="Resumes"
-        subtitle="One master resume and one sharp resume per target role. Every job gets its own tailored copy automatically — you'll find it with that application."
+        subtitle="Your real experience, checked the way recruiters screen: what the ATS reads, whether you show up when a recruiter searches, and whether every line holds up in the interview."
         actions={master ? <>
           <button className="btn-secondary" onClick={() => setPaste("")}><ClipboardPaste size={16} /> Paste text</button>
-          <button className="btn-primary" disabled={busy === "upload"} onClick={() => fileRef.current?.click()}>{busy === "upload" ? <Loader2 size={16} className="animate-spin" /> : <UploadCloud size={16} />} Upload newer resume</button>
+          <button className="btn-primary" disabled={busy === "upload"} onClick={() => fileRef.current?.click()}>{busy === "upload" ? <Loader2 size={16} className="animate-spin" /> : <UploadCloud size={16} />} Upload resume</button>
         </> : undefined}
       />
       <input ref={fileRef} type="file" accept=".pdf,.docx,.txt,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) upload(f); e.target.value = ""; }} />
@@ -154,135 +197,218 @@ export default function ResumesPage() {
         </section>
       )}
 
-      {master && (
-        <section className="card mb-6 grid overflow-hidden lg:grid-cols-[300px_1fr]"
-          onDragOver={(e) => { e.preventDefault(); setDrag(true); }} onDragLeave={() => setDrag(false)}
-          onDrop={(e) => { e.preventDefault(); setDrag(false); const f = e.dataTransfer.files?.[0]; if (f) upload(f); }}>
-          <Link href={`/app/resumes/${master.id}`} className={`relative block bg-canvas p-5 transition ${drag ? "bg-brand-soft" : ""}`} aria-label="Open master resume">
-            <MiniPaper r={master} />
-          </Link>
-          <div className="flex flex-col p-5">
-            <div className="flex flex-wrap items-start gap-3">
-              <div className="min-w-0 flex-1">
-                <p className="text-xs font-semibold uppercase tracking-wider text-brand">Master resume</p>
-                <h2 className="mt-1 text-xl font-bold">{titleCase(master.content.name || "Your resume")}</h2>
-                <p className="text-sm text-muted">{master.content.headline || master.content.experience?.[0]?.title || "All your verified experience"} · updated {timeAgo(master.updated_at)}</p>
+      {master && c && (
+        <>
+          <section aria-label="Readiness" className="mb-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <Check href={`/app/resumes/${master.id}/check`} label="ATS reads it" good={ready ? ready.parse.ok === ready.parse.total : null}
+              value={ready ? (ready.parse.ok === ready.parse.total ? `All ${ready.parse.total} fields` : `${ready.parse.ok} of ${ready.parse.total} fields`) : null}
+              sub={ready ? (ready.parse.bad.length ? `Read wrong: ${ready.parse.bad.join(", ")}.` : "Name, contact, every job title, employer, date range and degree come out right when the file is read back.") : ""} />
+            <Check href={`/app/resumes/${master.id}/check`} label="Recruiter search" good={ready ? foundRoles === ready.roles.length && ready.roles.length > 0 : null}
+              value={ready ? (ready.roles.length ? `Found for ${foundRoles} of ${ready.roles.length} roles` : "Add a target role") : null}
+              sub={ready ? (weakRole ? `${weakRole.title}: no "${weakRole.missing[0].skill}", which ${weakRole.missing[0].share}% of ${weakRole.postings} open postings ask for.` : ready.roles.length ? "Your titles and skills match what recruiters search for each role." : "") : ""} />
+            <Check href={`/app/resumes/${master.id}/check?tab=lines`} label="Bullets with a result" good={ready ? ready.lines.strong >= ready.lines.total * 0.6 : null}
+              value={ready ? `${ready.lines.strong} of ${ready.lines.total}` : null}
+              sub={ready ? (ready.lines.total - ready.lines.strong ? `${ready.lines.total - ready.lines.strong} lines say what you did, not what changed because of it.` : "Every line shows an outcome or scope.") : ""} />
+            <Check href={`/app/resumes/${master.id}/interview`} label="Interview-ready" good={ready?.stories ? ready.stories.ready >= ready.stories.total * 0.75 : ready ? false : null}
+              value={ready ? (ready.stories ? `${ready.stories.ready} of ${ready.stories.total} stories` : "Not started") : null}
+              sub={ready ? (ready.stories ? "Stories behind your strongest lines, ready to tell in two minutes." : "Turn your strongest lines into interview stories before you apply.") : ""} />
+          </section>
+
+          <section aria-label="Master resume" className="card mb-6 grid overflow-hidden lg:grid-cols-[320px_1fr]"
+            onDragOver={(e) => { e.preventDefault(); setDrag(true); }} onDragLeave={() => setDrag(false)}
+            onDrop={(e) => { e.preventDefault(); setDrag(false); const f = e.dataTransfer.files?.[0]; if (f) upload(f); }}>
+            <Link href={`/app/resumes/${master.id}`} className={`flex justify-center bg-canvas p-6 transition ${drag ? "bg-brand-soft" : ""}`} aria-label="Open master resume">
+              <Thumb r={master} />
+            </Link>
+            <div className="flex min-w-0 flex-col gap-4 p-5">
+              <div className="flex flex-wrap items-start gap-3">
+                <div className="min-w-0 flex-1">
+                  <p className="text-xs font-semibold uppercase tracking-wider text-brand">Master resume · source of truth</p>
+                  <h2 className="mt-1 text-xl font-bold">{titleCase(c.name || "Your resume")}</h2>
+                  <p className="text-sm text-muted">{[`${expBullets} experience bullets`, c.projects?.length ? `${c.projects.length} projects` : "", c.certifications?.length ? `${c.certifications.length} certifications` : "", `updated ${timeAgo(master.updated_at)}`].filter(Boolean).join(" · ")}</p>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <Link href={`/app/resumes/${master.id}`} className="btn-secondary min-h-10 text-[13px]"><PenLine size={15} /> Edit</Link>
+                  <a href={`/api/resume/${master.id}/pdf`} className="btn-secondary min-h-10 text-[13px]"><Download size={15} /> PDF</a>
+                  <a href={`/api/resume/${master.id}/pdf?format=docx`} className="btn-secondary min-h-10 text-[13px]"><Download size={15} /> Word</a>
+                  <div className="relative">
+                    <button className="btn-ghost min-h-10 px-2.5" aria-label="More actions" aria-expanded={more} onClick={() => setMore((v) => !v)}><MoreHorizontal size={18} /></button>
+                    {more && (
+                      <div className="absolute right-0 z-20 mt-1 w-64 rounded-xl border border-line bg-white p-1.5 shadow-lg">
+                        <button className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm hover:bg-canvas" disabled={busy === "rebuild"} onClick={rebuild}><RefreshCw size={15} /> Rewrite every role resume from this master</button>
+                      </div>
+                    )}
+                  </div>
+                </div>
               </div>
-              <Score n={master.ats_score} />
-            </div>
-            <div className="mt-4 grid grid-cols-3 gap-2 text-center">
-              {[["Roles", master.content.experience?.length || 0], ["Skills", (master.content.skills || []).reduce((n, g) => n + g.items.length, 0)], ["Years", years(master)]].map(([l, n]) => (
-                <div key={l as string} className="rounded-xl bg-canvas py-2.5"><p className="text-lg font-bold">{n}</p><p className="text-xs text-muted">{l}</p></div>
-              ))}
-            </div>
-            {(() => {
-              const n = checkResume(master.content, profile?.full_name || undefined).length;
-              return n ? (
-                <Link href={`/app/resumes/${master.id}#r-check`} className="mt-4 flex items-center gap-2 rounded-xl bg-orange-tint px-3 py-2.5 text-sm font-medium text-orange-ink hover:underline">
-                  <PenLine size={15} aria-hidden /> {n} thing{n > 1 ? "s" : ""} to fix — Fix my resume <ArrowRight size={14} className="ml-auto" aria-hidden />
-                </Link>
-              ) : null;
-            })()}
-            <p className="mt-4 text-sm text-muted">This is the source of truth: every role resume and job copy is built from it, and nothing is ever invented. Keep it complete — drop a newer file anywhere on this card to update it.</p>
-            <div className="mt-auto flex flex-wrap gap-2 pt-4">
-              <Link href={`/app/resumes/${master.id}`} className="btn-secondary min-h-9 text-[13px]"><PenLine size={15} /> Review & edit</Link>
-              <a href={`/api/resume/${master.id}/pdf`} className="btn-secondary min-h-9 text-[13px]"><Download size={15} /> PDF</a>
-              <StyleSelect r={master} onStyle={setStyle} />
-              <button className="btn-ghost min-h-9 text-[13px]" disabled={busy === "rebuild"} onClick={rebuild}>{busy === "rebuild" ? <><Loader2 size={15} className="animate-spin" /> Rebuilding…</> : <><RefreshCw size={15} /> Rebuild everything with AI</>}</button>
-            </div>
-          </div>
-        </section>
-      )}
 
-      {master && (
-        <section className="mb-6">
-          <div className="mb-3 flex flex-wrap items-end justify-between gap-2">
-            <div>
-              <h2 className="text-lg font-bold">Your resume for each target role</h2>
-              <p className="text-sm text-muted">Written like a top recruiter for that role, from your real experience. Moving into a new field? Tell us what you know and we&apos;ll position you for it.</p>
-            </div>
-            <Link href="/app/targets" className="btn-ghost min-h-9 text-[13px]"><Target size={15} /> Manage roles</Link>
-          </div>
-          {roles.length === 0 ? (
-            <EmptyState title="Add a target role" body="Each role you target gets one focused resume." action={<Link href="/app/targets" className="btn-primary">Add a role</Link>} />
-          ) : (
-            <div className="grid gap-4 md:grid-cols-2">
-              {roles.map((role) => {
-                const r = list?.find((x) => !x.is_master && x.target_role_id === role.id && (x.kind || "role") === "role");
-                const fit = role.coach?.fit;
-                const sent = apps.filter((a) => a.target_role_id === role.id && !["saved", "ready"].includes(a.status));
-                const won = sent.filter((a) => ["interview", "offer"].includes(a.status)).length;
-                const coached = Boolean(role.coach?.answers?.some((x) => x.a.trim()));
-                return (
-                  <article key={role.id} className="card flex flex-col p-5">
-                    <div className="flex items-start gap-3">
-                      <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-brand-tint text-brand"><FileText size={20} /></span>
-                      <div className="min-w-0 flex-1">
-                        <h3 className="truncate text-[17px] font-bold">{titleCase(role.title)}</h3>
-                        <div className="mt-1 flex flex-wrap items-center gap-1.5">
-                          {fit ? <span className={`chip ${FIT[fit.level].cls}`}>{FIT[fit.level].label}</span> : <span className="chip bg-[#eef0f4] text-muted"><Loader2 size={12} className="animate-spin" /> Checking fit</span>}
-                          {coached && <span className="chip bg-green-tint text-green-ink"><Check size={12} /> Coached</span>}
-                          {r && <span className="text-xs text-muted">updated {timeAgo(r.updated_at)}</span>}
-                        </div>
+              {(ready?.fixes.length || fixCount > 0) ? (
+                <div className="space-y-2">
+                  <p className="text-sm font-semibold">Fix before you apply <span className="text-orange-ink">· {(ready?.fixes.length || 0) + (fixCount ? 1 : 0)}</span></p>
+                  {fixCount > 0 && (
+                    <Link href={`/app/resumes/${master.id}#r-check`} className="flex items-start gap-3 rounded-xl border border-[#fde3c8] bg-[#fff7ef] px-3 py-2.5 text-sm hover:underline">
+                      <span className="chip shrink-0 bg-orange-tint text-orange-ink">Layout</span>
+                      <span className="min-w-0 flex-1"><span className="block font-semibold">{fixCount} entr{fixCount > 1 ? "ies look" : "y looks"} broken to an ATS</span><span className="text-ink-2">Missing dates, a split title or a stray link. Open to fix in one click.</span></span>
+                      <ArrowRight size={14} className="mt-1 shrink-0" aria-hidden />
+                    </Link>
+                  )}
+                  {ready?.fixes.map((f) => (
+                    <Link key={f.text} href={`/app/resumes/${master.id}/check?tab=lines`} className="flex items-start gap-3 rounded-xl border border-[#fde3c8] bg-[#fff7ef] px-3 py-2.5 text-sm hover:underline">
+                      <span className="chip shrink-0 bg-orange-tint text-orange-ink">{f.tags[0] === "No result" ? "Result" : f.tags[0] || "Line"}</span>
+                      <span className="min-w-0 flex-1"><span className="block font-semibold">{f.role}: “{f.text.length > 70 ? `${f.text.slice(0, 68)}…` : f.text}”</span><span className="text-ink-2">{f.tip}</span></span>
+                      <ArrowRight size={14} className="mt-1 shrink-0" aria-hidden />
+                    </Link>
+                  ))}
+                </div>
+              ) : null}
+
+              <div className="mt-auto flex flex-wrap items-center gap-x-5 gap-y-3 border-t border-line-2 pt-4">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-[13px] text-muted">Template</span>
+                  <div role="group" aria-label="Template" className="flex overflow-hidden rounded-lg border border-line">
+                    {templates.map((s, i) => {
+                      const on = (master.style || "classic") === s;
+                      return (
+                        <button key={s} title={RESUME_STYLES[s].blurb} aria-pressed={on} onClick={() => setStyle(master.id, s)} className={`h-9 px-3 text-[13px] ${i ? "border-l border-line" : ""} ${on ? "bg-brand-tint font-semibold text-brand-ink" : "bg-white text-ink-2 hover:bg-canvas"}`}>
+                          {RESUME_STYLES[s].label}{s === "classic" ? " · recommended" : ""}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+                <details className="ml-auto text-[13px] text-ink-2">
+                  <summary className="flex cursor-pointer items-center gap-1.5 font-semibold"><History size={14} aria-hidden /> Version history{ready?.versions.length ? ` · ${ready.versions.length}` : ""}</summary>
+                  <div className="mt-2 space-y-1.5">
+                    {!ready?.versions.length && <p className="text-muted">Every upload, edit and rewrite keeps the version it replaced. Nothing saved yet.</p>}
+                    {ready?.versions.map((v) => (
+                      <div key={v.id} className="flex items-center gap-3">
+                        <span>{new Date(v.created_at).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</span>
+                        <button className="font-semibold text-brand-ink hover:underline" disabled={busy === `v:${v.id}`} onClick={() => restore(v.id)}>{busy === `v:${v.id}` ? "Restoring…" : "Restore"}</button>
                       </div>
-                      {r && <Score n={r.ats_score} small />}
-                    </div>
-                    {fit && <p className="mt-3 text-sm text-ink-2">{fit.why}</p>}
-                    {fit && (fit.matched.length > 0 || fit.missing.length > 0) && (
-                      <div className="mt-3 flex flex-wrap gap-1.5">
-                        {fit.matched.slice(0, 5).map((k) => <span key={k} className="chip bg-green-tint/70 text-green-ink">{k}</span>)}
-                        {fit.missing.slice(0, 4).map((k) => <span key={k} className="chip border border-dashed border-orange/40 bg-white text-orange-ink">{k}</span>)}
-                      </div>
-                    )}
-                    <div className="mt-4 grid grid-cols-3 gap-2 text-center text-sm">
-                      <div className="rounded-lg bg-canvas py-2"><p className="font-bold">{sent.length}</p><p className="text-[11px] text-muted">Sent</p></div>
-                      <div className="rounded-lg bg-canvas py-2"><p className="font-bold">{won}</p><p className="text-[11px] text-muted">Interviews</p></div>
-                      <div className="rounded-lg bg-canvas py-2"><p className="font-bold">{sent.length ? `${Math.round((won / sent.length) * 100)}%` : "—"}</p><p className="text-[11px] text-muted">Hit rate</p></div>
-                    </div>
-                    {!!r?.notes?.length && (
-                      <details className="mt-3 rounded-lg bg-orange-tint/50 px-3 py-2 text-xs text-orange-ink">
-                        <summary className="cursor-pointer font-semibold">{r.notes.length} ways to make it stronger</summary>
-                        <ul className="mt-1.5 space-y-1">{r.notes.slice(0, 5).map((n) => <li key={n}>• {n}</li>)}</ul>
-                      </details>
-                    )}
-                    <div className="mt-auto flex flex-wrap items-center gap-2 pt-4">
-                      {fit && fit.level !== "strong" && (
-                        <button className="btn-pink min-h-9 text-[13px]" onClick={() => setCoachFor(role)}><MessageSquareText size={15} /> {coached ? "Update what you know" : "Tell us what you know"}</button>
-                      )}
-                      {r ? <>
-                        <Link href={`/app/resumes/${r.id}`} className="btn-secondary min-h-9 text-[13px]">Open</Link>
-                        <a href={`/api/resume/${r.id}/pdf`} className="rounded-lg p-2 text-subtle hover:bg-canvas" aria-label="Download PDF"><Download size={17} /></a>
-                        <StyleSelect r={r} onStyle={setStyle} />
-                      </> : null}
-                      <button className="btn-ghost ml-auto min-h-9 text-[13px]" disabled={busy === role.id} onClick={() => writeRole(role.id)}>
-                        {busy === role.id ? <><Loader2 size={14} className="animate-spin" /> Writing…</> : r ? <><RefreshCw size={14} /> Rewrite</> : <><Sparkles size={14} /> Write it</>}
-                      </button>
-                    </div>
-                  </article>
-                );
-              })}
+                    ))}
+                  </div>
+                </details>
+              </div>
             </div>
-          )}
-        </section>
-      )}
+          </section>
 
-      {master && totalSent > 0 && (
-        <section className="card mb-6 p-5">
-          <h2 className="flex items-center gap-2 font-semibold"><TrendingUp size={17} className="text-brand" /> What gets you interviews</h2>
-          <p className="text-sm text-muted">From {totalSent} sent applications. Vantage leans toward what wins and keeps testing the rest.</p>
-          <div className="mt-4 grid gap-6 md:grid-cols-2">
-            <Bars title="Resume style" rows={(Object.keys(RESUME_STYLES) as ResumeStyle[]).map((k) => ({ k: RESUME_STYLES[k].label, s: st.styles[k] }))} />
-            <Bars title="Cover letter tone" rows={(Object.keys(LETTER_TONES) as LetterTone[]).map((k) => ({ k: LETTER_TONES[k].label, s: st.tones[k] }))} />
-          </div>
-        </section>
-      )}
+          <section aria-label="Target roles" className="card mb-6 overflow-hidden py-5">
+            <div className="mb-3 flex flex-wrap items-end justify-between gap-2 px-5">
+              <div className="min-w-0">
+                <h2 className="text-lg font-bold">One resume per target role</h2>
+                <p className="text-sm text-muted">Search match counts the skills recruiters filter on, from open postings in your job feed. Every job you apply to still gets its own tailored copy.</p>
+              </div>
+              <Link href="/app/targets" className="btn-ghost min-h-9 text-[13px]"><Target size={15} /> Manage roles</Link>
+            </div>
+            {roles.length === 0 ? (
+              <div className="px-5"><EmptyState title="Add a target role" body="Each role you target gets one focused resume." action={<Link href="/app/targets" className="btn-primary">Add a role</Link>} /></div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[920px] border-collapse text-sm">
+                  <thead>
+                    <tr className="text-left text-xs uppercase tracking-wide text-muted">
+                      <th scope="col" className="border-b border-line-2 px-5 py-2.5 font-semibold">Role</th>
+                      <th scope="col" className="border-b border-line-2 px-3 py-2.5 font-semibold">Fit</th>
+                      <th scope="col" className="border-b border-line-2 px-3 py-2.5 font-semibold">Search match</th>
+                      <th scope="col" className="border-b border-line-2 px-3 py-2.5 font-semibold">Missing skill recruiters ask for</th>
+                      <th scope="col" className="border-b border-line-2 px-3 py-2.5 font-semibold">Sent → replies → interviews</th>
+                      <th scope="col" className="border-b border-line-2 px-5 py-2.5"><span className="sr-only">Actions</span></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {roles.map((role) => {
+                      const r = list?.find((x) => !x.is_master && x.target_role_id === role.id && (x.kind || "role") === "role");
+                      const fit = role.coach?.fit;
+                      const rd = ready?.roles.find((x) => x.id === role.id);
+                      const sent = apps.filter((a) => a.target_role_id === role.id && SENT(a.status));
+                      const coached = Boolean(role.coach?.answers?.some((x) => x.a.trim()));
+                      return (
+                        <tr key={role.id} className="align-top">
+                          <td className="border-b border-line-2 px-5 py-3.5">
+                            <p className="font-semibold">{titleCase(role.title)}</p>
+                            <p className="text-xs text-muted">{r ? `Rewritten ${timeAgo(r.updated_at)}` : "Not written yet"}</p>
+                          </td>
+                          <td className="border-b border-line-2 px-3 py-3.5">
+                            {fit ? <span className={`chip ${FIT[fit.level].cls}`}>{FIT[fit.level].label}</span> : <span className="chip bg-[#eef0f4] text-muted"><Loader2 size={12} className="animate-spin" /> Checking</span>}
+                            {fit && fit.level !== "strong" && (
+                              <button className="mt-1.5 flex items-center gap-1 text-xs font-semibold text-pink-ink hover:underline" onClick={() => setCoachFor(role)}><MessageSquareText size={12} /> {coached ? "Update what you know" : "Tell us what you know"}</button>
+                            )}
+                          </td>
+                          <td className="border-b border-line-2 px-3 py-3.5">
+                            {rd ? (rd.postings ? <><p className="font-semibold">{rd.have} of {rd.skills} skills</p><p className="text-xs text-muted">{rd.postings} open postings{rd.titleFound ? "" : " · title not found"}</p></> : <p className="text-xs text-muted">No open postings in your feed yet</p>) : <span className="skeleton block h-8 w-28" />}
+                          </td>
+                          <td className="border-b border-line-2 px-3 py-3.5 text-ink-2">
+                            {rd ? (rd.missing.length ? rd.missing.map((m) => `${m.skill} (${m.share}%)`).join(", ") : <span className="text-green-ink">None in the top {rd.skills}</span>) : <span className="skeleton block h-5 w-36" />}
+                          </td>
+                          <td className="border-b border-line-2 px-3 py-3.5 tabular-nums">{sent.length} → {sent.filter((a) => REPLIED(a.status)).length} → {sent.filter((a) => INTERVIEW(a.status)).length}</td>
+                          <td className="whitespace-nowrap border-b border-line-2 px-5 py-3.5 text-right">
+                            <div className="flex items-center justify-end gap-1">
+                              {r ? <>
+                                <Link href={`/app/resumes/${r.id}/check?role=${role.id}`} className="btn-ghost min-h-9 px-2.5 text-[13px]"><Search size={14} /> Check</Link>
+                                <Link href={`/app/resumes/${r.id}/interview?role=${role.id}`} className="btn-ghost min-h-9 px-2.5 text-[13px]">Interview kit</Link>
+                                <Link href={`/app/resumes/${r.id}`} className="btn-secondary min-h-9 px-3 text-[13px]">Open</Link>
+                                <a href={`/api/resume/${r.id}/pdf`} className="rounded-lg p-2 text-subtle hover:bg-canvas" aria-label={`Download ${role.title} resume PDF`}><Download size={16} /></a>
+                              </> : null}
+                              <button className="btn-ghost min-h-9 px-2.5 text-[13px]" disabled={busy === role.id} onClick={() => writeRole(role.id)} aria-label={r ? `Rewrite ${role.title} resume` : `Write ${role.title} resume`}>
+                                {busy === role.id ? <Loader2 size={14} className="animate-spin" /> : r ? <RefreshCw size={14} /> : <><Sparkles size={14} /> Write it</>}
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </section>
 
-      {master && (
-        <Link href="/app/applications" className="card mb-6 flex items-center gap-3 p-4 hover:border-[#c9d5fb]">
-          <span className="flex h-10 w-10 items-center justify-center rounded-lg bg-canvas text-ink-2"><FileText size={18} /></span>
-          <span className="min-w-0 flex-1"><span className="block font-semibold">Job-specific copies</span><span className="block text-sm text-muted">Each application keeps the exact resume and cover letter that was sent. Open any application to see them.</span></span>
-          <ArrowRight size={18} className="text-subtle" />
-        </Link>
+          <section aria-label="Sent with applications" className="card mb-6 overflow-hidden py-5">
+            <div className="mb-3 flex flex-wrap items-end justify-between gap-2 px-5">
+              <div className="min-w-0">
+                <h2 className="text-lg font-bold">Sent with applications</h2>
+                <p className="text-sm text-muted">The exact resume each employer received. Open it before an interview to see what they read.</p>
+              </div>
+              <Link href="/app/applications" className="btn-ghost min-h-9 text-[13px]">All applications <ArrowRight size={14} /></Link>
+            </div>
+            {copies.length === 0 ? (
+              <p className="px-5 text-sm text-muted">Nothing sent yet. When you apply, the tailored copy shows up here.</p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[640px] border-collapse text-sm">
+                  <thead>
+                    <tr className="text-left text-xs uppercase tracking-wide text-muted">
+                      <th scope="col" className="border-b border-line-2 px-5 py-2.5 font-semibold">Job</th>
+                      <th scope="col" className="border-b border-line-2 px-3 py-2.5 font-semibold">Built for</th>
+                      <th scope="col" className="border-b border-line-2 px-3 py-2.5 font-semibold">Made</th>
+                      <th scope="col" className="border-b border-line-2 px-3 py-2.5 font-semibold">Status</th>
+                      <th scope="col" className="border-b border-line-2 px-5 py-2.5"><span className="sr-only">Actions</span></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {copies.map((x) => {
+                      const [title, company] = (x.name || "").split(" — ");
+                      const app = apps.find((a) => a.resume_id === x.id);
+                      return (
+                        <tr key={x.id}>
+                          <td className="border-b border-line-2 px-5 py-3"><p className="font-semibold">{title}</p>{company && <p className="text-xs text-muted">{company}</p>}</td>
+                          <td className="border-b border-line-2 px-3 py-3 text-ink-2">{roles.find((r) => r.id === x.target_role_id)?.title || "—"}</td>
+                          <td className="border-b border-line-2 px-3 py-3 text-ink-2">{timeAgo(x.updated_at)}</td>
+                          <td className="border-b border-line-2 px-3 py-3"><span className="chip bg-[#eef0f4] text-ink-2">{app ? app.status.replace(/_/g, " ").replace(/^./, (m) => m.toUpperCase()) : "Prepared"}</span></td>
+                          <td className="whitespace-nowrap border-b border-line-2 px-5 py-3 text-right">
+                            <Link href={`/app/resumes/${x.id}/interview`} className="btn-ghost min-h-9 px-2.5 text-[13px]">Interview kit</Link>
+                            <a href={`/api/resume/${x.id}/pdf`} className="btn-ghost min-h-9 px-2.5 text-[13px]"><FileText size={14} /> Resume</a>
+                            <a href={`/api/resume/${x.id}/pdf?kind=cover`} className="btn-ghost min-h-9 px-2.5 text-[13px]">Letter</a>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </section>
+        </>
       )}
 
       {paste !== null && (
@@ -295,7 +421,7 @@ export default function ResumesPage() {
         </div>
       )}
 
-      {coachFor && <RoleCoach role={coachFor} onClose={() => setCoachFor(null)} onDone={(msg) => { setCoachFor(null); setToast(msg); load(); }} />}
+      {coachFor && <RoleCoach role={coachFor} onClose={() => setCoachFor(null)} onDone={(msg) => { setCoachFor(null); setToast(msg); load(); loadReady(); }} />}
       <Toast message={toast} onClose={() => setToast(null)} />
     </>
   );
@@ -303,69 +429,26 @@ export default function ResumesPage() {
 
 const titleCase = (t: string) => (t === t.toUpperCase() || t === t.toLowerCase() ? t.toLowerCase().replace(/(^|[\s/-])([a-z])/g, (_, p, c) => p + c.toUpperCase()) : t);
 
-function years(r: R) {
-  const ys = (r.content.experience || []).flatMap((e) => [e.start, e.end]).map((d) => (d && /present/i.test(d) ? new Date().getFullYear() : parseInt((d || "").match(/\d{4}/)?.[0] || "", 10))).filter((n) => !isNaN(n));
-  return ys.length ? Math.max(0, Math.max(...ys) - Math.min(...ys)) : "—";
+function Check({ href, label, value, sub, good }: { href: string; label: string; value: string | null; sub: string; good: boolean | null }) {
+  return (
+    <Link href={href} className="card flex flex-col gap-1.5 p-4 hover:border-[#c9d5fb]">
+      <span className="flex items-center gap-2">
+        <span aria-hidden className={`h-2.5 w-2.5 rounded-full ${good === null ? "bg-line" : good ? "bg-green" : "bg-orange"}`} />
+        <span className="text-xs font-semibold uppercase tracking-wider text-muted">{label}</span>
+      </span>
+      {value === null ? <span className="skeleton h-7 w-32" /> : <span className="text-xl font-bold">{value}</span>}
+      {value === null ? <span className="skeleton h-4 w-full" /> : <span className="text-[13px] text-ink-2">{sub}</span>}
+    </Link>
+  );
 }
 
-function Score({ n, small }: { n: number | null; small?: boolean }) {
-  if (n == null) return null;
-  const size = small ? 46 : 64, stroke = small ? 5 : 6, rad = (size - stroke) / 2, c = 2 * Math.PI * rad;
-  const color = n >= 80 ? "var(--color-green)" : n >= 60 ? "var(--color-brand)" : "var(--color-orange)";
+/** The real resume layout, scaled down: the same component the editor previews, so it never disagrees with the PDF. */
+function Thumb({ r }: { r: R }) {
   return (
-    <div className="relative shrink-0" style={{ width: size, height: size }} title={`ATS score ${n} of 100`}>
-      <svg width={size} height={size} className="-rotate-90"><circle cx={size / 2} cy={size / 2} r={rad} fill="none" stroke="var(--color-line-2)" strokeWidth={stroke} /><circle cx={size / 2} cy={size / 2} r={rad} fill="none" stroke={color} strokeWidth={stroke} strokeLinecap="round" strokeDasharray={c} strokeDashoffset={c * (1 - n / 100)} /></svg>
-      <span className="absolute inset-0 flex flex-col items-center justify-center leading-none"><span className={`${small ? "text-sm" : "text-lg"} font-bold`}>{n}</span><span className="text-[9px] font-semibold text-muted">ATS</span></span>
+    <div className="relative h-[330px] w-[255px] overflow-hidden rounded-[3px] bg-white shadow-[0_10px_30px_rgba(16,24,40,.12)]">
+      <div className="pointer-events-none absolute left-0 top-0 w-[760px] origin-top-left" style={{ transform: "scale(0.3355)" }} aria-hidden>
+        <ResumePaper c={r.content} style={(r.style || "classic") as ResumeStyle} />
+      </div>
     </div>
   );
 }
-
-function MiniPaper({ r }: { r: R }) {
-  const c = r.content;
-  return (
-    <div className="mx-auto aspect-[8.5/11] w-full max-w-[240px] overflow-hidden rounded-md border border-line bg-white p-4 text-[6.5px] leading-[1.45] text-ink shadow-[0_8px_24px_rgba(16,24,40,.08)]">
-      <p className="text-center text-[11px] font-bold">{c.name}</p>
-      <p className="text-center text-muted">{[c.location, c.email, c.phone].filter(Boolean).join(" · ")}</p>
-      {c.summary && <><p className="mt-2 border-b border-line pb-0.5 font-bold uppercase tracking-wide">Summary</p><p className="mt-0.5 line-clamp-3">{c.summary}</p></>}
-      <p className="mt-2 border-b border-line pb-0.5 font-bold uppercase tracking-wide">Experience</p>
-      {(c.experience || []).slice(0, 3).map((e, i) => (
-        <div key={i} className="mt-1">
-          <p className="flex justify-between font-semibold"><span className="truncate">{e.title}</span><span className="shrink-0 text-muted">{e.start}–{e.end}</span></p>
-          <p className="text-muted">{e.company}</p>
-          {(e.bullets || []).slice(0, 2).map((b, j) => <p key={j} className="line-clamp-1">• {b}</p>)}
-        </div>
-      ))}
-      {!!c.skills?.length && <><p className="mt-2 border-b border-line pb-0.5 font-bold uppercase tracking-wide">Skills</p><p className="line-clamp-2">{c.skills.flatMap((g) => g.items).slice(0, 14).join(" · ")}</p></>}
-    </div>
-  );
-}
-
-function StyleSelect({ r, onStyle }: { r: R; onStyle: (id: string, s: ResumeStyle) => void }) {
-  return (
-    <select aria-label="Resume design" className="input h-9 w-[146px] py-0 text-xs" value={r.style || "classic"} onChange={(e) => onStyle(r.id, e.target.value as ResumeStyle)}>
-      {(Object.keys(RESUME_STYLES) as ResumeStyle[]).map((s) => <option key={s} value={s}>{RESUME_STYLES[s].label} design</option>)}
-    </select>
-  );
-}
-
-function Bars({ title, rows }: { title: string; rows: { k: string; s?: { sent: number; interviews: number } }[] }) {
-  const max = Math.max(10, ...rows.map((r) => rate(r.s) || 0));
-  return (
-    <div>
-      <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted">{title}</p>
-      <ul className="space-y-2">
-        {rows.map((r) => {
-          const pct = rate(r.s);
-          return (
-            <li key={r.k} className="grid grid-cols-[90px_1fr_92px] items-center gap-3 text-sm">
-              <span className="font-medium">{r.k}</span>
-              <span className="h-2 overflow-hidden rounded-full bg-line-2"><span className="block h-full rounded-full bg-gradient-to-r from-brand to-pink" style={{ width: `${pct ? (pct / max) * 100 : 0}%` }} /></span>
-              <span className="text-right text-xs text-muted">{pct === null ? "testing" : `${pct}% · ${r.s!.interviews}/${r.s!.sent}`}</span>
-            </li>
-          );
-        })}
-      </ul>
-    </div>
-  );
-}
-

@@ -141,7 +141,7 @@ function hasPronoun(b: string): string | null {
   return null;
 }
 
-const HAS_NUMBER = /\d|\b(one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|fifteen|twenty|dozens?|hundreds?|thousands?|millions?|billions?|doubled|tripled|halved|twice)\b/i;
+export const HAS_NUMBER = /\d|\b(one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|fifteen|twenty|dozens?|hundreds?|thousands?|millions?|billions?|doubled|tripled|halved|twice)\b/i;
 
 export type BulletIssueKind = "weak" | "pronoun" | "verb" | "repeat" | "long" | "narrative" | "metric";
 

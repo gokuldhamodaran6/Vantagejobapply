@@ -791,7 +791,33 @@ async function roundTripChecks() {
   ok(parseQuality(garbled) < parseQuality(p), "round trip: a garbled reading scores worse than a clean one");
 }
 
-roundTripChecks().then(() => plannerChecks()).then(precheckChecks).then(aiMeterChecks).then(() => {
+/** Recruiter check: counts, never a made-up score. */
+async function recruiterChecks() {
+  const { skillDemand, skillProof, gradeLines, parseReadout, titleFound } = await import("../src/lib/resume/recruiter");
+  const src = JSON.parse(readFileSync("scripts/fixtures/roundtrip.json", "utf8"));
+  const posts = [
+    "We need SQL and Tableau. Requirements gathering with stakeholders. Visio a plus.",
+    "Strong SQL, Excel and process improvement. Gather requirements.",
+    "Python, SQL, Agile/Scrum. Write user stories. Process improvement mindset.",
+    "Requirements, UAT, Jira.",
+  ];
+  const d = skillDemand(posts, 12);
+  ok(d[0].skill === "sql" && d[0].share === 75 && d.some((x) => x.skill === "process improvement" && x.share === 50), "recruiter: skill demand is the share of postings naming each skill");
+  const pr = skillProof(src, d);
+  ok(pr.find((x) => x.skill === "sql")?.status === "proven" && pr.find((x) => x.skill === "process improvement")?.status === "missing" && pr.find((x) => x.skill === "jira")?.status === "listed", "recruiter: proven in a bullet vs listed only vs missing");
+  ok(pr.find((x) => x.skill === "sql")!.where.includes("Northwind Tech"), "recruiter: proof names where it is shown");
+  const g = gradeLines(src);
+  const line = (start: string) => g.find((x) => x.text.startsWith(start));
+  ok(line("Analyzed account")?.grade === "strong" && line("Manage the department")?.grade === "fix" && line("Led a team of 4")?.grade === "strong", "recruiter: a result or a led-team scope is strong; a duty is not");
+  ok(!line("Directed brand")?.tags.some((t) => t.t === "Has a number"), "recruiter: a digit inside a name (Seed round) is not a quantity");
+  const rows = parseReadout(src, src);
+  ok(rows.every((r) => r.ok), "recruiter: identical reading passes every field");
+  const broken = parseReadout(src, { ...src, experience: src.experience.map((e: { title: string }, i: number) => (i === 1 ? { ...e, title: "Academic Aide" } : e)) });
+  ok(broken.find((r) => r.field === "Job titles")?.ok === false, "recruiter: a misread title is caught");
+  ok(titleFound(src, "Business Analyst").found && !titleFound(src, "Nurse Practitioner").found, "recruiter: title search uses held titles, headline and summary");
+}
+
+roundTripChecks().then(recruiterChecks).then(() => plannerChecks()).then(precheckChecks).then(aiMeterChecks).then(() => {
   console.log(fail ? `\n${fail} failed` : "\nAll checks passed");
   process.exit(fail ? 1 : 0);
 });

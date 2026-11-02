@@ -1,6 +1,7 @@
 import type { NextRequest } from "next/server";
 import { loadUserContext } from "@/lib/server-user";
 import { coverLetterPdf, resumePdf } from "@/lib/resume/pdf";
+import { resumeDocx } from "@/lib/resume/docx";
 import type { ResumeContent, ResumeStyle } from "@/lib/types";
 import { bestName } from "@/lib/agent/fields";
 
@@ -21,6 +22,13 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   let filename: string;
   const name = bestName(ctx.profile.full_name, content.name);
   const person = (name || "Resume").replace(/[^A-Za-z0-9]+/g, "_");
+  if (sp.get("format") === "docx") {
+    const buf = await resumeDocx(content, { country, name });
+    const person = (name || "Resume").replace(/[^A-Za-z0-9]+/g, "_");
+    return new Response(new Uint8Array(buf), {
+      headers: { "Content-Type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "Content-Disposition": `attachment; filename="${person}_Resume.docx"`, "Cache-Control": "no-store" },
+    });
+  }
   if (kind === "cover") {
     const { data: app } = await ctx.supabase.from("applications").select("cover_letter").eq("user_id", ctx.user.id).eq("resume_id", id).limit(1).maybeSingle();
     const { data: task } = app?.cover_letter ? { data: null } : await ctx.supabase.from("agent_tasks").select("cover_letter").eq("resume_id", id).maybeSingle();

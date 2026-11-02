@@ -192,14 +192,12 @@ export default function ResumeEditor({ params }: { params: Promise<{ id: string 
 
           {report && (
             <section className="card p-5">
-              <div className="flex items-center gap-4">
-                <div className="relative h-16 w-16 shrink-0 rounded-full" style={{ background: `conic-gradient(#2f5beb 0 ${report.score}%, #e6e8ef ${report.score}% 100%)` }}>
-                  <span className="absolute inset-[7px] flex items-center justify-center rounded-full bg-white text-lg font-bold">{report.score}</span>
+              <div className="flex flex-wrap items-start gap-3">
+                <div className="min-w-0 flex-1">
+                  <p className="font-semibold">Structure checks</p>
+                  <p className="text-sm text-muted">What an ATS needs to read this resume. For search match and line-by-line grades, run the recruiter check.</p>
                 </div>
-                <div>
-                  <p className="font-semibold">ATS score</p>
-                  <p className="text-sm text-muted">Structure plus keywords from live {roles.find((x) => x.id === r.target_role_id)?.title || "target"} jobs</p>
-                </div>
+                <Link href={`/app/resumes/${r.id}/check`} className="btn-secondary min-h-9 text-[13px]">Recruiter check</Link>
               </div>
               <ul className="mt-4 space-y-2 text-sm">
                 {report.checks.map((ck) => (

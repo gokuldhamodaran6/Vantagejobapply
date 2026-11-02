@@ -6,10 +6,11 @@ import { writeRoleResume } from "@/lib/resume/write-role";
 import { aiConfigured } from "@/lib/ai";
 import { runWithAi } from "@/lib/ai-context";
 import type { ResumeContent } from "@/lib/types";
+import { parseQuality } from "@/lib/resume/parse";
 
 export const maxDuration = 120;
 
-/** Re-read the original resume file with AI for a clean master, then rewrite every role resume from it. */
+/** Rewrite every role resume from the master (re-reading the original file only if the stored master is garbled). */
 export async function POST() {
   const ctx = await loadUserContext();
   if (!ctx) return json({ error: "Log in first." }, 401);
@@ -19,8 +20,9 @@ export async function POST() {
   let rebuilt = false;
   if (master.raw_text && aiConfigured()) {
     const out = await runWithAi({ userId: ctx.user.id }, () => structureResume(master.raw_text, ctx.profile.full_name || ""));
-    // Only replace the master if the AI read is at least as complete as what we have.
-    if (out.ai && (out.content.experience?.length || 0) >= Math.max(1, (content.experience?.length || 0) - 1)) {
+    // Never overwrite a master the person has fixed or edited: only replace one that reads worse than a fresh
+    // reading of their file (a broken import), and only when the new reading is as complete.
+    if (out.ai && parseQuality(out.content) > parseQuality(content) && (out.content.experience?.length || 0) >= Math.max(1, (content.experience?.length || 0) - 1)) {
       content = out.content;
       rebuilt = true;
       await ctx.supabase.from("resumes").update({ content, ats_score: scoreResume(content).score, updated_at: new Date().toISOString() }).eq("id", master.id);

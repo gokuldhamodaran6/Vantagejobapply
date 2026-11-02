@@ -1,7 +1,7 @@
 import type { ResumeContent } from "@/lib/types";
 
 // Common hard skills across fields; used to pull keywords from postings.
-const SKILLS = [
+export const SKILLS = [
   "sql", "python", "java", "javascript", "typescript", "react", "node.js", "node", "go", "golang", "rust", "c++", "c#", ".net", "ruby", "php", "kotlin", "swift",
   "aws", "azure", "gcp", "google cloud", "docker", "kubernetes", "terraform", "linux", "git", "ci/cd", "rest", "graphql", "microservices",
   "postgresql", "mysql", "mongodb", "redis", "snowflake", "bigquery", "dbt", "airflow", "spark", "kafka", "hadoop", "databricks",

@@ -416,7 +416,7 @@ function GroupCard({ g, group, roleName, resumes, onOpen, now }: {
                     )}
                   </span>
                   <span className="min-w-0 text-xs text-muted">
-                    <span className="flex items-center gap-1.5 truncate"><FileText size={13} className="shrink-0" />{r ? `${RESUME_STYLES[(r.style || "classic") as ResumeStyle]?.label || "Classic"} resume${r.ats_score ? ` · ATS ${r.ats_score}` : ""}` : "—"}</span>
+                    <span className="flex items-center gap-1.5 truncate"><FileText size={13} className="shrink-0" />{r ? `${RESUME_STYLES[(r.style || "classic") as ResumeStyle]?.label || "Classic"} resume` : "—"}</span>
                     <span className="mt-0.5 flex items-center gap-1.5">{a.source === "email" ? <Inbox size={13} /> : <User size={13} />} {sourceLabel(a)}</span>
                   </span>
                   <span className="flex items-center gap-3"><Progress s={a.status} /><span className={`chip ${STATUS[a.status].cls}`}>{STATUS[a.status].label}</span></span>
@@ -564,7 +564,7 @@ function Detail({ a, resume, roleName, now, myName, onClose, onMove, onFollowedU
                 <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-brand-tint text-brand"><FileText size={17} /></span>
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-sm font-semibold">{resume ? "Resume tailored to this job" : "Resume"}</span>
-                  <span className="block truncate text-xs text-muted">{resume ? `${RESUME_STYLES[(resume.style || "classic") as ResumeStyle]?.label || "Classic"} style${resume.ats_score ? ` · ATS ${resume.ats_score}` : ""}` : "Not recorded"}</span>
+                  <span className="block truncate text-xs text-muted">{resume ? `${RESUME_STYLES[(resume.style || "classic") as ResumeStyle]?.label || "Classic"} style` : "Not recorded"}</span>
                 </span>
                 {a.resume_id && <><Link href={`/app/resumes/${a.resume_id}`} className="btn-ghost min-h-8 text-xs">View</Link><a href={`/api/resume/${a.resume_id}/pdf`} className="rounded-lg p-2 text-subtle hover:bg-canvas" aria-label="Download resume"><Download size={16} /></a></>}
               </div>
