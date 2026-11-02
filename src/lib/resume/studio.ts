@@ -83,7 +83,7 @@ const CRAFT = `WRITING STANDARD (what Google, Meta, Amazon and Fortune 500 hirin
 - Skills: 3–4 groups named for this job's world (e.g. "Analytics & BI", "Product Delivery", "Marketing Technology"), each 5–10 items, most relevant first, the posting's names for tools the person really uses. No soft skills, no certifications repeated as skills, no duplicates.
 - Every role keeps its title, employer and dates exactly. Roles marked "brief" stay one line with no bullets. Lead roles get 4–5 bullets, other recent roles 2–4, compressed roles 1–2. A role with only one source bullet may be split into two bullets only by separating facts already in it, never by adding new ones.
 - Each bullet uses only facts from its own role. Never move a detail from one role to another, and never add frequencies (daily, weekly), audiences, scale words (enterprise, global, cross-functional), adjectives or results that the source does not state for that role.
-- Keep the strength of every claim: where the source says "contributed to", "supported" or "helped", the rewrite keeps shared credit (e.g. "Contributed to a 35% increase in qualified pipeline by …"). Never upgrade it to "drove", "led", "delivered" or "grew".
+- Keep the strength of every claim: where the source says "contributed to", "supported" or "helped", the rewrite keeps shared credit (e.g. "Contributed to a 35% increase in qualified pipeline by …"). Never upgrade it to "drove", "led", "delivered" or "grew". Likewise "mentored" never becomes "supervised" or "managed", and "supported" never becomes "owned".
 - The posting's vocabulary may only rename what the source already describes. Never swap one metric for another (cost per lead is not customer acquisition cost; impressions are not traffic), and never add objects the source does not mention (budgets, models, frameworks, roadmaps, revenue, teams).
 - A promotion inside one employer is a strong signal: keep it visible.
 - Awards, a team the person led or mentored, funding rounds or acquisitions they supported, and things they built are high-value proof: surface them when relevant to the job.
@@ -228,7 +228,7 @@ Return ONLY JSON: {"review":{"score":0-100,"scores":{"first_impression":1-10,"re
 /* 4. Cover letter                                                     */
 /* ------------------------------------------------------------------ */
 
-async function letter(r: ResumeContent, job: StudioJob, pb: Playbook, fmt: CountryFormat, brief: JobBrief | null, st: Strategy, tone: LetterTone): Promise<{ text: string; issues: string[] } | null> {
+async function letter(r: ResumeContent, original: ResumeContent, job: StudioJob, pb: Playbook, fmt: CountryFormat, brief: JobBrief | null, st: Strategy, tone: LetterTone): Promise<{ text: string; issues: string[] } | null> {
   const name = r.name || "";
   const out = await claude(
     `You write cover letters that hiring managers at ${pb.name} actually finish reading. Write one for ${job.title} at ${job.company}.
@@ -242,10 +242,11 @@ STRUCTURE (230–320 words, 4 short paragraphs):
 - P3: what they would do in the first months, tied to 1–2 responsibilities in the posting; if there is an honest gap worth naming (career move, new domain), bridge it in one sentence with the closest true fact.
 - P4 (1–2 sentences): confident close, invitation to talk. No "I hope", no begging.
 - Sign off "${tone === "warm" ? "Best regards," : "Sincerely,"}" then "${name}".
-Write like a sharp human: varied sentences, plain words, no exclamation marks, at most one dash, at most two sentences starting with "I". Never mention AI, tools used to write, visas or salary. ${fmt.spelling === "us" ? "US spelling." : fmt.spellingNote || "UK/Commonwealth spelling."}
-Banned phrases: ${BANNED.join("; ")}; let us schedule; robust; I am confident.
+FACTS: every claim about the past must be in the ORIGINAL resume below, with the same metric and the same credit ("contributed to" stays "contributed to"). The posting's terms (e.g. data marts, telemetry, consumption) may describe what the candidate WILL do, never what they did, unless the ORIGINAL says it.
+VOICE: first person, like a confident professional writing to one hiring manager. Plain verbs ("I built", "I led"), varied openings so no more than a third of sentences start with "I". Never narrate the letter's structure ("two pillars", "three reasons", "this background connects"). No exclamation marks, at most one dash. Never mention AI, tools used to write, visas or salary. ${fmt.spelling === "us" ? "US spelling." : fmt.spellingNote || "UK/Commonwealth spelling."}
+Banned phrases: ${BANNED.join("; ")}; let us schedule; robust; I am confident; pillars; underpin; telemetry.
 Return ONLY the letter as plain text.`,
-    [{ role: "user", content: `HOOK: ${brief?.hook || "(pick one concrete detail from the posting)"}\nMUST-HAVES: ${json(brief?.mustHave?.map((m) => m.requirement) || [])}\nPROBLEMS: ${json(brief?.problems || [])}\nPLAN: ${json({ identity: st.identity, angle: st.angle, pillars: st.pillars, gaps: st.gaps })}\n\nPOSTING:\n${(job.description || "").slice(0, 6000)}\n\nRESUME (only source of facts):\n${json(r)}` }],
+    [{ role: "user", content: `HOOK: ${brief?.hook || "(pick one concrete detail from the posting)"}\nMUST-HAVES: ${json(brief?.mustHave?.map((m) => m.requirement) || [])}\nPROBLEMS: ${json(brief?.problems || [])}\nPLAN: ${json({ identity: st.identity, angle: st.angle, pillars: st.pillars, gaps: st.gaps })}\n\nPOSTING:\n${(job.description || "").slice(0, 6000)}\n\nTAILORED RESUME (for emphasis only):\n${json({ headline: r.headline, summary: r.summary })}\n\nORIGINAL RESUME (the only source of facts):\n${json(original)}` }],
     2500,
     { model: "writer", temperature: 0.5, feature: "tailor-letter" },
   );
@@ -300,7 +301,7 @@ export async function studio(base0: ResumeContent, job: StudioJob, opts: { fmt: 
   // The review and the letter don't depend on each other: run them together.
   const [rv, lt] = await Promise.all([
     review(draft, base, job, pb, strategy),
-    opts.withLetter === false ? Promise.resolve(null) : letter(draft, job, pb, opts.fmt, brief, strategy, opts.tone),
+    opts.withLetter === false ? Promise.resolve(null) : letter(draft, base, job, pb, opts.fmt, brief, strategy, opts.tone),
   ]);
   let resume = draft;
   if (rv?.resume) {
