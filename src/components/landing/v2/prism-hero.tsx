@@ -168,7 +168,7 @@ function Studio() {
   const near = { x: useTransform(sx, (v) => v * 14), y: useTransform(sy, (v) => v * 10) };
   const far = { x: useTransform(sx, (v) => v * -8), y: useTransform(sy, (v) => v * -6) };
   const onMove = (e: React.PointerEvent) => {
-    if (reduce || !ref.current) return;
+    if (reduce || !ref.current || e.pointerType !== "mouse") return;
     const b = ref.current.getBoundingClientRect();
     mx.set((e.clientX - b.left) / b.width - 0.5);
     my.set((e.clientY - b.top) / b.height - 0.5);
@@ -275,8 +275,8 @@ export function PrismHero() {
   return (
     <section className="relative overflow-hidden pb-20 pt-10 lg:pb-28 lg:pt-16">
       <div aria-hidden className="lp-grid pointer-events-none absolute inset-0 -z-10" />
-      <div className="mx-auto grid max-w-[1200px] items-center gap-14 px-4 sm:px-6 xl:grid-cols-[1fr_1.08fr]">
-        <div>
+      <div className="mx-auto grid max-w-[1200px] items-center gap-10 px-4 sm:px-6 xl:grid-cols-[1fr_1.08fr] xl:gap-14">
+        <div className="min-w-0">
           <motion.p {...enter(0)} className="inline-flex items-center gap-2 rounded-full border border-[rgba(11,26,58,0.1)] bg-white/70 px-3 py-1.5 text-[13px] font-medium text-[var(--deep-2)]">
             <span className="live-dot h-2 w-2 rounded-full bg-[var(--verify)]" /> Free while in early access
           </motion.p>
@@ -298,7 +298,7 @@ export function PrismHero() {
             ))}
           </motion.ul>
         </div>
-        <motion.div initial={reduce ? false : { opacity: 0, scale: 0.97 }} animate={{ opacity: 1, scale: 1 }} transition={{ duration: 0.8, delay: 0.15, ease: [0.2, 0.8, 0.2, 1] }}>
+        <motion.div className="min-w-0" initial={reduce ? false : { opacity: 0, scale: 0.97 }} animate={{ opacity: 1, scale: 1 }} transition={{ duration: 0.8, delay: 0.15, ease: [0.2, 0.8, 0.2, 1] }}>
           <Hero3D fallback={<Studio />} />
         </motion.div>
       </div>

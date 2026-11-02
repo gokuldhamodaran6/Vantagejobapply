@@ -1,6 +1,6 @@
 "use client";
 import dynamic from "next/dynamic";
-import { useEffect, useState, useSyncExternalStore } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { ArrowLeft, Hand, MousePointerClick, ShieldCheck } from "lucide-react";
 import { CARDS, type HeroDemo } from "./cards";
@@ -50,6 +50,10 @@ export function Hero3D({ fallback }: { fallback: React.ReactNode }) {
   // Decided on the client only: no WebGL (or reduced motion) keeps the flat illustrated version.
   const gl = useSyncExternalStore(subscribe, canWebGL, () => false);
   const compact = useSyncExternalStore(subscribe, () => window.innerWidth < 640, () => false);
+  // Phones and small touch tablets get the swipe layout: a scene that never takes touches, readable cards below.
+  const mobile = useSyncExternalStore(subscribe, () => window.innerWidth < 768 || (matchMedia("(pointer: coarse)").matches && window.innerWidth < 1024), () => false);
+  const [lost, setLost] = useState(false);
+  const [active, setActive] = useState(0);
   const low = useSyncExternalStore(subscribe, () => (navigator.hardwareConcurrency || 4) <= 4 || window.innerWidth < 640, () => true);
   const [i, setI] = useState(0);
   const [focus, setFocus] = useState<number | null>(null);
@@ -71,14 +75,30 @@ export function Hero3D({ fallback }: { fallback: React.ReactNode }) {
     return () => window.removeEventListener("keydown", k);
   }, []);
 
-  if (!gl || reduce) return <>{fallback}</>;
+  if (!gl || reduce || lost) return <>{fallback}</>;
   const d = DEMOS[i];
+
+  if (mobile)
+    return (
+      <div className="relative w-full">
+        <div aria-hidden className="pointer-events-none absolute -inset-6 -z-10 opacity-70 blur-3xl [background:radial-gradient(45%_35%_at_60%_30%,#c9d8ff,transparent),radial-gradient(35%_30%_at_30%_60%,#f6d6f0,transparent)]" />
+        <div className="relative h-[250px]" aria-hidden>
+          <HeroScene demo={d} demoKey={tick} focus={null} setFocus={() => {}} hovered={active} setHovered={() => {}} compact low mobile onLost={() => setLost(true)} />
+          <div key={tick} className="v3-posting absolute left-0 top-1 max-w-[62%] rounded-2xl px-3 py-2">
+            <p className="truncate text-[12px] font-semibold">{d.title}</p>
+            <p className="truncate text-[11px] text-[var(--deep-3)]">{d.company} · {d.place}</p>
+          </div>
+        </div>
+        <MobileCards d={d} active={active} setActive={setActive} />
+        <p className="mt-1 text-center text-[11px] text-[var(--deep-3)]">Swipe the cards · fictional candidate and employers</p>
+      </div>
+    );
 
   return (
     <div className="relative mx-auto w-full max-w-[640px]">
       <div aria-hidden className="pointer-events-none absolute -inset-10 -z-10 opacity-70 blur-3xl [background:radial-gradient(40%_35%_at_70%_40%,#c9d8ff,transparent),radial-gradient(30%_30%_at_35%_75%,#f6d6f0,transparent),radial-gradient(25%_25%_at_80%_85%,#ffe2c4,transparent)]" />
       <div className="relative h-[480px] sm:h-[600px]" aria-label="Interactive 3D example: one job posting becomes a resume, a cover letter, a filled application and an interview kit">
-        <HeroScene demo={d} demoKey={tick} focus={focus} setFocus={setFocus} hovered={hovered} setHovered={setHovered} compact={compact} low={low} />
+        <HeroScene demo={d} demoKey={tick} focus={focus} setFocus={setFocus} hovered={hovered} setHovered={setHovered} compact={compact} low={low} onLost={() => setLost(true)} />
 
         <AnimatePresence>
           {focus !== null && (
@@ -94,28 +114,7 @@ export function Hero3D({ fallback }: { fallback: React.ReactNode }) {
             >
               <button type="button" onClick={() => setFocus(null)} className="mb-2 inline-flex items-center gap-1 text-[12px] font-semibold text-[var(--blue)]"><ArrowLeft size={13} /> Back to the whole scene</button>
               <p className="text-[15px] font-bold" style={{ color: CARDS[focus].color }}>{CARDS[focus].label} · {d.company}</p>
-              {focus === 0 && (
-                <>
-                  <p className="mt-1 text-[12px] font-semibold text-[var(--deep-2)]">{d.headline}</p>
-                  <ul className="mt-2 space-y-1.5 text-[12px] leading-snug text-[var(--deep-2)]">{d.bullets.map((b) => <li key={b} className="flex gap-1.5"><span className="mt-[6px] h-1 w-1 shrink-0 rounded-full bg-[var(--deep)]" />{b}</li>)}</ul>
-                  <p className="mt-2 flex items-center gap-1.5 text-[11.5px] font-medium text-[var(--verify)]"><ShieldCheck size={13} /> Hiring-manager review {d.score}. Every line checked against your history.</p>
-                </>
-              )}
-              {focus === 1 && <p className="mt-2 text-[12.5px] leading-relaxed text-[var(--deep-2)]">{d.letter}</p>}
-              {focus === 2 && (
-                <ul className="mt-2 space-y-1.5 text-[12px] text-[var(--deep-2)]">
-                  <li>✓ Contact, work history and education filled from your profile</li>
-                  <li>✓ Resume and cover letter for this job attached</li>
-                  <li>✓ Screening answers given the same way every time</li>
-                  <li className="font-semibold text-[var(--deep)]">You check every page and press Submit yourself.</li>
-                </ul>
-              )}
-              {focus === 3 && (
-                <>
-                  <p className="mt-1 text-[12px] text-[var(--deep-3)]">Likely questions, each matched to a story from your resume:</p>
-                  <ul className="mt-2 space-y-1.5 text-[12px] leading-snug text-[var(--deep-2)]">{d.questions.map((q) => <li key={q}>“{q}”</li>)}</ul>
-                </>
-              )}
+              <Detail k={focus} d={d} />
             </motion.div>
           )}
         </AnimatePresence>
@@ -128,8 +127,8 @@ export function Hero3D({ fallback }: { fallback: React.ReactNode }) {
             type="button"
             aria-pressed={focus === k}
             onClick={() => setFocus(focus === k ? null : k)}
-            onPointerEnter={() => setHovered(k)}
-            onPointerLeave={() => setHovered(null)}
+            onPointerEnter={(e) => e.pointerType === "mouse" && setHovered(k)}
+            onPointerLeave={(e) => e.pointerType === "mouse" && setHovered(null)}
             className={`inline-flex min-h-10 items-center gap-2 rounded-full border px-3.5 text-[12.5px] font-semibold transition ${focus === k ? "border-transparent bg-[var(--deep)] text-white" : "border-[rgba(11,26,58,0.12)] bg-white/80 text-[var(--deep-2)] hover:bg-white"}`}
           >
             <span className="h-2 w-2 rounded-full" style={{ background: c.color }} /> {c.label}
@@ -141,6 +140,97 @@ export function Hero3D({ fallback }: { fallback: React.ReactNode }) {
         <span className="inline-flex items-center gap-1.5"><MousePointerClick size={13} /> Click a card to open it</span>
         <span>Fictional candidate and employers.</span>
       </p>
+    </div>
+  );
+}
+
+type Demo = (typeof DEMOS)[number];
+
+/** What each output looks like for this job: used in the desktop panel and the phone cards. */
+function Detail({ k, d }: { k: number; d: Demo }) {
+  return (
+    <>
+              {k === 0 && (
+        <>
+          <p className="mt-1 text-[12px] font-semibold text-[var(--deep-2)]">{d.headline}</p>
+          <ul className="mt-2 space-y-1.5 text-[12px] leading-snug text-[var(--deep-2)]">{d.bullets.map((b) => <li key={b} className="flex gap-1.5"><span className="mt-[6px] h-1 w-1 shrink-0 rounded-full bg-[var(--deep)]" />{b}</li>)}</ul>
+          <p className="mt-2 flex items-center gap-1.5 text-[11.5px] font-medium text-[var(--verify)]"><ShieldCheck size={13} /> Hiring-manager review {d.score}. Every line checked against your history.</p>
+        </>
+      )}
+      {k === 1 && <p className="mt-2 text-[12.5px] leading-relaxed text-[var(--deep-2)]">{d.letter}</p>}
+      {k === 2 && (
+        <ul className="mt-2 space-y-1.5 text-[12px] text-[var(--deep-2)]">
+          <li>✓ Contact, work history and education filled from your profile</li>
+          <li>✓ Resume and cover letter for this job attached</li>
+          <li>✓ Screening answers given the same way every time</li>
+          <li className="font-semibold text-[var(--deep)]">You check every page and press Submit yourself.</li>
+        </ul>
+      )}
+      {k === 3 && (
+        <>
+          <p className="mt-1 text-[12px] text-[var(--deep-3)]">Likely questions, each matched to a story from your resume:</p>
+          <ul className="mt-2 space-y-1.5 text-[12px] leading-snug text-[var(--deep-2)]">{d.questions.map((q) => <li key={q}>“{q}”</li>)}</ul>
+        </>
+      )}
+    </>
+  );
+}
+
+/** Phones: swipe through the four outputs; the one in view lights its beam in the scene above. */
+function MobileCards({ d, active, setActive }: { d: Demo; active: number; setActive: (i: number) => void }) {
+  const row = useRef<HTMLDivElement>(null);
+  const touched = useRef(0);
+  // Which card is centred.
+  useEffect(() => {
+    const el = row.current;
+    if (!el) return;
+    const on = () => {
+      const w = el.scrollWidth / CARDS.length;
+      setActive(Math.max(0, Math.min(CARDS.length - 1, Math.round(el.scrollLeft / w))));
+    };
+    el.addEventListener("scroll", on, { passive: true });
+    return () => el.removeEventListener("scroll", on);
+  }, [setActive]);
+  // Gentle auto-advance until the person swipes.
+  useEffect(() => {
+    const t = setInterval(() => {
+      const el = row.current;
+      if (!el || Date.now() - touched.current < 9000) return;
+      const next = (active + 1) % CARDS.length;
+      el.scrollTo({ left: (el.scrollWidth / CARDS.length) * next, behavior: "smooth" });
+    }, 4500);
+    return () => clearInterval(t);
+  }, [active]);
+  const go = (i: number) => {
+    touched.current = Date.now();
+    const el = row.current;
+    if (el) el.scrollTo({ left: (el.scrollWidth / CARDS.length) * i, behavior: "smooth" });
+  };
+  return (
+    <div>
+      <div
+        ref={row}
+        onTouchStart={() => (touched.current = Date.now())}
+        className="-mx-4 flex snap-x snap-mandatory gap-3 overflow-x-auto px-4 pb-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+        aria-label="What Vantage makes for this job"
+      >
+        {CARDS.map((c, k) => (
+          <article key={c.key} className="glass w-[84%] shrink-0 snap-center rounded-[20px] p-4" aria-roledescription="slide" aria-label={`${c.label}, ${k + 1} of ${CARDS.length}`}>
+            <p className="flex items-center gap-2 text-[15px] font-bold" style={{ color: c.color }}>
+              <span className="h-2.5 w-2.5 rounded-full" style={{ background: c.color, boxShadow: `0 0 12px ${c.color}` }} /> {c.label}
+            </p>
+            <p className="mt-0.5 text-[12px] text-[var(--deep-3)]">For {d.title} · {d.company}</p>
+            <Detail k={k} d={d} />
+          </article>
+        ))}
+      </div>
+      <div className="mt-2 flex justify-center gap-1.5">
+        {CARDS.map((c, k) => (
+          <button key={c.key} type="button" onClick={() => go(k)} aria-label={`Show ${c.label}`} aria-current={active === k} className="flex h-8 w-8 items-center justify-center">
+            <span className="block h-2 rounded-full transition-all" style={{ width: active === k ? 22 : 8, background: active === k ? c.color : "rgba(11,26,58,0.18)" }} />
+          </button>
+        ))}
+      </div>
     </div>
   );
 }

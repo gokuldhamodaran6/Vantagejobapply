@@ -39,7 +39,7 @@ export function CountryRules() {
         <div className={`mt-10 grid items-start gap-8 ${gl && !reduce ? "lg:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]" : ""}`}>
         {gl && !reduce && (
           <div className="lg:sticky lg:top-24">
-            <div className="relative mx-auto aspect-square w-full max-w-[540px]" aria-label="Interactive 3D globe of the countries Vantage covers">
+            <div className="relative mx-auto aspect-square w-full max-w-[330px] sm:max-w-[540px]" aria-label="Interactive 3D globe of the countries Vantage covers">
               <div aria-hidden className="pointer-events-none absolute inset-[8%] -z-10 rounded-full opacity-70 blur-3xl [background:radial-gradient(circle,#c9d8ff,transparent_70%)]" />
               <GlobeScene pins={pins} active={active} onPick={setActive} />
             </div>

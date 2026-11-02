@@ -87,25 +87,25 @@ function Postings({ pulse }: { pulse: number }) {
 }
 
 /** The glass prism. Real refraction and dispersion, turning gently with the pointer. */
-function Prism({ low }: { low: boolean }) {
+function Prism({ low, mobile }: { low: boolean; mobile?: boolean }) {
   const ref = useRef<THREE.Mesh>(null);
   const geo = useMemo(() => new THREE.CylinderGeometry(0.85, 0.85, 1.25, 3, 1), []);
   const edges = useMemo(() => new THREE.EdgesGeometry(geo), [geo]);
   useFrame((state) => {
     if (!ref.current) return;
     const t = state.clock.elapsedTime;
-    ref.current.rotation.y = Math.sin(t * 0.35) * 0.25 + state.pointer.x * 0.25;
-    ref.current.rotation.x = -Math.PI / 2 + state.pointer.y * 0.08;
+    ref.current.rotation.y = Math.sin(t * 0.35) * 0.25 + (mobile ? Math.sin(t * 0.5) * 0.2 : state.pointer.x * 0.25);
+    ref.current.rotation.x = -Math.PI / 2 + (mobile ? 0 : state.pointer.y * 0.08);
   });
   return (
-    <mesh ref={ref} position={PRISM} rotation={[-Math.PI / 2, 0, 0]} geometry={geo}>
+    <mesh ref={ref} position={PRISM} rotation={[-Math.PI / 2, 0, 0]} geometry={geo} scale={mobile ? 1.25 : 1}>
       <lineSegments geometry={edges}>
         <lineBasicMaterial color="#ffffff" transparent opacity={0.9} toneMapped={false} />
       </lineSegments>
       <MeshTransmissionMaterial
         backside
-        samples={low ? 3 : 6}
-        resolution={low ? 256 : 768}
+        samples={mobile ? 2 : low ? 3 : 6}
+        resolution={mobile ? 256 : low ? 384 : 768}
         thickness={1.1}
         roughness={0.04}
         transmission={1}
@@ -169,6 +169,30 @@ function Glow() {
   );
 }
 
+/** On phones each output is a glowing orb; the readable card sits below the scene. */
+function Orb({ i, pos, on }: { i: number; pos: THREE.Vector3; on: boolean }) {
+  const ref = useRef<THREE.Group>(null);
+  useFrame((st) => {
+    if (!ref.current) return;
+    const t = st.clock.elapsedTime;
+    const s = (on ? 1.5 : 1) * (1 + Math.sin(t * 2 + i) * 0.06);
+    ref.current.scale.x += (s - ref.current.scale.x) * 0.12;
+    ref.current.scale.y = ref.current.scale.z = ref.current.scale.x;
+  });
+  return (
+    <group ref={ref} position={pos}>
+      <mesh>
+        <sphereGeometry args={[0.16, 24, 24]} />
+        <meshBasicMaterial color={CARDS[i].color} toneMapped={false} />
+      </mesh>
+      <mesh>
+        <sphereGeometry args={[0.32, 24, 24]} />
+        <meshBasicMaterial color={CARDS[i].color} transparent opacity={on ? 0.28 : 0.14} blending={THREE.AdditiveBlending} depthWrite={false} toneMapped={false} />
+      </mesh>
+    </group>
+  );
+}
+
 function Card({ i, pos, active, hovered, dim, onHover, onPick, children }: { i: number; pos: THREE.Vector3; active: boolean; hovered: boolean; dim?: boolean; onHover: (i: number | null) => void; onPick: (i: number) => void; children: React.ReactNode }) {
   const g = useRef<THREE.Group>(null);
   useFrame(() => {
@@ -185,8 +209,8 @@ function Card({ i, pos, active, hovered, dim, onHover, onPick, children }: { i: 
         <Html transform distanceFactor={DF} zIndexRange={[20, 0]} occlude={false} pointerEvents="auto" portal={(useContext(Layer) || undefined) as React.RefObject<HTMLElement> | undefined}>
           <button
             type="button"
-            onPointerEnter={() => onHover(i)}
-            onPointerLeave={() => onHover(null)}
+            onPointerEnter={(e) => e.pointerType === "mouse" && onHover(i)}
+            onPointerLeave={(e) => e.pointerType === "mouse" && onHover(null)}
             onFocus={() => onHover(i)}
             onBlur={() => onHover(null)}
             onClick={() => onPick(i)}
@@ -203,7 +227,7 @@ function Card({ i, pos, active, hovered, dim, onHover, onPick, children }: { i: 
 }
 
 /** Drag anywhere to turn the whole scene; it eases back toward the pointer when you let go. */
-function Rig({ focus, children, compact }: { focus: number | null; children: React.ReactNode; compact: boolean }) {
+function Rig({ focus, children, compact, mobile }: { focus: number | null; children: React.ReactNode; compact: boolean; mobile?: boolean }) {
   const group = useRef<THREE.Group>(null);
   const drag = useRef({ on: false, x: 0, y: 0, rx: 0, ry: 0 });
   const { gl, camera } = useThree();
@@ -240,13 +264,17 @@ function Rig({ focus, children, compact }: { focus: number | null; children: Rea
       d.ry *= 0.985;
       d.rx *= 0.985;
     }
-    const ty = d.ry + (focus === null ? state.pointer.x * 0.18 : 0);
-    const tx = d.rx - (focus === null ? state.pointer.y * 0.08 : 0);
+    const t = state.clock.elapsedTime;
+    const ty = mobile ? Math.sin(t * 0.3) * 0.32 : d.ry + (focus === null ? state.pointer.x * 0.18 : 0);
+    const tx = mobile ? Math.sin(t * 0.23) * 0.08 : d.rx - (focus === null ? state.pointer.y * 0.08 : 0);
     g.rotation.y += (ty - g.rotation.y) * 0.08;
     g.rotation.x += (tx - g.rotation.x) * 0.08;
     // Camera: overview, or close on the chosen card.
     const base = compact ? 12.2 : 10;
-    if (focus === null) {
+    if (mobile) {
+      want.set(-0.15, 0, 8.4);
+      look.lerp(new THREE.Vector3(-0.15, 0, 0), 0.08);
+    } else if (focus === null) {
       want.set(0, 0, base);
       look.lerp(new THREE.Vector3(0, 0, 0), 0.08);
     } else {
@@ -261,7 +289,7 @@ function Rig({ focus, children, compact }: { focus: number | null; children: Rea
   return <group ref={group}>{children}</group>;
 }
 
-export default function HeroScene({ demo, demoKey, focus, setFocus, hovered, setHovered, compact, low }: {
+export default function HeroScene({ demo, demoKey, focus, setFocus, hovered, setHovered, compact, low, mobile = false, onLost }: {
   demo: HeroDemo;
   demoKey: number;
   focus: number | null;
@@ -270,6 +298,10 @@ export default function HeroScene({ demo, demoKey, focus, setFocus, hovered, set
   setHovered: (i: number | null) => void;
   compact: boolean;
   low: boolean;
+  /** Phones: a lighter scene that never takes touches (they scroll the page); the cards live below it. */
+  mobile?: boolean;
+  /** The browser dropped the WebGL context (memory pressure on phones): show the flat version instead. */
+  onLost?: () => void;
 }) {
   const wrap = useRef<HTMLDivElement>(null);
   const layer = useRef<HTMLDivElement>(null);
@@ -283,15 +315,25 @@ export default function HeroScene({ demo, demoKey, focus, setFocus, hovered, set
   const prismIn = useMemo(() => PRISM.clone().add(new THREE.Vector3(-0.5, -0.12, 0)), []);
 
   return (
-    <div ref={wrap} className="absolute inset-0 touch-pan-y" style={{ cursor: "grab" }}>
+    <div ref={wrap} className="absolute inset-0 touch-pan-y" style={mobile ? { pointerEvents: "none" } : { cursor: "grab" }}>
       <div ref={layer} className="pointer-events-none absolute inset-0 z-10" />
       <Layer.Provider value={layer}>
       <Canvas
-        dpr={low ? [1, 1.25] : [1, 1.75]}
+        dpr={mobile ? [1, 1.5] : low ? [1, 1.25] : [1, 1.75]}
         frameloop={visible ? "always" : "never"}
         camera={{ position: [0, 0, compact ? 12.2 : 10], fov: 32 }}
         gl={{ antialias: true, alpha: true, powerPreference: "high-performance" }}
-        onPointerMissed={() => setFocus(null)}
+        onPointerMissed={() => !mobile && setFocus(null)}
+        onCreated={({ gl }) => {
+          // Only a real loss (the canvas is still on the page and didn't come back) switches to the flat version;
+          // unmounting also fires this event and must not.
+          gl.domElement.addEventListener("webglcontextlost", (e) => {
+            e.preventDefault();
+            setTimeout(() => {
+              if (gl.domElement.isConnected && gl.getContext().isContextLost()) onLost?.();
+            }, 2000);
+          });
+        }}
       >
         <ambientLight intensity={0.8} />
         <directionalLight position={[3, 4, 5]} intensity={1.2} />
@@ -301,15 +343,17 @@ export default function HeroScene({ demo, demoKey, focus, setFocus, hovered, set
           <Lightformer form="rect" intensity={2} position={[5, -1, 2]} scale={[2, 6, 1]} color="#ffd9ec" />
           <Lightformer form="ring" intensity={2.5} position={[0, 0, -6]} scale={4} color="#e6ecff" />
         </Environment>
-        <Rig focus={focus} compact={compact}>
+        <Rig focus={mobile ? null : focus} compact={compact} mobile={mobile}>
           <Beam from={IN_FROM} to={prismIn} color="#ffffff" power={1} />
           <Postings pulse={demoKey} />
           <Glow />
-          <Prism low={low} />
+          <Prism low={low} mobile={mobile} />
           {SLOTS.map((s, i) => (
             <Beam key={i} from={prismOut} to={s} color={CARDS[i].color} power={hovered === i || focus === i ? 1.6 : hovered === null && focus === null ? 0.7 : 0.25} />
           ))}
 
+          {mobile && SLOTS.map((p, i) => <Orb key={i} i={i} pos={p} on={hovered === i} />)}
+          {!mobile && <>
           {/* the posting that came in */}
           <Posting>
             <div key={demoKey} className="v3-posting w-[250px] rounded-[18px] p-3.5">
@@ -345,6 +389,7 @@ export default function HeroScene({ demo, demoKey, focus, setFocus, hovered, set
             <Head i={3} sub="Defend every line" />
             <p className="mt-2 text-[10.5px] leading-snug text-[var(--deep-3)]">3 stories ready · 12 likely questions · 1 gap with an honest answer</p>
           </Card>
+          </>}
         </Rig>
       </Canvas>
       </Layer.Provider>
