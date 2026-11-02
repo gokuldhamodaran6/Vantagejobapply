@@ -111,7 +111,8 @@ export function heldTitle(target: string, c: ResumeContent): boolean {
  * the person never held, that opening is replaced by their real professional identity; the targeted specialisms stay.
  */
 export function honestHeadline(headline: string | undefined, jobTitle: string, c: ResumeContent, identity: string): string | undefined {
-  const parts = (headline || "").split(/\s+[|·•]\s+/).map((p) => p.trim()).filter(Boolean);
+  // Segments are split on "|" only: "SQL · Python · Power BI" is one specialism group.
+  const parts = (headline || "").split(/\s+\|\s+/).map((p) => p.trim()).filter(Boolean);
   if (!parts.length) return identity || headline;
   const jt = core(jobTitle);
   const first = core(parts[0]);

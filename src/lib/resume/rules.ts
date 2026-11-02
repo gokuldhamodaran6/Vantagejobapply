@@ -172,7 +172,7 @@ export function guard(original: ResumeContent, out: ResumeContent, jobText = "")
     if (!r.experience.some((e) => norm(e.company) === norm(o.company) && e.start === o.start)) r.experience.push(o);
   }
   // Headline specialisms must be things the person has, not the posting's wish list.
-  if (r.headline) r.headline = r.headline.split(/\s+[|·•]\s+/).filter((seg, i) => i === 0 || !unprovenTerms(seg, src, jobText, true).length).join(" | ");
+  if (r.headline) r.headline = r.headline.split(/\s+\|\s+/).filter((seg, i) => i === 0 || !unprovenTerms(seg, src, jobText, true).length).join(" | ");
   r.education = original.education;
   r.certifications = (r.certifications || []).filter((c) => (original.certifications || []).some((o) => norm(o).includes(norm(c).trim().split(" ").slice(0, 2).join(" "))));
   if (!r.certifications.length) r.certifications = original.certifications;

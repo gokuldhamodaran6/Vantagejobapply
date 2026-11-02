@@ -96,7 +96,7 @@ const CRAFT = `WRITING STANDARD (what Google, Meta, Amazon and Fortune 500 hirin
 const json = (x: unknown) => JSON.stringify(x);
 
 function identityFrom(c: ResumeContent): string {
-  const h = (c.headline || "").split(/\s+[|·•]\s+/)[0]?.trim();
+  const h = (c.headline || "").split(/\s+\|\s+/)[0]?.trim();
   if (h && h.length <= 48) return h;
   const t = (c.experience || []).find((e) => !e.brief && e.title)?.title || "";
   return t.replace(/\(.*?\)/g, "").trim();
