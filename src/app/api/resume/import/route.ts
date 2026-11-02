@@ -2,6 +2,9 @@ import { structureResume } from "@/lib/tailor";
 import { writeRoleResume } from "@/lib/resume/write-role";
 import { extractKeywords, scoreResume } from "@/lib/ats";
 import { fileToText } from "@/lib/resume/extract";
+import { embeddedResume } from "@/lib/resume/pdf";
+import { coverage, norm } from "@/lib/resume/rules";
+import type { ResumeContent } from "@/lib/types";
 import { marketKeywords } from "@/lib/resume/market";
 import { json, loadUserContext } from "@/lib/server-user";
 import { runWithAi } from "@/lib/ai-context";
@@ -14,6 +17,7 @@ export async function POST(req: Request) {
   if (!ctx) return json({ error: "Log in first." }, 401);
 
   let text = "";
+  let embedded: ResumeContent | null = null;
   const type = req.headers.get("content-type") || "";
   try {
     if (type.includes("multipart/form-data")) {
@@ -21,7 +25,9 @@ export async function POST(req: Request) {
       const file = form.get("file");
       if (!(file instanceof File)) return json({ error: "Choose a file to upload." }, 400);
       if (file.size > 8 * 1024 * 1024) return json({ error: "That file is over 8 MB. Upload a smaller PDF or Word file." }, 400);
-      text = await fileToText(file.name, file.type, await file.arrayBuffer());
+      const buf = await file.arrayBuffer();
+      if (file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf")) embedded = await embeddedResume(buf.slice(0));
+      text = await fileToText(file.name, file.type, buf);
     } else {
       text = ((await req.json().catch(() => ({}))) as { text?: string }).text || "";
     }
@@ -30,7 +36,12 @@ export async function POST(req: Request) {
   }
   if (text.trim().length < 80) return json({ error: "We couldn't find enough text in that resume. If it's a scanned image, paste the text instead." }, 400);
 
-  const { content, ai } = await runWithAi({ userId: ctx.user.id }, () => structureResume(text, ctx.profile.full_name || ""));
+  // A PDF Vantage made carries its own structured copy: use it when the visible text still matches it
+  // (the person may have edited the file elsewhere since).
+  const src = norm(text);
+  const lines = embedded ? [...(embedded.experience || []).flatMap((e) => e.bullets || []), ...(embedded.projects || []).flatMap((p) => p.bullets || [])] : [];
+  const matches = embedded && lines.length > 0 && lines.filter((b) => coverage(b, src) >= 0.8).length >= lines.length * 0.9 && src.includes(norm(embedded.name || "").split(" ")[0] || "#");
+  const { content, ai } = matches ? { content: embedded!, ai: false } : await runWithAi({ userId: ctx.user.id }, () => structureResume(text, ctx.profile.full_name || ""));
   if (!content.email) content.email = ctx.profile.email;
   if (!content.name) content.name = ctx.profile.full_name || "";
 

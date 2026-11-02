@@ -6,7 +6,7 @@ import { polishResume } from "@/lib/resume/polish";
 import { fitToPages } from "@/lib/resume/pdf";
 import { repairResume } from "@/lib/resume/repair";
 import { SCHEMA, clean, coverage, formatPrompt, lintLetter, norm } from "@/lib/resume/rules";
-import { parseResumeText } from "@/lib/resume/parse";
+import { parseQuality, parseResumeText } from "@/lib/resume/parse";
 import { formatFor, pagesFor, type CountryFormat } from "@/lib/resume/country";
 import { harvardScore, lintBullets, type HarvardSummary } from "@/lib/resume/harvard";
 import type { LetterTone, ResumeContent } from "@/lib/types";
@@ -40,7 +40,10 @@ Return ONLY JSON matching: ${SCHEMA}`,
   ai.phone ||= parsed.phone;
   ai.links = ai.links?.length ? ai.links : parsed.links;
   ai.name ||= parsed.name;
-  return { content: clean(ai), ai: true };
+  const aiClean = clean(ai);
+  // Keep whichever reading is cleaner; the AI can garble a layout the parser reads perfectly (and the reverse).
+  if (parseQuality(parsed) > parseQuality(aiClean)) return { content: parsed, ai: false };
+  return { content: aiClean, ai: true };
 }
 
 /* ------------------------------------------------------------------ */

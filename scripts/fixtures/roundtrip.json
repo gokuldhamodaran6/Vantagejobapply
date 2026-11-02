@@ -1,0 +1,245 @@
+{
+ "name": "Sam Rivera",
+ "headline": "Business & Data Analyst | SQL · Python · Power BI | B2B Growth Analytics | AI Product Builder",
+ "location": "Springfield, IL",
+ "email": "sam.rivera@example.com",
+ "phone": "(555) 010-2030",
+ "links": [
+  "linkedin.com/in/samrivera",
+  "samrivera.dev"
+ ],
+ "summary": "Business and data analyst with 5+ years turning marketing and operations data into decisions for leadership teams across North America, Europe and APAC. Promoted to Senior Analyst at Northwind Tech, contributed to a 35% increase in qualified pipeline across 100+ enterprise accounts, and led a team of 4 digital marketers at Contoso Group. Certified Scrum Product Owner and MBA candidate in Management Science & Quantitative Methods who also builds AI analytics tools.",
+ "skills": [
+  {
+   "group": "Business Analytics",
+   "items": [
+    "SQL (PostgreSQL, DuckDB)",
+    "Python (pandas)",
+    "Advanced Excel",
+    "Power BI",
+    "Tableau",
+    "Looker Studio",
+    "GA4",
+    "RapidMiner",
+    "A/B testing",
+    "KPI and metric design",
+    "forecasting",
+    "predictive modeling"
+   ]
+  },
+  {
+   "group": "Business Analysis & Product",
+   "items": [
+    "Requirements gathering",
+    "user stories & acceptance criteria",
+    "root-cause analysis",
+    "UAT & data validation",
+    "competitive and market analysis",
+    "stakeholder reporting",
+    "product strategy",
+    "roadmaps and release planning",
+    "Agile/Scrum"
+   ]
+  },
+  {
+   "group": "Growth Marketing",
+   "items": [
+    "Google Ads",
+    "Meta Ads",
+    "LinkedIn Ads",
+    "SEO and content",
+    "account-based marketing (Demandbase, ZoomInfo, Apollo, Lusha, LinkedIn Sales Navigator)",
+    "email and automation (HubSpot, Zoho CRM, ActiveCampaign)",
+    "events and webinars",
+    "SEMrush"
+   ]
+  },
+  {
+   "group": "Engineering & Platforms",
+   "items": [
+    "Next.js",
+    "TypeScript",
+    "React",
+    "FastAPI",
+    "Playwright",
+    "Docker",
+    "AWS",
+    "LLM APIs & AI agents",
+    "Supabase",
+    "GitHub",
+    "REST APIs",
+    "Salesforce",
+    "HubSpot",
+    "JIRA",
+    "Asana",
+    "Figma",
+    "WordPress",
+    "Liferay",
+    "Canva",
+    "Adobe Creative Suite",
+    "Microsoft Office Suite",
+    "Render"
+   ]
+  }
+ ],
+ "experience": [
+  {
+   "title": "Marketing & Communications Graduate Assistant",
+   "company": "Prairie State University, School of Teaching and Learning",
+   "location": "Peoria, IL",
+   "start": "Jul 2025",
+   "end": "Present",
+   "bullets": [
+    "Manage the department's marketing calendar across social media, email, events, video and the WordPress website.",
+    "Create videos, graphics and written content, and track social, email and website engagement in Excel and Power BI dashboards to improve departmental outreach."
+   ]
+  },
+  {
+   "title": "Academic Aide, Data Analytics",
+   "company": "Prairie State University",
+   "location": "Peoria, IL",
+   "start": "Feb 2025",
+   "end": "Jul 2025",
+   "bullets": [
+    "Supported 20+ graduate students in RapidMiner and applied analytics: data preparation, modeling and interpretation.",
+    "Provided one-to-one analytics support adapted for a visually impaired student."
+   ]
+  },
+  {
+   "title": "Senior Analyst, Growth Marketing",
+   "company": "Northwind Tech",
+   "location": "Pune, India",
+   "start": "Nov 2023",
+   "end": "Dec 2024",
+   "bullets": [
+    "Promoted from Digital Marketing Analyst to Senior Analyst in Nov 2023.",
+    "Analyzed account and persona data for an account-based marketing program covering 100+ enterprise accounts (HubSpot, Demandbase, ZoomInfo, Apollo), contributing to a 35% increase in qualified pipeline.",
+    "Built Power BI and Google Analytics dashboards with SQL and Python to track ROAS, CPL, CTR and pipeline contribution; delivered weekly performance reports with optimization recommendations to senior leadership.",
+    "Planned and ran multi-channel campaigns for SAP-focused enterprise solutions across North America, Europe and APAC, each with its own budget, timeline and KPIs.",
+    "Managed the WordPress and Liferay websites and global events and webinars, and mentored a team of digital marketers."
+   ]
+  },
+  {
+   "title": "Digital Marketing Analyst",
+   "company": "Northwind Tech",
+   "location": "Pune, India",
+   "start": "Nov 2022",
+   "end": "Oct 2023",
+   "bullets": [
+    "Ran A/B tests on creatives and audiences across Google Ads, LinkedIn and Meta, and adjusted bids and targeting from daily performance data.",
+    "Tracked organic performance in SEMrush and Google Analytics to guide keyword and on-page work, supporting an SEO and content program that contributed to a 140% increase in digital impressions.",
+    "Directed brand and creative for the Seed funding round and the Acme Solutions acquisition."
+   ]
+  },
+  {
+   "title": "Digital Marketing Specialist",
+   "company": "Contoso Group of Companies",
+   "location": "Pune, India",
+   "start": "Nov 2020",
+   "end": "Nov 2022",
+   "bullets": [
+    "Led a team of 4 digital marketers running paid media on Meta, LinkedIn and Google Ads for multiple B2B industrial brands, each with its own goals, budget and KPIs.",
+    "Automated weekly reporting with SQL and Python into Power BI, Tableau and Excel dashboards, giving leadership and clients visibility into CPL, CTR, ROAS and lead quality.",
+    "Grew combined social following by 60%+ through planned content calendars, and produced and edited 50+ brand and product videos.",
+    "Built WordPress websites for Contoso Solutions, Contoso Institute and Contoso Academy, and set up lead automation, email workflows and CRM integration."
+   ]
+  },
+  {
+   "title": "Digital Marketing Executive",
+   "company": "Lunchbox Co",
+   "start": "Nov 2020",
+   "end": "Jan 2021",
+   "bullets": [],
+   "brief": true
+  },
+  {
+   "title": "Business Development Intern",
+   "company": "AirFresh",
+   "start": "Sep 2020",
+   "end": "Nov 2020",
+   "bullets": [],
+   "brief": true
+  },
+  {
+   "title": "Marketing Analyst Intern",
+   "company": "Moto Sports International",
+   "start": "Nov 2018",
+   "end": "Dec 2019",
+   "bullets": [],
+   "brief": true
+  }
+ ],
+ "projects": [
+  {
+   "name": "Fable Analytics — AI analytics platform (live, fable-analytics-web.onrender.com)",
+   "tech": "Python/FastAPI, React/TypeScript, PostgreSQL, Supabase, REST APIs, LLM APIs",
+   "bullets": [
+    "Built Fable Analytics, a live AI analytics platform that answers business questions in everyday language, owning product, data and delivery from idea to production in 10 months across 58+ release cycles and 130+ specs.",
+    "Integrated 20+ data sources (PostgreSQL, Snowflake, BigQuery, GA4, HubSpot, Stripe and more) behind a governed metric layer so every number traces back to its source query; benchmarked Hex, Looker Studio, Metabase and Mode to set three-tier pricing."
+   ]
+  },
+  {
+   "name": "Jobpilot — AI job-application platform (live, jobpilot-app.onrender.com)",
+   "tech": "Next.js, TypeScript, Supabase/PostgreSQL, Playwright, Docker, Chrome extension, LLM APIs",
+   "bullets": [
+    "Built Jobpilot, a live AI job-application platform that writes a resume and cover letter for each job with a truth guard against invented facts, and fills Greenhouse, Lever, Ashby, Workday and iCIMS forms through a Chrome extension.",
+    "Built job discovery across about 250 employers' career sites every 3 hours with ghost-job detection, cut ranked job search from 4.5 s to 0.3 s, and turned inbox emails into tracked applications and calendar events."
+   ]
+  },
+  {
+   "name": "TradeDesk — AI-assisted index options trading desk (private)",
+   "tech": "Python, broker API, LLM APIs, AWS, Telegram",
+   "bullets": [
+    "Built TradeDesk, an AI-assisted trading desk for NIFTY, BANKNIFTY and SENSEX index options that plans each day, paper-trades new strategies and reports to Telegram, with risk limits enforced in plain code.",
+    "Built a strategy research loop with nightly-retrained forecast and volatility models, a 12-year backtest of 288 strategy variants, and 534 automated tests."
+   ]
+  },
+  {
+   "name": "samrivera.dev — WordPress CMS optimization (live)",
+   "tech": "WordPress, PHP (custom theme and plugin), Rank Math, LiteSpeed Cache, GA4, Python",
+   "bullets": [
+    "Refreshed 15 older articles with new covers, 43 data graphics, tuned SEO fields and FAQ schema, raising their average Rank Math score from 53 to 76.",
+    "Rebuilt the site on a custom WordPress theme with structured data, llms.txt and IndexNow; triaged 3,447 spam comments, found 174 unused media files (136 MB), and added a leads inbox with GA4 lead events."
+   ]
+  },
+  {
+   "name": "Content Studio — LinkedIn and content publishing automation (live)",
+   "tech": "WordPress plugin (PHP), Python, Playwright, LinkedIn API, GitHub, LLM APIs",
+   "bullets": [
+    "Built a custom WordPress plugin that plans, drafts and designs 3 SEO articles a week, each published only after one-click approval by email.",
+    "Automated LinkedIn publishing through LinkedIn's official API: each approved article becomes a PDF carousel 3 hours after publishing and a 6-second motion post the next morning."
+   ]
+  }
+ ],
+ "education": [
+  {
+   "degree": "MBA, Management Science & Quantitative Methods",
+   "school": "Prairie State University",
+   "location": "Peoria, IL",
+   "end": "Expected Dec 2026"
+  },
+  {
+   "degree": "BBA, Management",
+   "school": "Lakeside College of Arts & Science",
+   "location": "Pune, India",
+   "end": "Apr 2020"
+  }
+ ],
+ "certifications": [
+  "Certified Scrum Product Owner (Scrum Alliance)",
+  "Google Data Analytics (Google)",
+  "Marketing Analytics (Meta)",
+  "HubSpot CRM, Marketing Automation & Digital Advertising (HubSpot)",
+  "ABX Digital Marketing Specialist (Demandbase)",
+  "SAP Professional Fundamentals (SAP)",
+  "Foundations of Business Strategy (University of Virginia)",
+  "Semrush SEO: On-Page & Technical, Keyword Research (Semrush)",
+  "Product & Performance Marketing (GrowthSchool)"
+ ],
+ "awards": [
+  "Emerging Leader, Northwind Tech (2024)",
+  "Outstanding Contribution, Seed funding round and Acme Solutions acquisition, Northwind Tech (2023)",
+  "Star of the Month, Northwind Tech (2023)"
+ ],
+ "additional": []
+}

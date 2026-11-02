@@ -1,6 +1,6 @@
 import "server-only";
 import { tidyResume } from "@/lib/resume/health";
-import { PDFDocument, PDFFont, PDFPage, StandardFonts, rgb } from "pdf-lib";
+import { PDFDict, PDFDocument, PDFFont, PDFHexString, PDFName, PDFPage, PDFString, StandardFonts, rgb } from "pdf-lib";
 import { RESUME_STYLES } from "./styles";
 import { formatFor, sectionOrderFor } from "./country";
 import type { ResumeContent, ResumeStyle } from "@/lib/types";
@@ -136,7 +136,25 @@ async function setup(country: string, style: ResumeStyle) {
   return { c, st };
 }
 
-function finish(doc: PDFDocument, title: string, author: string) {
+// A structured copy of the resume rides in the PDF's info dictionary under a neutral key, so re-uploading
+// a PDF Vantage made reads back exactly, instead of being re-parsed from wrapped text.
+const DATA_KEY = "ResumeData";
+const info = (doc: PDFDocument) => (doc as unknown as { getInfoDict(): PDFDict }).getInfoDict();
+export async function embeddedResume(bytes: ArrayBuffer | Uint8Array): Promise<ResumeContent | null> {
+  try {
+    const doc = await PDFDocument.load(bytes, { updateMetadata: false, ignoreEncryption: true });
+    const v = info(doc).lookup(PDFName.of(DATA_KEY));
+    const txt = v instanceof PDFHexString || v instanceof PDFString ? v.decodeText() : "";
+    if (!txt) return null;
+    const r = JSON.parse(txt) as ResumeContent & { v?: number };
+    return r && typeof r === "object" && Array.isArray(r.experience) ? r : null;
+  } catch {
+    return null;
+  }
+}
+
+function finish(doc: PDFDocument, title: string, author: string, data?: ResumeContent) {
+  if (data) info(doc).set(PDFName.of(DATA_KEY), PDFHexString.fromText(JSON.stringify(data)));
   // Neutral metadata: nothing that names a tool.
   doc.setTitle(title);
   doc.setAuthor(author);
@@ -283,7 +301,7 @@ export async function resumePdf(raw: ResumeContent, opts: { style?: ResumeStyle;
     heading(c, st, "Additional");
     bullets(c, r.additional);
   }
-  return finish(c.doc, `${r.name || fmt.docName} - ${fmt.docName}`, r.name || "");
+  return finish(c.doc, `${r.name || fmt.docName} - ${fmt.docName}`, r.name || "", r);
 }
 
 export async function coverLetterPdf(letter: string, raw: Pick<ResumeContent, "name" | "headline" | "location" | "phone" | "email" | "links">, opts: { style?: ResumeStyle; country?: string; name?: string } = {}): Promise<Uint8Array> {

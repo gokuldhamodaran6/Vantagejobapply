@@ -757,7 +757,41 @@ function studioChecks() {
 }
 
 studioChecks();
-plannerChecks().then(precheckChecks).then(aiMeterChecks).then(() => {
+
+/** A resume Vantage renders must read back exactly: from its embedded copy, and from the visible text alone. */
+async function roundTripChecks() {
+  const { resumePdf, embeddedResume } = await import("../src/lib/resume/pdf");
+  const { fileToText } = await import("../src/lib/resume/extract");
+  const { parseResumeText: parseText, parseQuality } = await import("../src/lib/resume/parse");
+  const src = JSON.parse(readFileSync("scripts/fixtures/roundtrip.json", "utf8"));
+  const pdf = await resumePdf(src);
+  const emb = await embeddedResume(pdf);
+  ok(!!emb && JSON.stringify(emb.experience) === JSON.stringify(src.experience) && JSON.stringify(emb.projects) === JSON.stringify(src.projects), "round trip: a Vantage PDF carries its exact structured copy");
+  const text = await fileToText("r.pdf", "application/pdf", pdf.buffer.slice(pdf.byteOffset, pdf.byteOffset + pdf.byteLength) as ArrayBuffer);
+  const p = parseText(text, src.name);
+  const pick = (r: typeof src) => ({
+    summary: r.summary,
+    exp: r.experience.map((e: { title: string; company: string; location?: string; start?: string; end?: string; bullets: string[] }) => [e.title, e.company, e.location || "", e.start, e.end, e.bullets.join(" | ")]),
+    proj: (r.projects || []).map((x: { name: string; tech?: string; bullets: string[] }) => [x.name, x.tech || "", x.bullets.join(" | ")]),
+    certs: r.certifications,
+    edu: (r.education || []).map((e: { degree: string; school: string; location?: string; end?: string }) => [e.degree, e.school, e.location || "", e.end]),
+    skills: (r.skills || []).map((g: { group: string; items: string[] }) => [g.group, g.items.join(", ")]),
+  });
+  const a = pick(src), b = pick(p);
+  for (const k of Object.keys(a) as (keyof typeof a)[]) ok(JSON.stringify(a[k]) === JSON.stringify(b[k]), `round trip (text only): ${k} reads back exactly`);
+  ok(p.headline === src.headline && !(p.summary || "").includes("|"), "round trip: headline stays out of the summary");
+  ok(parseQuality(p) === 0, "round trip: clean reading scores as clean");
+  for (const style of ["modern", "compact", "executive"] as const) {
+    const pd = await resumePdf(src, { style });
+    const t2 = await fileToText("r.pdf", "application/pdf", pd.buffer.slice(pd.byteOffset, pd.byteOffset + pd.byteLength) as ArrayBuffer);
+    const q = pick(parseText(t2, src.name));
+    ok(JSON.stringify(q.exp) === JSON.stringify(a.exp) && JSON.stringify(q.proj) === JSON.stringify(a.proj), `round trip: ${style} template reads back exactly`);
+  }
+  const garbled = { ...p, projects: [{ name: "Project", bullets: ["Fable Analytics — AI analytics platform (live, x.onrender.com)"] }, { name: "Python/FastAPI, React/TypeScript, PostgreSQL", bullets: ["Built it."] }] };
+  ok(parseQuality(garbled) < parseQuality(p), "round trip: a garbled reading scores worse than a clean one");
+}
+
+roundTripChecks().then(() => plannerChecks()).then(precheckChecks).then(aiMeterChecks).then(() => {
   console.log(fail ? `\n${fail} failed` : "\nAll checks passed");
   process.exit(fail ? 1 : 0);
 });

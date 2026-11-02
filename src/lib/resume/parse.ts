@@ -149,7 +149,9 @@ function parseHeader(headerLines: string[]): { title: string; company: string; l
       continue;
     }
     const m = p.match(/^(.+?),\s*([A-Z][a-zA-Z.' ]+(?:,\s*[A-Z][a-zA-Z ]+)?)$/);
-    if (m && !TITLE_WORDS.test(m[2]) && (LOCATION_RE.test(m[2]) || /^[A-Z][a-z]+(?: [A-Z][a-z]+)?(, ?[A-Z]{2,}[a-z]*)?$/.test(m[2]))) pieces.push(m[1].trim(), `@loc:${m[2].trim()}`);
+    // "Academic Aide, Data Analytics" + "Illinois State University · Normal, IL": the comma part qualifies the title.
+    const qualifiedTitle = m && parts.length >= 2 && TITLE_WORDS.test(m[1]) && !COMPANY_WORDS.test(m[1]) && !SCHOOL_WORDS.test(m[1]);
+    if (m && !qualifiedTitle && !TITLE_WORDS.test(m[2]) && (LOCATION_RE.test(m[2]) || /^[A-Z][a-z]+(?: [A-Z][a-z]+)?(, ?[A-Z]{2,}[a-z]*)?$/.test(m[2]))) pieces.push(m[1].trim(), `@loc:${m[2].trim()}`);
     else pieces.push(p);
   }
   let location = pieces.find((p) => p.startsWith("@loc:"))?.slice(5);
@@ -213,11 +215,26 @@ export function parseBriefRoles(text: string): Exp[] {
 }
 
 /** Pull "Earlier experience: …" lines (and their wrapped continuations) out of the section. */
+const EARLIER_HEAD = /^(earlier|additional|previous|prior|other|early[- ]career)\s+(experience|roles|positions|work|career)$/i;
 function takeBriefLines(lines: string[]): { rest: string[]; brief: Exp[] } {
   const rest: string[] = [];
   const brief: Exp[] = [];
   for (let i = 0; i < lines.length; i++) {
     const l = lines[i].trim();
+    // "Earlier experience" on its own line, then one role per line: "Title, Company   Nov 2020 – Jan 2021".
+    if (EARLIER_HEAD.test(l)) {
+      while (i + 1 < lines.length) {
+        const n = lines[i + 1].trim();
+        if (!n || BULLET.test(n) || headingOf(n) || !RANGE_RE.test(n)) break;
+        // A role that has bullets under it is a full role, not a one-liner.
+        if (i + 2 < lines.length && BULLET.test(lines[i + 2].trim())) break;
+        const r = parseBriefRoles(n.replace(/\s{3,}/g, " "));
+        if (!r.length) break;
+        brief.push(...r);
+        i++;
+      }
+      continue;
+    }
     if (!EARLIER.test(l)) {
       rest.push(lines[i]);
       continue;
@@ -271,6 +288,56 @@ function parseExperience(all: string[]): Exp[] {
     .filter((j) => j.title || j.company || j.bullets.length);
 }
 
+const TECH_PREFIX = /^(tech(nologies)?|stack|tools|built with|tech stack)\s*[:–—-]\s*/i;
+/** "Python/FastAPI, React, PostgreSQL" — a short comma list with no sentence: a project's stack line. */
+function isTechList(t: string) {
+  if (TECH_PREFIX.test(t)) return true;
+  const parts = t.split(/,\s*/);
+  return parts.length >= 3 && !endsSentence(t.replace(/\)$/, "")) && !VERB_START.test(t) && parts.every((p) => p.trim().split(/\s+/).length <= 5);
+}
+
+/**
+ * Projects: a name line, an optional stack line, then bullets (or short paragraphs).
+ * Wrapped bullet lines are re-joined; a new name line starts the next project.
+ */
+function parseProjects(lines: string[]): NonNullable<ResumeContent["projects"]> {
+  type P = { name: string; tech?: string; bullets: string[] };
+  const out: P[] = [];
+  let cur: P | null = null;
+  for (const raw of lines) {
+    const isB = BULLET.test(raw);
+    const text = raw.replace(BULLET, "").trim();
+    if (!text) continue;
+    const last = cur?.bullets[cur.bullets.length - 1];
+    if (isB) {
+      if (!cur) out.push((cur = { name: "", bullets: [] }));
+      cur.bullets.push(text);
+      continue;
+    }
+    if (cur && last !== undefined && !endsSentence(last)) {
+      cur.bullets[cur.bullets.length - 1] = `${last} ${text}`.replace(/\s+/g, " ");
+      continue;
+    }
+    if (cur && !cur.bullets.length && !cur.tech && cur.name && isTechList(text)) {
+      cur.tech = text.replace(TECH_PREFIX, "").trim();
+      continue;
+    }
+    if (cur && !cur.bullets.length && cur.name && !cur.tech && /^[a-z(]/.test(text) && !endsSentence(cur.name)) {
+      cur.name = `${cur.name} ${text}`;
+      continue;
+    }
+    // Paragraph-style projects: a long sentence under a name is its description.
+    if (cur && cur.name && text.length > 80 && endsSentence(text) && (cur.tech || cur.bullets.length || VERB_START.test(text))) {
+      cur.bullets.push(text);
+      continue;
+    }
+    out.push((cur = { name: text, bullets: [] }));
+  }
+  return out
+    .map((p) => ({ ...p, name: p.name.replace(/\s{3,}/g, " · ").trim() || "Project", bullets: p.bullets.map((b) => b.replace(/\s+/g, " ").trim()).filter((b) => b.length > 2) }))
+    .filter((p) => p.name !== "Project" || p.bullets.length);
+}
+
 function parseEducation(lines: string[]): NonNullable<ResumeContent["education"]> {
   const blocks = toBlocks(lines).map((b) => b.text);
   const out: NonNullable<ResumeContent["education"]> = [];
@@ -298,6 +365,7 @@ function parseEducation(lines: string[]): NonNullable<ResumeContent["education"]
       const [school, ...loc] = schoolPart.split(/,\s*/);
       cur.school = school.trim();
       if (loc.length) cur.location = loc.join(", ");
+      else cur.location ||= parts.find((p) => LOCATION_RE.test(p) && p !== schoolPart);
       if (end) cur.end = end;
     } else if (hasDegree && (!cur || cur.degree)) {
       cur = { degree: stripped, school: "", end };
@@ -330,7 +398,7 @@ function parseSkills(lines: string[]): NonNullable<ResumeContent["skills"]> {
       addItems(groups[groups.length - 1], line, false);
     }
   }
-  return groups.map((g) => ({ group: g.group, items: [...new Set(g.items.map((i) => i.trim()).filter((i) => i.length > 1 && i.length < 70))] })).filter((g) => g.items.length);
+  return groups.map((g) => ({ group: g.group, items: [...new Set(g.items.map((i) => i.trim()).filter((i) => i.length > 1 && i.length < 130))] })).filter((g) => g.items.length);
 }
 
 function addItems(g: { items: string[] }, text: string, continuation: boolean) {
@@ -367,7 +435,8 @@ function parseList(lines: string[]): string[] {
     for (const l of clean) {
       const isB = BULLET.test(l);
       const t = l.replace(BULLET, "");
-      joined += joined ? (isB || /[•·|;]\s*$/.test(joined) ? " • " : " ") + t : t;
+      const itemEnded = /\)\s*$/.test(joined) && /^[A-Z0-9]/.test(t);
+      joined += joined ? (isB || itemEnded || /[•·|;]\s*$/.test(joined) ? " • " : " ") + t : t;
     }
     items = joined.split(/\s+[•·|]\s+|;\s+/);
   } else {
@@ -414,11 +483,11 @@ export function parseResumeText(raw: string, fallbackName = ""): ResumeContent {
   }
   const headline = headerLines.find((l) => l !== nameLine && !EMAIL_RE.test(l) && !PHONE_RE.test(l) && !new RegExp(URL_RE.source, "i").test(l) && l.length < 150 && TITLE_WORDS.test(l) && !LOCATION_RE.test(l.trim()));
   URL_RE.lastIndex = 0;
-  const headerSummary = headerLines.filter((l) => l.length > 90 && !EMAIL_RE.test(l));
+  const headerSummary = headerLines.filter((l) => l.length > 90 && !EMAIL_RE.test(l) && l !== headline && l !== nameLine && !/\s\|\s/.test(l));
 
   const summary = [...headerSummary, ...toBlocks(sections.summary).map((b) => b.text)].join(" ").replace(/\s+/g, " ").trim();
 
-  const projects = parseExperience(sections.projects).map((p) => ({ name: [p.title, p.company].filter(Boolean).join(" — ") || "Project", tech: undefined, bullets: p.bullets }));
+  const projects = parseProjects(sections.projects);
 
   return {
     name,
@@ -437,3 +506,26 @@ export function parseResumeText(raw: string, fallbackName = ""): ResumeContent {
     additional: parseList(sections.additional),
   };
 }
+
+/**
+ * How cleanly a structured resume reads: lower is worse. Used to choose between two readings of the same file
+ * (the AI's and this parser's), so a garbled reading never replaces a clean one.
+ */
+export function parseQuality(c: ResumeContent, headline?: string): number {
+  let q = 0;
+  for (const e of c.experience || []) {
+    if (!e.title) q -= 3;
+    if (!e.company && !e.brief) q -= 2;
+    if (!e.start && !e.end) q -= 1;
+    if (/^(earlier|additional|previous|other) (experience|roles)$/i.test(e.company || "")) q -= 3;
+  }
+  for (const p of c.projects || []) {
+    if (!p.name || /^project$/i.test(p.name) || isTechList(p.name)) q -= 3;
+    if (p.bullets.some((b) => /\s[—–]\s[A-Z][^.]*\((live|private)/.test(b))) q -= 3;
+  }
+  for (const x of c.certifications || []) if (x.length > 110) q -= 2;
+  const h = (headline || c.headline || "").trim();
+  if (h && (c.summary || "").startsWith(h)) q -= 3;
+  return q;
+}
+
