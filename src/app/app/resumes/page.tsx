@@ -1,4 +1,5 @@
 "use client";
+import { repairResume } from "@/lib/resume/repair";
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ArrowRight, Check, ClipboardPaste, Download, FileText, Loader2, MessageSquareText, PenLine, RefreshCw, Sparkles, Target, TrendingUp, UploadCloud, X } from "lucide-react";
@@ -44,7 +45,8 @@ export default function ResumesPage() {
       s.from("target_roles").select("id,title,levels,active,coach").order("priority").order("created_at"),
       s.from("applications").select("status,target_role_id,resume_style,letter_tone").eq("user_id", userId || "").limit(5000),
     ]);
-    setList((r.data as R[]) || []);
+    // Older imports could store a broken layout; show it repaired (the editor offers to save the fix).
+    setList(((r.data as R[]) || []).map((x) => ({ ...x, content: repairResume(x.content) })));
     setRoles(((t.data as RoleRow[]) || []).filter((x) => x.active));
     setApps((a.data as AppLite[]) || []);
   }, [userId]);

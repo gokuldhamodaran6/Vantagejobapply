@@ -10,7 +10,7 @@ import { extractKeywords, resumeText, scoreResume } from "@/lib/ats";
 import { searchVariants } from "@/lib/jobs/roles";
 import { RESUME_STYLES } from "@/lib/resume/styles";
 import { autoFix, checkResume } from "@/lib/resume/check";
-import { splitItems } from "@/lib/resume/repair";
+import { repairNotes, repairResume, splitItems } from "@/lib/resume/repair";
 import { harvardScore, lintBullets } from "@/lib/resume/harvard";
 import { COUNTRY_FORMATS, DEFAULT_FORMAT, FORMAT_CODES, formatFor, formatLine, pagesFor } from "@/lib/resume/country";
 import type { Resume, ResumeContent, ResumeStyle } from "@/lib/types";
@@ -31,7 +31,14 @@ export default function ResumeEditor({ params }: { params: Promise<{ id: string 
     supabaseBrowser().from("resumes").select("*").eq("id", id).single().then(({ data }) => {
       if (data) {
         setR(data as Resume);
-        setC((data as Resume).content);
+        const stored = (data as Resume).content;
+        const fixed = repairResume(stored);
+        const notes = repairNotes(stored, fixed);
+        setC(fixed);
+        if (notes.length) {
+          setDirty(true);
+          setToast(`${notes[0]}${notes.length > 1 ? ` (+${notes.length - 1} more fixes)` : ""}. Save to keep it.`);
+        }
       }
     });
   }, [id]);
