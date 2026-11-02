@@ -1,7 +1,7 @@
 import "server-only";
 import { aiConfigured, claude, extractJson } from "@/lib/ai";
 import { playbookFor } from "@/lib/resume/playbooks";
-import { gradeLines, type SkillProof } from "@/lib/resume/recruiter";
+import { gradeLines, skillLabel, type SkillProof } from "@/lib/resume/recruiter";
 import type { ResumeContent } from "@/lib/types";
 
 /**
@@ -28,10 +28,10 @@ export async function buildInterviewKit(c: ResumeContent, target: { title: strin
   const picked = [...lines.filter((l) => l.grade === "strong"), ...lines.filter((l) => l.grade !== "strong" && l.section === "experience")].slice(0, 8);
   const refs = picked.map((l) => ({ ref: `${l.section}:${l.index}:${l.bullet}`, role: l.role, line: l.text }));
   const pb = target.company ? playbookFor(target.company) : null;
-  const missing = gaps.filter((g) => g.status === "missing").slice(0, 3).map((g) => g.skill);
+  const missing = gaps.filter((g) => g.status === "missing").slice(0, 3).map((g) => skillLabel(g.skill));
   const src = JSON.stringify(c);
   const base: InterviewKit = {
-    target: target.title,
+    target: target.title === target.title.toLowerCase() ? target.title.replace(/(^|\s)([a-z])/g, (_, p, c) => p + c.toUpperCase()) : target.title,
     company: target.company,
     values: pb && pb.kind !== "other" ? pb.values : [],
     stories: refs.map((r) => ({ ...r, situation: "[Where this happened and why it mattered]", part: "[What you personally owned]", action: "[Two or three things you did]", result: "[What changed because of it]", ready: false })),

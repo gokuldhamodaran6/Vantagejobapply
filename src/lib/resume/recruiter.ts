@@ -96,7 +96,7 @@ const SAME: Record<string, string[]> = {
 const tokens = (t: string) => ` ${t.toLowerCase().replace(/r&d/g, "rnd").replace(/[^a-z0-9+#./ -]/g, " ").replace(/\s+/g, " ")} `;
 const has = (hay: string, term: string) => {
   const t = term.toLowerCase();
-  return hay.includes(` ${t} `) || hay.includes(` ${t},`) || hay.includes(` ${t}.`) || hay.includes(` ${t}s `) || hay.includes(` ${t}/`) || hay.includes(` ${t}:`) || hay.includes(` ${t})`) || hay.includes(`(${t} `) || hay.includes(`(${t},`);
+  return hay.includes(` ${t} `) || hay.includes(` ${t},`) || hay.includes(` ${t}.`) || hay.includes(` ${t}s `) || hay.includes(` ${t}/`) || hay.includes(` ${t}-`) || hay.includes(` ${t}:`) || hay.includes(` ${t})`) || hay.includes(`(${t} `) || hay.includes(`(${t},`);
 };
 
 export type SkillDemand = { skill: string; share: number };
@@ -128,7 +128,7 @@ export type SkillProof = { skill: string; share: number; status: "proven" | "lis
 /** For each skill: proven in a bullet (and where), only in the skills list or summary, or missing. */
 export function skillProof(c: ResumeContent, demand: SkillDemand[]): SkillProof[] {
   const roleTexts = [
-    ...(c.experience || []).filter((e) => !e.brief).map((e) => ({ label: e.company || e.title, text: tokens(`${e.title} ${e.bullets.join(" ")}`) })),
+    ...(c.experience || []).filter((e) => !e.brief).map((e) => ({ label: (e.company || e.title).split(",")[0], text: tokens(`${e.title} ${e.bullets.join(" ")}`) })),
     ...(c.projects || []).map((p) => ({ label: p.name.split(/\s+[—–-]\s+/)[0], text: tokens(`${p.name} ${p.tech || ""} ${p.bullets.join(" ")}`) })),
   ];
   const listed = tokens(`${c.headline || ""} ${c.summary || ""} ${(c.skills || []).flatMap((g) => g.items).join(", ")} ${(c.certifications || []).join(", ")}`);
