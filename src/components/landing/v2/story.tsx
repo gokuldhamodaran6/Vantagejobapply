@@ -279,7 +279,7 @@ export function Story() {
   const s = STEPS[active];
 
   return (
-    <section ref={ref} id="story" className="relative border-t border-[rgba(11,26,58,0.06)] bg-white/40 py-20 lg:py-28">
+    <section ref={ref} id="story" className="relative overflow-hidden border-t border-[rgba(11,26,58,0.06)] bg-white/40 py-20 lg:py-28">
       <div className="mx-auto max-w-[1200px] px-4 sm:px-6">
         <h2 className="display max-w-3xl text-[34px] font-[680] leading-[1.05] sm:text-[52px]">How it works</h2>
         <p className="mt-4 max-w-2xl text-[17px] leading-relaxed text-[var(--deep-2)]">Five steps run for every job you choose. Tap a step to see it.</p>

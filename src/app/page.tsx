@@ -7,7 +7,7 @@ import { MobileCta } from "@/components/landing/v3/mobile-cta";
 
 export default function Home() {
   return (
-    <div className="lp flex min-h-screen flex-col">
+    <div className="lp flex min-h-screen flex-col overflow-x-clip">
       <GlassNav />
       <main className="flex-1">
         <PrismHero />
