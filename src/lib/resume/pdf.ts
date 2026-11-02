@@ -2,7 +2,7 @@ import "server-only";
 import { tidyResume } from "@/lib/resume/health";
 import { PDFDocument, PDFFont, PDFPage, StandardFonts, rgb } from "pdf-lib";
 import { RESUME_STYLES } from "./styles";
-import { formatFor, sectionOrderFor } from "./country";
+import { formatFor, projectsFirst, sectionOrderFor } from "./country";
 import type { ResumeContent, ResumeStyle } from "@/lib/types";
 
 /* Characters the standard PDF fonts (WinAnsi) can draw; everything else is mapped to a close ASCII form. */
@@ -228,6 +228,20 @@ export async function resumePdf(raw: ResumeContent, opts: { style?: ResumeStyle;
       });
     }
   }
+  const projFirst = projectsFirst(r);
+  const projectsBlock = () => {
+  if (r.projects?.length) {
+      heading(c, st, "Projects");
+      for (const p of r.projects) {
+        rowWithRight(c, p.name, "", c.bold, c.size + 0.2);
+        if (p.tech) text(c, p.tech, { font: c.italic, size: c.size - 0.2, color: [0.25, 0.25, 0.25] });
+        c.y -= 1;
+        bullets(c, p.bullets);
+        c.y -= 2;
+      }
+    }
+  };
+  if (projFirst) projectsBlock();
   if (r.experience?.length) {
     heading(c, st, "Experience");
     const full = r.experience.filter((e) => !e.brief);
@@ -251,16 +265,7 @@ export async function resumePdf(raw: ResumeContent, opts: { style?: ResumeStyle;
       c.y -= 3;
     }
   }
-  if (r.projects?.length) {
-    heading(c, st, "Projects");
-    for (const p of r.projects) {
-      rowWithRight(c, p.name, "", c.bold, c.size + 0.2);
-      if (p.tech) text(c, p.tech, { font: c.italic, size: c.size - 0.2, color: [0.25, 0.25, 0.25] });
-      c.y -= 1;
-      bullets(c, p.bullets);
-      c.y -= 2;
-    }
-  }
+  if (!projFirst) projectsBlock();
   if (!educationFirst) education();
   if (r.certifications?.length) {
     heading(c, st, "Certifications");

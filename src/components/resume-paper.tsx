@@ -1,5 +1,5 @@
 import { RESUME_STYLES } from "@/lib/resume/styles";
-import { formatFor, sectionOrderFor } from "@/lib/resume/country";
+import { formatFor, projectsFirst, sectionOrderFor } from "@/lib/resume/country";
 import type { ResumeContent, ResumeStyle } from "@/lib/types";
 
 function H({ children, accent, center }: { children: React.ReactNode; accent: string; center: boolean }) {
@@ -16,6 +16,7 @@ export function ResumePaper({ c, highlight = [], style = "classic", country }: {
   const st = (RESUME_STYLES[style] || RESUME_STYLES.classic).css;
   const fmt = formatFor(country || "US");
   const educationFirst = sectionOrderFor(c) === "education-first";
+  const projFirst = projectsFirst(c);
   const hl = (text: string) => {
     if (!highlight.length) return text;
     const re = new RegExp(`(${highlight.map((k) => k.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|")})`, "gi");
@@ -35,6 +36,20 @@ export function ResumePaper({ c, highlight = [], style = "classic", country }: {
       ))}
     </>
   );
+  const projects = (
+    !!c.projects?.length && (
+        <>
+          <H {...hp}>PROJECTS</H>
+          {c.projects.map((p, i) => (
+            <div key={i} className="mb-2">
+              <strong>{p.name}</strong>
+              {p.tech && <p className="italic text-[#444]">{p.tech}</p>}
+              <ul className="list-disc pl-4">{p.bullets.map((b, j) => <li key={j}>{hl(b)}</li>)}</ul>
+            </div>
+          ))}
+        </>
+      )
+  );
   return (
     <article data-paper={fmt.paper} className="resume-paper mx-auto bg-white px-10 py-9 leading-[1.5] text-[#111]" style={{ fontFamily: st.font, maxWidth: 760, fontSize: st.body, aspectRatio: fmt.paper === "a4" ? "210 / 297" : "8.5 / 11" }}>
       <div className={st.center ? "text-center" : ""}>
@@ -50,6 +65,7 @@ export function ResumePaper({ c, highlight = [], style = "classic", country }: {
           {c.skills.map((g, i) => <p key={i}><strong>{g.group}:</strong> {hl(g.items.join(", "))}</p>)}
         </>
       )}
+      {projFirst && projects}
       {!!c.experience?.length && (
         <>
           <H {...hp}>EXPERIENCE</H>
@@ -70,18 +86,7 @@ export function ResumePaper({ c, highlight = [], style = "classic", country }: {
           )}
         </>
       )}
-      {!!c.projects?.length && (
-        <>
-          <H {...hp}>PROJECTS</H>
-          {c.projects.map((p, i) => (
-            <div key={i} className="mb-2">
-              <strong>{p.name}</strong>
-              {p.tech && <p className="italic text-[#444]">{p.tech}</p>}
-              <ul className="list-disc pl-4">{p.bullets.map((b, j) => <li key={j}>{hl(b)}</li>)}</ul>
-            </div>
-          ))}
-        </>
-      )}
+      {!projFirst && projects}
       {!educationFirst && education}
       {!!c.certifications?.length && (<><H {...hp}>CERTIFICATIONS</H><p>{c.certifications.join("  •  ")}</p></>)}
       {!!c.awards?.length && (<><H {...hp}>AWARDS</H><ul className="list-disc pl-4">{c.awards.map((a, i) => <li key={i}>{a}</li>)}</ul></>)}

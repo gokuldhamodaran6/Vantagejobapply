@@ -31,6 +31,7 @@ import { repairResume, splitItems } from "../src/lib/resume/repair";
 import { cleanSkills, deCliche, honestHeadline, orderExperience, tightenSummary } from "../src/lib/resume/polish";
 import { guard, unprovenTerms, norm, grounded } from "../src/lib/resume/rules";
 import { playbookFor } from "../src/lib/resume/playbooks";
+import { projectsFirst } from "../src/lib/resume/country";
 import type { Job, TargetPrefs, TargetRole, WorkAuth } from "../src/lib/types";
 import { AI_PRICES, FALLBACK_PRICE, anthropicUsage, costUsd, geminiUsage, priceFor } from "../src/lib/ai-pricing";
 import { runWithAi, tagAi } from "../src/lib/ai-context";
@@ -744,6 +745,10 @@ function studioChecks() {
   const src3 = ["Directed brand and creative for the A91 funding round and the Dunn Solutions acquisition.", "Ran A/B tests on creatives and audiences across Google Ads, LinkedIn and Meta."];
   const g3 = grounded(["Directed brand and creative initiatives supporting the corporate A91 funding round and the Dunn Solutions acquisition, collaborating with executive stakeholders across multiple functions.", "Ran A/B tests on creatives and audiences across Google Ads, LinkedIn, and Meta."], src3);
   ok(g3[0] === src3[0] && g3[1].startsWith("Ran A/B tests"), "guard: padded bullet replaced by the person's own; grounded rewrite kept");
+
+  const proj = [{ name: "Vantage", bullets: ["Built it."] }];
+  ok(projectsFirst({ experience: [{ title: "Graduate Assistant", company: "ISU", start: "Jul 2025", end: "Present", bullets: [] }, { title: "Senior Analyst", company: "Kaar", start: "Nov 2023", end: "Dec 2024", bullets: [] }], projects: proj }), "layout: student-only current role → projects first");
+  ok(!projectsFirst({ experience: [{ title: "Senior Analyst", company: "Acme", start: "Jan 2024", end: "Present", bullets: [] }], projects: proj }), "layout: a full-time current role keeps experience first");
 
   // Playbooks
   ok(playbookFor("Google LLC").key === "google" && playbookFor("Meta Platforms").key === "meta" && playbookFor("Amazon Web Services (AWS)").key === "amazon", "playbook: big tech by name");
