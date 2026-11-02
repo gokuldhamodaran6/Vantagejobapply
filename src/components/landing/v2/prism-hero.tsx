@@ -3,6 +3,7 @@ import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion, useMotionValue, useReducedMotion, useSpring, useTransform } from "motion/react";
 import { Check, Play, ShieldCheck, TriangleAlert, X } from "lucide-react";
+import { Hero3D } from "@/components/landing/v3/hero-3d";
 
 /** Illustrative demo: a fictional candidate and fictional employers. */
 type Demo = {
@@ -298,7 +299,7 @@ export function PrismHero() {
           </motion.ul>
         </div>
         <motion.div initial={reduce ? false : { opacity: 0, scale: 0.97 }} animate={{ opacity: 1, scale: 1 }} transition={{ duration: 0.8, delay: 0.15, ease: [0.2, 0.8, 0.2, 1] }}>
-          <Studio />
+          <Hero3D fallback={<Studio />} />
         </motion.div>
       </div>
     </section>

@@ -1,12 +1,30 @@
 "use client";
-import { useState } from "react";
-import { AnimatePresence, motion } from "motion/react";
-import { ExternalLink } from "lucide-react";
-import { FOCUS_COUNTRIES } from "@/lib/countries";
+import dynamic from "next/dynamic";
+import { useState, useSyncExternalStore } from "react";
+import { AnimatePresence, motion, useReducedMotion } from "motion/react";
+import { ExternalLink, Hand } from "lucide-react";
+import { COUNTRIES } from "@/lib/countries";
+
+const GlobeScene = dynamic(() => import("./v3/globe-scene"), { ssr: false });
+
+/** Where each country's pin sits on the globe. */
+const PLACE: Record<string, [number, number]> = { US: [39, -98], GB: [54, -2], CA: [56, -106], AU: [-25, 134], DE: [51, 10], IE: [53, -8], NZ: [-41, 174], SG: [1.35, 103.8], IN: [21, 78], NL: [52.2, 5.3] };
+const subscribe = () => () => {};
+const webgl = () => {
+  try {
+    const c = document.createElement("canvas");
+    return !!(c.getContext("webgl2") || c.getContext("webgl"));
+  } catch {
+    return false;
+  }
+};
 
 export function CountryRules() {
-  const [active, setActive] = useState(FOCUS_COUNTRIES[1].code);
-  const c = FOCUS_COUNTRIES.find((x) => x.code === active)!;
+  const [active, setActive] = useState("GB");
+  const c = COUNTRIES.find((x) => x.code === active)!;
+  const reduce = useReducedMotion();
+  const gl = useSyncExternalStore(subscribe, webgl, () => false);
+  const pins = COUNTRIES.filter((x) => PLACE[x.code]).map((x) => ({ code: x.code, name: x.name, lat: PLACE[x.code][0], lon: PLACE[x.code][1] }));
 
   return (
     <section id="countries" className="py-24">
@@ -18,21 +36,31 @@ export function CountryRules() {
           </p>
         </div>
 
-        <div className="mt-10 flex flex-wrap gap-2" role="tablist" aria-label="Country">
-          {FOCUS_COUNTRIES.map((x) => (
+        <div className={`mt-10 grid items-start gap-8 ${gl && !reduce ? "lg:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]" : ""}`}>
+        {gl && !reduce && (
+          <div className="lg:sticky lg:top-24">
+            <div className="relative mx-auto aspect-square w-full max-w-[540px]" aria-label="Interactive 3D globe of the countries Vantage covers">
+              <div aria-hidden className="pointer-events-none absolute inset-[8%] -z-10 rounded-full opacity-70 blur-3xl [background:radial-gradient(circle,#c9d8ff,transparent_70%)]" />
+              <GlobeScene pins={pins} active={active} onPick={setActive} />
+            </div>
+            <p className="mt-1 flex items-center justify-center gap-1.5 text-[12px] text-muted"><Hand size={13} /> Drag to spin · click a country</p>
+          </div>
+        )}
+        <div className="min-w-0">
+        <div className="flex flex-wrap gap-2" role="tablist" aria-label="Country">
+          {COUNTRIES.map((x) => (
             <button
               key={x.code}
               role="tab"
               aria-selected={active === x.code}
               onClick={() => setActive(x.code)}
-              className={`min-h-11 rounded-full border px-5 text-sm font-semibold transition ${
+              className={`min-h-10 rounded-full border px-4 text-sm font-semibold transition ${
                 active === x.code ? "border-brand bg-brand text-white" : "border-line bg-white text-ink-2 hover:border-[#c9d5fb]"
               }`}
             >
               {x.name}
             </button>
           ))}
-          <span className="flex min-h-11 items-center px-3 text-sm text-muted">+ Germany, Ireland, New Zealand, Singapore, Netherlands</span>
         </div>
 
         <AnimatePresence mode="wait">
@@ -42,7 +70,7 @@ export function CountryRules() {
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -6 }}
             transition={{ duration: 0.25 }}
-            className="mt-6 grid gap-5 lg:grid-cols-[1.2fr_1fr]"
+            className={`mt-6 grid gap-5 ${gl && !reduce ? "" : "lg:grid-cols-[1.2fr_1fr]"}`}
           >
             <div className="glass rounded-[24px] p-7">
               <h3 className="text-lg font-semibold">Ways to work in {c.name}</h3>
@@ -84,6 +112,8 @@ export function CountryRules() {
             </div>
           </motion.div>
         </AnimatePresence>
+        </div>
+        </div>
       </div>
     </section>
   );
