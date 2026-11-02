@@ -82,6 +82,10 @@ const CRAFT = `WRITING STANDARD (what Google, Meta, Amazon and Fortune 500 hirin
 - Headline: "<identity> | <specialism> | <specialism>" — the identity is who the person truly is; never the target job title unless they have held it.
 - Skills: 3–4 groups named for this job's world (e.g. "Analytics & BI", "Product Delivery", "Marketing Technology"), each 5–10 items, most relevant first, the posting's names for tools the person really uses. No soft skills, no certifications repeated as skills, no duplicates.
 - Every role keeps its title, employer and dates exactly. Roles marked "brief" stay one line with no bullets. Lead roles get 4–5 bullets, other recent roles 2–4, compressed roles 1–2. A role with only one source bullet may be split into two bullets only by separating facts already in it, never by adding new ones.
+- Each bullet uses only facts from its own role. Never move a detail from one role to another, and never add frequencies (daily, weekly), audiences, scale words (enterprise, global, cross-functional), adjectives or results that the source does not state for that role.
+- Keep the strength of every claim: where the source says "contributed to", "supported" or "helped", the rewrite keeps shared credit (e.g. "Contributed to a 35% increase in qualified pipeline by …"). Never upgrade it to "drove", "led", "delivered" or "grew".
+- A promotion inside one employer is a strong signal: keep it visible.
+- Awards, a team the person led or mentored, funding rounds or acquisitions they supported, and things they built are high-value proof: surface them when relevant to the job.
 - Recruiters read job titles first: never change a title, and write bullets so the first one in each role is the most relevant to this job.
 - Founders and independent ventures: keep the "Founder" title, but write those bullets in the target function's language (owned the roadmap, defined metrics, ran experiments, shipped releases) so a corporate hiring manager sees the job they are hiring for, not an entrepreneur who might leave.
 - Employers, schools and certifications are spelled out in full; no unexplained abbreviations.
@@ -125,7 +129,7 @@ Return ONLY JSON:
   "lead":["Title @ Company" of the 1-3 roles to expand],"compress":["Title @ Company" of roles to cut to 1-2 bullets],
   "requirements":[{"requirement":string,"evidence":"near-verbatim quote from the resume or null","show":"how the resume should show it"}] (one per must-have),
   "gaps":[{"requirement":string,"bridge":"the closest true fact, or 'leave out'"}],
-  "questions":[up to 5 short questions to ask the candidate that would unlock a missing number or proof for THIS job, each naming the role, e.g. 'At Kaar Tech, about how many hours a week did the automated reports save?'],
+  "questions":[3 to 5 short questions (always at least 3) to ask the candidate that would unlock a missing number or proof for THIS job, each naming the role, e.g. 'At Kaar Tech, about how many hours a week did the automated reports save?'],
   "keywords":[the posting phrases this resume legitimately supports]}}`,
     [{ role: "user", content: `JOB: ${job.title} at ${job.company} (${job.location || job.country})\n${(job.description || "").slice(0, 9000)}\n\nKEYWORDS SEEN IN THE POSTING: ${keywords.join(", ")}\n\nCANDIDATE RESUME JSON:\n${json(c)}` }],
     6000,

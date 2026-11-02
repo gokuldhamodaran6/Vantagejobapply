@@ -735,6 +735,12 @@ function studioChecks() {
   ok(!!(!g.headline?.includes("Kubernetes") && g.headline?.includes("SQL")), "guard: headline can't claim a posting skill the person lacks");
   ok(!!(g.experience?.[0].url?.includes("onrender") && g.experience?.filter((e) => e.brief).length === 3), "guard: links and brief roles kept");
 
+  const inflated = guard(r, { ...r, experience: rx.map((e, i) => (i === 3 ? { ...e, bullets: ["Accelerated qualified pipeline growth by 35% across 100+ enterprise accounts using HubSpot.", e.bullets[0]] } : e)) }, "");
+  ok(/contribut/i.test(inflated.experience?.[3].bullets[0] || ""), "guard: shared credit (contributing to 35%) can't become 'Accelerated 35%'");
+  const sk2 = guard(r, { ...r, skills: [{ group: "Data", items: ["SQL (window functions)", "Python (pandas, FastAPI)", "Tableau"] }] }, "SQL Python Excel Tableau");
+  const items2 = sk2.skills?.flatMap((g) => g.items) || [];
+  ok(items2.includes("SQL") && items2.some((i) => i.startsWith("Python (pandas")) && items2.includes("Advanced Excel"), "guard: proven skills kept from bracketed forms; dropped posting skill restored");
+
   // Playbooks
   ok(playbookFor("Google LLC").key === "google" && playbookFor("Meta Platforms").key === "meta" && playbookFor("Amazon Web Services (AWS)").key === "amazon", "playbook: big tech by name");
   ok(playbookFor("Deloitte Consulting").kind === "consulting" && playbookFor("JPMorgan Chase & Co.").kind === "finance" && playbookFor("Caterpillar Inc.").kind === "enterprise", "playbook: firm kinds");

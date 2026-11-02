@@ -103,8 +103,33 @@ export function guard(original: ResumeContent, out: ResumeContent, jobText = "")
   r.phone = original.phone;
   r.links = original.links;
   r.location = original.location || r.location;
-  // Skills must exist in the original.
-  r.skills = (r.skills || []).map((g) => ({ ...g, items: g.items.filter((i) => src.includes(norm(i))) })).filter((g) => g.items.length);
+  // Skills must exist in the original. "Python (pandas, FastAPI)" counts when Python, pandas and FastAPI each do;
+  // when only the main skill is proven, the brackets are dropped ("SQL (window functions)" → "SQL").
+  const has = (t: string) => Boolean(norm(t).trim()) && src.includes(norm(t));
+  r.skills = (r.skills || []).map((g) => ({
+    ...g,
+    items: g.items.map((i) => {
+      if (has(i)) return i;
+      const head = i.replace(/\(.*?\)/g, " ").replace(/\s+/g, " ").trim();
+      const inner = (i.match(/\((.*?)\)/)?.[1] || "").split(/[,/;]|\band\b/).map((x) => x.trim()).filter(Boolean);
+      if (!head || !has(head)) return null;
+      const kept = inner.filter(has);
+      return kept.length ? `${head} (${kept.join(", ")})` : head;
+    }).filter((i): i is string => Boolean(i)),
+  })).filter((g) => g.items.length);
+  // Never lose a core skill the job asks for: an original skill named in the posting that the writer dropped goes back in.
+  if (jobText && (original.skills || []).length && r.skills.length) {
+    const job = norm(jobText);
+    const present = norm(r.skills.flatMap((g) => g.items).join(" | "));
+    const missing = (original.skills || []).flatMap((g) => g.items).filter((i) => {
+      const head = i.replace(/\(.*?\)/g, " ").replace(/\b(advanced|basic|intermediate|expert|proficient|microsoft|ms)\b/gi, " ").replace(/\s+/g, " ").trim();
+      return head.length > 1 && job.includes(norm(head)) && !present.includes(norm(head));
+    });
+    if (missing.length) {
+      const target = r.skills.find((g) => /data|analytic|technical|tool|language|program|bi\b|stack/i.test(g.group)) || r.skills[0];
+      target.items = [...missing, ...target.items];
+    }
+  }
   // Jobs and dates must match the original; bullets must not introduce new numbers.
   const byKey = new Map((original.experience || []).map((e) => [`${norm(e.company)}|${(e.start || "").toLowerCase()}`, e]));
   r.experience = (r.experience || []).map((e) => {
@@ -114,6 +139,26 @@ export function guard(original: ResumeContent, out: ResumeContent, jobText = "")
     const keep = { title: o.title, company: o.company, start: o.start, end: o.end, location: o.location, ...(o.url ? { url: o.url } : {}), ...(o.brief ? { brief: true } : {}) };
     return { ...e, ...keep, bullets: o.brief ? [] : bullets.length ? bullets : o.bullets };
   }).filter((e): e is NonNullable<typeof e> => Boolean(e)).filter((e, i, all) => all.findIndex((x) => norm(x.company) === norm(e.company) && x.start === e.start && norm(x.title) === norm(e.title)) === i);
+  // Shared credit stays shared: if the source said "contributing to a 35% increase", the rewrite may not say "drove a 35% increase".
+  const SHARED = /\b(contribut\w*|helped|help(ing)?|supported|supporting|assisted|as part of|part of a team|alongside)\b/i;
+  for (const e of r.experience) {
+    const o = (original.experience || []).find((x) => norm(x.company) === norm(e.company) && x.start === e.start);
+    if (!o) continue;
+    e.bullets = e.bullets.map((b) => {
+      const nums = (b.match(/\d[\d,.]*%/g) || []).map((n) => n.replace(/,/g, ""));
+      const src0 = (o.bullets || []).find((ob) => nums.some((n) => ob.replace(/,/g, "").includes(n)));
+      // The rewrite claimed the whole result: use the person's own (shared-credit) wording for this one.
+      return src0 && SHARED.test(src0) && !SHARED.test(b) ? src0 : b;
+    });
+  }
+  if (r.summary) {
+    for (const ob of (original.experience || []).flatMap((x) => x.bullets || [])) {
+      if (!SHARED.test(ob)) continue;
+      for (const n of ob.match(/\d[\d,.]*%/g) || []) {
+        r.summary = r.summary.replace(new RegExp(`\\b(drove|driving|delivered|delivering|expanded|expanding|accelerated|accelerating|grew|growing|boosted|boosting|generated|generating|increased|increasing)\\b([^.]{0,60}?${n.replace(/[.%]/g, "\\$&")})`, "i"), (_m, _v, rest) => `contributing to${rest}`);
+      }
+    }
+  }
   // Never drop a job: append any the model removed, as-is.
   for (const o of original.experience || []) {
     if (!r.experience.some((e) => norm(e.company) === norm(o.company) && e.start === o.start)) r.experience.push(o);

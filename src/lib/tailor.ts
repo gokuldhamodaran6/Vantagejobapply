@@ -108,7 +108,10 @@ export async function tailorForJob(base0: ResumeContent, job: JobIn, candidateNa
   // Stored resumes from older imports can carry layout damage; repair it before anything reads it.
   const base = repairResume(base0);
   const keywords = extractKeywords(`${job.title} ${job.title} ${job.description || ""}`, 22);
-  if (!base.name) base.name = candidateName;
+  // Never "GOKUL DHAMODARAN" in a letter's sign-off: the profile's full name, or the resume's in normal case.
+  const nm = (base.name || "").trim();
+  if (!nm || (candidateName && candidateName.split(/\s+/).length > nm.split(/\s+/).length)) base.name = candidateName || nm;
+  else if (nm === nm.toUpperCase() || nm === nm.toLowerCase()) base.name = nm.toLowerCase().replace(/(^|[\s'-])([a-z])/g, (_, p, c) => p + c.toUpperCase());
   const fmt = formatFor(country || job.country);
   const format = { ...fmt, pages: pagesFor(fmt, base) };
   const checked = (resume: ResumeContent) => harvardScore(resume, lintBullets(resume));
