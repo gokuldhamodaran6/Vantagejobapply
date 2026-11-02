@@ -3,6 +3,7 @@ import { aiConfigured, claude, extractJson } from "@/lib/ai";
 import { extractKeywords, resumeText, scoreResume } from "@/lib/ats";
 import { studio, type JobBrief, type Review, type Strategy } from "@/lib/resume/studio";
 import { polishResume } from "@/lib/resume/polish";
+import { fitToPages } from "@/lib/resume/pdf";
 import { repairResume } from "@/lib/resume/repair";
 import { SCHEMA, clean, coverage, formatPrompt, lintLetter, norm } from "@/lib/resume/rules";
 import { parseResumeText } from "@/lib/resume/parse";
@@ -121,6 +122,9 @@ export async function tailorForJob(base0: ResumeContent, job: JobIn, candidateNa
       return null;
     });
     if (s) {
+      // The page target is real: measure the PDF and trim the least valuable lines until it fits.
+      const fit = await fitToPages(s.resume, format.pages, { country: country || job.country }).catch(() => null);
+      if (fit) s.resume = fit.resume;
       const letter = s.coverLetter || ruleLetter(s.resume, job, keywords, tone);
       const analysis = s.strategy.requirements.map((r) => ({ requirement: r.requirement, evidence: r.evidence ?? null })).filter((r) => r.requirement);
       return {

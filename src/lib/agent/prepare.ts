@@ -43,7 +43,8 @@ export async function prepareAndQueue(input: {
     const resumes = await rpcExt<ResumeRow[]>("user_resumes", { user_id: userId });
     // Base = the role's own resume, else the master. Never another job's tailored copy (that would drift further each time).
     const own = resumes.filter((r) => r.is_master || !r.name.includes(" — "));
-    const base = own.find((r) => input.roleId && !r.is_master && r.target_role_id === input.roleId) || own.find((r) => r.is_master) || own[0];
+    // The master holds every true fact; the resume studio does the targeting for each job, so it always starts there.
+    const base = own.find((r) => r.is_master) || own.find((r) => input.roleId && r.target_role_id === input.roleId) || own[0];
     if (!base) return { taskCreated: false, resumeId: null, error: "Add your resume first." };
     if (!style || !tone) {
       const apps = await rpcExt<{ status: string; resume_style: string | null; letter_tone: string | null }[]>("style_stats", { user_id: userId });
@@ -112,7 +113,7 @@ export async function ensureFreshTailoring(input: {
   const { resumeIssues } = await import("@/lib/resume/health");
   const resumes = await rpcExt<(ResumeRow & { updated_at?: string })[]>("user_resumes", { user_id: input.userId });
   const own = resumes.filter((r) => r.is_master || !r.name.includes(" — "));
-  const base = own.find((r) => input.job.role_id && !r.is_master && r.target_role_id === input.job.role_id) || own.find((r) => r.is_master) || own[0];
+  const base = own.find((r) => r.is_master) || own.find((r) => input.job.role_id && r.target_role_id === input.job.role_id) || own[0];
   if (!base) return { refreshed: false };
   // The person's full name: "Gokul" (from a Google sign-in) loses to "Gokul Dhamodaran" from the resume.
   input.fullName = bestName(input.fullName || input.name, base.content?.name);

@@ -29,9 +29,10 @@ export async function POST(req: Request) {
 
   const { data: resumes } = await ctx.supabase.from("resumes").select("*").eq("user_id", ctx.user.id);
   const list = (resumes as Resume[]) || [];
+  // The master holds every true fact; the studio targets it to this job (a role resume would be a copy of a copy).
   const base =
-    list.find((r) => body.roleId && r.target_role_id === body.roleId && !r.name.includes(" — ")) ||
     list.find((r) => r.is_master) ||
+    list.find((r) => body.roleId && r.target_role_id === body.roleId && !r.name.includes(" — ")) ||
     list[0];
   if (!base) return json({ error: "Add your resume first — go to Resumes and upload it.", needResume: true }, 400);
 
