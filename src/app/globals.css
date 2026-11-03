@@ -221,13 +221,9 @@ body {
 .jr-btn-light:hover { box-shadow: 0 0 0 1px #fff, 0 14px 50px -8px rgba(160,190,255,.9); }
 .jr-btn-ghost { color: #fff; border: 1px solid rgba(255,255,255,.28); background: rgba(255,255,255,.04); backdrop-filter: blur(8px); }
 .jr-btn-ghost:hover { background: rgba(255,255,255,.1); }
-.jr-tag { display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; padding: 6px 10px; border-radius: 6px; font: 600 11px ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .12em; text-transform: uppercase; color: #fff; background: rgba(6, 12, 28, .55); border: 1px solid color-mix(in srgb, var(--tone) 55%, transparent); box-shadow: 0 0 24px -6px var(--tone); backdrop-filter: blur(6px); transition: opacity .2s; }
-.jr-tag span { color: var(--tone); }
-.jr-eq { height: 3px; animation: jr-eq .9s ease-in-out infinite alternate; }
-@keyframes jr-eq { from { height: 3px; } to { height: 12px; } }
-.jr-scroll { display: inline-block; padding-bottom: 18px; position: relative; }
-.jr-scroll::after { content: ""; position: absolute; left: 50%; bottom: 0; width: 1px; height: 14px; background: currentColor; animation: jr-drop 1.6s ease-in-out infinite; }
-@keyframes jr-drop { 0% { transform: scaleY(0); transform-origin: top; } 50% { transform: scaleY(1); transform-origin: top; } 51% { transform-origin: bottom; } 100% { transform: scaleY(0); transform-origin: bottom; } }
+.jr-tag { display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; padding: 6px 12px; border-radius: 999px; font: 600 13px var(--font-sans), system-ui, sans-serif; color: #fff; background: rgba(6, 12, 28, .7); border: 1px solid color-mix(in srgb, var(--tone) 45%, transparent); backdrop-filter: blur(6px); }
+.jr-tag span { width: 8px; height: 8px; border-radius: 99px; background: var(--tone); font-size: 0; }
+.jr-still { background: radial-gradient(60% 55% at 72% 45%, rgba(70, 105, 210, .28), transparent 70%), radial-gradient(45% 40% at 85% 85%, rgba(120, 90, 200, .16), transparent 70%), #050a18; }
 /* Nav over the dark journey */
 html[data-lp-tone="dark"] .lp header nav { background: rgba(6, 12, 28, .35) !important; border-color: rgba(255,255,255,.08); backdrop-filter: blur(14px); box-shadow: none; }
 html[data-lp-tone="dark"] .lp header nav a:not(.lp-btn), html[data-lp-tone="dark"] .lp header nav span { color: #e6ecff !important; }

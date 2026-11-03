@@ -1,5 +1,4 @@
 import { GlassNav, KeptTrue, Kit, FinalCall } from "@/components/landing/v2/sections";
-import { PrismHero } from "@/components/landing/v2/prism-hero";
 import { Journey } from "@/components/landing/journey/journey";
 import { Story } from "@/components/landing/v2/story";
 import { CountryRules } from "@/components/landing/countries";
@@ -11,7 +10,7 @@ export default function Home() {
     <div className="lp flex min-h-screen flex-col overflow-x-clip">
       <GlassNav />
       <main className="flex-1">
-        <Journey fallback={<PrismHero />} />
+        <Journey />
         <Story />
         <KeptTrue />
         <CountryRules />
