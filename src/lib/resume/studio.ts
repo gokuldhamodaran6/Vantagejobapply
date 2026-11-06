@@ -238,7 +238,8 @@ ${playbookPrompt(pb)}
 Tone: ${tone} — ${LETTER_TONES[tone].guide}
 STRUCTURE (230–320 words, 4 short paragraphs):
 - Greeting: "Dear ${job.company} Hiring Team,".
-- P1 (2–3 sentences): open with the specific hook (a real detail of the role, product or company) and connect it to the candidate's identity and strongest credential. Name the role. Never open with "I am writing", "I am excited" or the candidate's name.
+- P1 (2–3 sentences): open with the specific hook (a real detail of the role, product or company, ideally what the team is hiring this person to do, in the posting's own words) and connect it to the candidate's identity and strongest credential. Name the role. Never open with "I am writing", "I am excited" or the candidate's name.
+- Credibility comes from the candidate's strongest full-time role and its numbers. Never lead with, or use as proof, a student job, assistantship, tutoring or internship unless the job itself is in education. Use the years of experience exactly as the resume summary states them.
 - P2: the two pillars as short proof stories with real numbers, each tied to one of the job's must-haves or problems.
 - P3: what they would do in the first months, tied to 1–2 responsibilities in the posting; if there is an honest gap worth naming (career move, new domain), bridge it in one sentence with the closest true fact.
 - P4 (1–2 sentences): confident close, invitation to talk. No "I hope", no begging.

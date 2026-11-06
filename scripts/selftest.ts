@@ -27,6 +27,7 @@ import { isPrivateIp } from "../src/lib/net";
 import { parseEventText, parseIcs } from "../src/lib/mail-event";
 import { resumeIssues, tidyResume } from "../src/lib/resume/health";
 import { lintLetter } from "../src/lib/tailor";
+import { familyOf, tidyCompany, writeLetter } from "../src/lib/resume/letter";
 import { repairResume, splitItems } from "../src/lib/resume/repair";
 import { cleanSkills, deCliche, honestHeadline, orderExperience, projectBudget, tightenSummary } from "../src/lib/resume/polish";
 import { guard, unprovenTerms, norm, grounded } from "../src/lib/resume/rules";
@@ -277,6 +278,29 @@ ok(isPrivateIp("10.1.2.3") && isPrivateIp("169.254.169.254") && isPrivateIp("::1
 
 // Cover letter quality checks.
 ok(lintLetter("I am writing to express my interest. I am passionate!", "Acme").length >= 3, "letter lint catches clichés and length");
+{
+  // The no-AI letter: specific to the posting, built only from the person's own results.
+  const sam = {
+    name: "Sam Rivera",
+    summary: "Growth marketer with 6+ years in B2B demand generation.",
+    education: [{ degree: "MBA, Business Analytics", school: "State University", end: "Expected May 2027" }],
+    experience: [
+      { title: "Graduate Assistant", company: "State University", start: "Aug 2025", end: "Present", bullets: ["Supported 30+ students in Excel and SQL labs."] },
+      { title: "Senior Growth Marketing Manager", company: "Northwind", start: "2021", end: "2025", bullets: ["Grew qualified pipeline 40% across 200+ target accounts with LinkedIn and Google Ads campaigns.", "Cut cost per lead 25% by moving budget to the best-performing audiences."] },
+      { title: "Marketing Specialist", company: "Contoso", start: "2019", end: "2021", bullets: ["Increased inbound leads 3x through SEO and paid search."] },
+    ],
+  } as never;
+  const posting = "Our mission is to make payroll simple for small businesses.\nWhat you'll do\n- Own paid acquisition end-to-end: plan, launch and optimize campaigns.\n- Scale LinkedIn and Google Ads programs across the funnel.\n- Run a weekly test-and-learn cadence.";
+  const L = writeLetter(sam, { title: "Growth Marketing Manager, SMB", company: "acmehq", description: posting });
+  ok(/^Dear Acme Hiring Team,/.test(L) && L.includes("Acme is hiring a Growth Marketing Manager for SMB to own paid acquisition end-to-end"), "letter: opens with what the company is hiring for, in the posting's words");
+  ok(L.includes("6+ years") && L.includes("Senior Growth Marketing Manager at Northwind"), "letter: years as the resume states them, anchored on the strongest real job");
+  ok(!/30\+ students|Graduate Assistant/.test(L), "letter: never uses a student job as proof for a non-education role");
+  ok(L.includes("40%") && L.includes("3x") && !/At Northwind, I[^.]+\. At Northwind/.test(L), "letter: real numbers, no repeated 'At X, I'");
+  ok(/an MBA in Business Analytics/.test(L) && /help Acme make payroll simple/.test(L), "letter: correct articles and a mission-specific close");
+  ok(lintLetter(L, "Acme").filter((x) => !/too short/.test(x)).length === 0, "letter: passes the cliché and style checks");
+  ok(familyOf({ title: "Content Marketing Specialist", description: null }).key === "content" && familyOf({ title: "Business Analyst II", description: null }).key === "analytics", "letter: reads the kind of role from the title");
+  ok(tidyCompany("dayforcehcm") === "Dayforce" && tidyCompany("Hex") === "Hex" && tidyCompany("Acme, Inc.") === "Acme", "letter: tidies company names read off careers domains");
+}
 
 // Safety: kill-switch keys never cover a whole careers platform.
 ok(siteKey("https://boards.greenhouse.io/embed/job_app?for=acme") === "greenhouse.io/acme" && siteKey("https://job-boards.greenhouse.io/acme/jobs/1") === "greenhouse.io/acme", "greenhouse block key is per employer, embed or not");

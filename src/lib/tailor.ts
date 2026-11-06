@@ -1,6 +1,6 @@
 import "server-only";
 import { aiConfigured, claude, extractJson } from "@/lib/ai";
-import { extractKeywords, resumeText, scoreResume } from "@/lib/ats";
+import { extractKeywords, resumeText } from "@/lib/ats";
 import { studio, type JobBrief, type Review, type Strategy } from "@/lib/resume/studio";
 import { polishResume } from "@/lib/resume/polish";
 import { fitToPages } from "@/lib/resume/pdf";
@@ -9,6 +9,7 @@ import { SCHEMA, clean, coverage, formatPrompt, lintLetter, norm } from "@/lib/r
 import { parseQuality, parseResumeText } from "@/lib/resume/parse";
 import { formatFor, pagesFor, type CountryFormat } from "@/lib/resume/country";
 import { harvardScore, lintBullets, type HarvardSummary } from "@/lib/resume/harvard";
+import { tidyCompany, writeLetter } from "@/lib/resume/letter";
 import type { LetterTone, ResumeContent } from "@/lib/types";
 
 /* ------------------------------------------------------------------ */
@@ -145,7 +146,7 @@ export async function tailorForJob(base0: ResumeContent, job: JobIn, candidateNa
         ai: true,
         tone,
         analysis: analysis.slice(0, 8),
-        letterIssues: s.coverLetter ? s.letterIssues : lintLetter(letter, job.company),
+        letterIssues: s.coverLetter ? s.letterIssues : lintLetter(letter, tidyCompany(job.company)),
         format,
         harvard: checked(s.resume),
         strategy: { identity: s.strategy.identity, angle: s.strategy.angle, pillars: s.strategy.pillars, gaps: s.strategy.gaps, questions: s.strategy.questions },
@@ -158,7 +159,7 @@ export async function tailorForJob(base0: ResumeContent, job: JobIn, candidateNa
   }
   const resume = polishResume(ruleRoleResume(base, job.title, keywords), { jobTitle: job.title, identity: (base.headline || "").split(" | ")[0] || base.experience?.[0]?.title || "", original: base });
   const letter = ruleLetter(resume, job, keywords, tone);
-  return { resume, coverLetter: letter, keywords, ai: false, tone, analysis: [], letterIssues: lintLetter(letter, job.company), format, harvard: checked(resume) };
+  return { resume, coverLetter: letter, keywords, ai: false, tone, analysis: [], letterIssues: lintLetter(letter, tidyCompany(job.company)), format, harvard: checked(resume) };
 }
 
 /* ------------------------------------------------------------------ */
@@ -255,39 +256,9 @@ function ruleNotes(c: ResumeContent): string[] {
   return notes.slice(0, 5);
 }
 
-function sentenceFromBullet(b: string) {
-  const t = polishBullet(b);
-  return t.length > 230 ? `${t.slice(0, t.lastIndexOf(" ", 220))}.` : t;
-}
-
-function ruleLetter(r: ResumeContent, job: JobIn, keywords: string[], tone: LetterTone): string {
-  const latest = (r.experience || [])[0];
-  const matched = scoreResume(r, keywords).matched.slice(0, 3);
-  const proofs = (r.experience || []).flatMap((e) => e.bullets.map((b) => ({ b, e }))).filter((x) => /\d/.test(x.b)).slice(0, 2);
-  const years = yearsOf(r);
-  const role = latest ? `${latest.title}${latest.company ? ` at ${latest.company}` : ""}` : "";
-  const p1 = `I'm applying for the ${job.title} role at ${job.company}. ${
-    years ? `I bring ${years} year${years > 1 ? "s" : ""} of experience` : "I bring hands-on experience"
-  }${matched.length ? ` in ${listJoin(matched)}` : ""}${role ? `, most recently as ${role}` : ""}.`;
-  const p2 = proofs.length
-    ? `Two results that are relevant to this role:\n${proofs.map((x) => `• ${sentenceFromBullet(x.b)}`).join("\n")}`
-    : latest?.bullets?.[0]
-      ? `In my most recent role, one highlight: ${sentenceFromBullet(latest.bullets[0]).replace(/^./, (c) => c.toLowerCase())}`
-      : "";
-  const p3 = `What I would bring to ${job.company} is the same approach: clear goals, careful measurement and steady improvement week over week.`;
-  const p4 = tone === "formal" ? "I would welcome the opportunity to discuss how I can contribute to your team. Thank you for your consideration." : "I'd welcome the chance to talk about how I can contribute to your team. Thank you for your time.";
-  const sign = tone === "warm" ? "Best regards," : "Sincerely,";
-  return [`Dear ${job.company} Hiring Team,`, p1, p2, p3, p4, `${sign}\n${r.name || ""}`].filter(Boolean).join("\n\n");
-}
-
-function listJoin(xs: string[]) {
-  return xs.length <= 1 ? xs.join("") : `${xs.slice(0, -1).join(", ")} and ${xs[xs.length - 1]}`;
-}
-
-function yearsOf(r: ResumeContent): number {
-  const ys = (r.experience || []).flatMap((e) => [e.start, e.end]).map((d) => (d && /present/i.test(d) ? new Date().getFullYear() : parseInt((d || "").match(/\d{4}/)?.[0] || "", 10))).filter((n) => !isNaN(n));
-  if (!ys.length) return 0;
-  return Math.max(0, Math.max(...ys) - Math.min(...ys));
+/** The no-AI letter: built from the posting and the person's strongest real results (see resume/letter.ts). */
+function ruleLetter(r: ResumeContent, job: JobIn, _keywords: string[], tone: LetterTone): string {
+  return writeLetter(r, job, tone);
 }
 
 export { lintLetter, formatPrompt };
