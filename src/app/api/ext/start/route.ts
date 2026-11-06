@@ -48,7 +48,7 @@ export async function POST(req: Request) {
     if (li) { rawTitle = li[1]; rawCompany ||= li[2]; }
     rawTitle = rawTitle.replace(/^apply (to|for)\s+/i, "").replace(/\s*[-–|]\s*page \d+( of \d+)?$/i, "").replace(/\s*[|–]\s*(linkedin|indeed).*$/i, "").trim();
     // Form step names are never the job ("Candidate Profile", "My Information", "Create a login").
-    const STEP = /^(candidate profile|my (information|experience|profile)|personal (information|details)|contact (information|details)|create (a )?(login|profile)|enter your information|resume|cv|application( form)?|apply|review|voluntary disclosures?|self identify|questions|education|work experience)$/i;
+    const STEP = /^(candidate profile|my (information|experience|profile)|personal (information|details)|contact (information|details)|create (a )?(login|profile)|enter your information|resume|cv|application( form)?|apply|review|voluntary disclosures?|self identify|questions|education|work experience|work (summary|history)|work and education( history)?|job (summary|details|description|overview)|position (summary|details)|summary|overview|details|description|about (the )?(job|role|position|us|company)|flexible schedule|benefits|requirements|qualifications)$/i;
     const usable = (t: string) => Boolean(t) && !GENERIC.test(t) && !STEP.test(t.trim()) && t.length >= 4 && t.length <= 140;
     let title = usable(rawTitle) ? rawTitle.slice(0, 200) : (b.titles || []).map((t) => String(t).replace(/\s+/g, " ").trim()).find(usable)?.slice(0, 200) || "";
     // Still unsure (unusual page layouts): ask the AI to read the page like a person would.

@@ -299,6 +299,9 @@ ok(lintLetter("I am writing to express my interest. I am passionate!", "Acme").l
   ok(/an MBA in Business Analytics/.test(L) && /help Acme make payroll simple/.test(L), "letter: correct articles and a mission-specific close");
   ok(lintLetter(L, "Acme").filter((x) => !/too short/.test(x)).length === 0, "letter: passes the cliché and style checks");
   ok(familyOf({ title: "Content Marketing Specialist", description: null }).key === "content" && familyOf({ title: "Business Analyst II", description: null }).key === "analytics", "letter: reads the kind of role from the title");
+  // A careers page read badly (a section heading as the title, page headings as duties) never reaches the letter.
+  const junk = writeLetter(sam, { title: "Work Summary", company: "Nokia", description: "Work a Flexible Schedule\nWORK AND EDUCATION HISTORY\nApply now\nBenefits and salary" });
+  ok(!/Work Summary|Flexible Schedule|Apply now/i.test(junk) && !/WORK AND|wORK/.test(junk) && /^Dear Nokia Hiring Team,\n\nNokia is hiring someone to /.test(junk), "letter: page headings never become the title or the duties");
   ok(tidyCompany("dayforcehcm") === "Dayforce" && tidyCompany("Hex") === "Hex" && tidyCompany("Acme, Inc.") === "Acme", "letter: tidies company names read off careers domains");
 }
 

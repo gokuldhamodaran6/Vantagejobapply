@@ -122,7 +122,7 @@ export function familyOf(job: Pick<Job, "title" | "description">): Family {
 /* Reading the posting                                                 */
 /* ------------------------------------------------------------------ */
 
-const VERBS = "own|build|drive|lead|develop|manage|create|run|scale|plan|analy[sz]e|deliver|partner|define|execute|design|launch|write|grow|optimi[sz]e|stand up|establish|produce|support|track|report|identify|improve|oversee|shape|craft|translate|collaborate|work|use|conduct|prepare|maintain|monitor|coordinate|prospect|sell|close|generate|research|test|measure|turn|help|bring|deploy|make";
+const VERBS = "own|build|drive|lead|develop|manage|create|run|scale|plan|analy[sz]e|deliver|partner|define|execute|design|launch|write|grow|optimi[sz]e|stand up|establish|produce|support|track|report|identify|improve|oversee|shape|craft|translate|collaborate|conduct|monitor|coordinate|prospect|sell|close|generate|research|deploy";
 const VERB_START = new RegExp(`^(${VERBS})\\b`, "i");
 
 /** Clean, short responsibility phrases from the posting, each starting with a base verb ("own demand generation end-to-end"). */
@@ -156,6 +156,8 @@ export function responsibilities(description: string | null): string[] {
     l = l.replace(/[\s,.]+$/, "").replace(/\s+/g, " ");
     l = l.charAt(0).toLowerCase() + l.slice(1);
     if (l.split(" ").length < 3 || /\b(we|our|us|you|your)\b/i.test(l)) continue;
+    // Page furniture read as text ("WORK AND EDUCATION HISTORY", "Flexible Schedule") is never a responsibility.
+    if (HEADING.test(l) || shouting(l)) continue;
     if (!out.some((o) => o.slice(0, 18) === l.slice(0, 18))) out.push(l);
     if (out.length >= 8) break;
   }
@@ -175,6 +177,17 @@ export function missionOf(description: string | null, company: string, team = ""
   const named = team && team.toLowerCase().includes(company.toLowerCase()) ? team : company;
   return { who: (m[1] || "").trim() || named, what };
 }
+
+const HEADING = /\b(history|summary|schedule|benefits|salary|compensation|pay range|requirements|qualifications|education|eeo|equal opportunity|apply|click|cookie|privacy|sign in|log in)\b/i;
+/** More than a third of the letters in capitals (headings, banners), allowing real acronyms like SEO or B2B. */
+function shouting(s: string) {
+  const words = s.split(/\s+/).filter((w) => /[A-Za-z]{2,}/.test(w));
+  const loud = words.filter((w) => /[A-Z]{2,}/.test(w.slice(1)) && !/^(SEO|SEM|ABM|CRM|B2B|B2C|SMB|SaaS|KPIs?|SQL|API|AI|ML|UX|UI|BI|ROAS|CPL|CPA|GTM|P&L|EU|US|UK|WBR|QBR)$/.test(w.replace(/[^\w&]/g, "")));
+  return loud.length >= 1 && loud.length / Math.max(1, words.length) > 0.2;
+}
+
+/** Titles that are really page headings or form steps, never a job. */
+const NOT_A_TITLE = /^(work (summary|history)|work and education( history)?|job (summary|details|description|overview)|position (summary|details)|summary|overview|details|description|careers?|jobs?|apply( now)?|application|candidate profile|my (information|experience|profile))$/i;
 
 /** "Sr. Growth Marketing Manager, Ring Business" -> role + team; "Growth Marketing Manager - Paid Marketing" -> role + focus. */
 export function splitTitle(title: string): { role: string; team: string } {
@@ -336,7 +349,10 @@ export function writeLetter(r: ResumeContent, job: Job, tone: LetterTone = "conf
   const forTeam = team && !/^(remote|hybrid|onsite|us|usa|united states)$/i.test(team) ? ` for ${team}` : "";
   const why = resp[0] ? resp[0] : fam.purpose;
   const odd = /\s[-/|]\s|^\W/.test(role);
-  const open = odd ? `${company} is hiring for its ${job.title.trim()} role to ${why}.` : `${company} is hiring ${an(role)} ${role}${forTeam} to ${why}.`;
+  const unknown = NOT_A_TITLE.test(job.title.trim()) || !/[a-z]/i.test(job.title);
+  const open = unknown
+    ? `${company} is hiring someone to ${why}.`
+    : odd ? `${company} is hiring for its ${job.title.trim()} role to ${why}.` : `${company} is hiring ${an(role)} ${role}${forTeam} to ${why}.`;
   const at = anchor ? `${anchor.title}${anchor.company ? ` at ${anchor.company.split(",")[0]}` : ""}` : "";
   const done = (r.experience || []).some((e) => !e.brief && !STUDENT_ROLE.test(e.title || "") && fam.core.test(e.title || ""));
   const mine = anchor && /marketing|growth/i.test(anchor.title || "") ? "B2B marketing" : anchor && /analyst/i.test(anchor.title || "") ? "analytics" : "my field";
