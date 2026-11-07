@@ -10,7 +10,7 @@ export function MobileCta() {
       const end = document.getElementById("final-call");
       const nearEnd = end ? end.getBoundingClientRect().top < window.innerHeight : false;
       // After the intro (and its own buttons) has scrolled away.
-      const story = document.getElementById("story");
+      const story = document.getElementById("how");
       const past = story ? story.getBoundingClientRect().top < window.innerHeight * 0.6 : window.scrollY > 700;
       setShow(past && !nearEnd);
     };

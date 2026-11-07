@@ -1,0 +1,287 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Vantage product demo</title>
+<!-- Recorded by scripts/landing-demo/record.mjs into public/landing/demo.mp4. Sample candidate only (Sam Rivera); no real data. -->
+<style>
+@font-face { font-family: "Inter"; src: url("../../node_modules/@fontsource-variable/inter/files/inter-latin-wght-normal.woff2") format("woff2"); font-weight: 100 900; }
+@font-face { font-family: "Bricolage"; src: url("../../node_modules/@fontsource-variable/bricolage-grotesque/files/bricolage-grotesque-latin-wght-normal.woff2") format("woff2"); font-weight: 200 800; }
+:root { --ink:#0b1a3a; --ink2:#33415f; --ink3:#5a6782; --line:#e6e9f1; --bg:#f5f7fb; --blue:#2f5beb; --blue-t:#eef2fe; --green:#14975a; --green-t:#e7f6ee; --orange:#f7862b; --amber-t:#fff4e5; }
+* { box-sizing: border-box; margin: 0; }
+html, body { width: 1280px; height: 800px; overflow: hidden; background: var(--bg); font: 500 15px/1.45 Inter, system-ui, sans-serif; color: var(--ink); -webkit-font-smoothing: antialiased; }
+/* Laid out at 1024x640 and zoomed to fill 1280x800, so text stays readable when the video is shown small. */
+.app { position: absolute; left: 0; top: 0; width: 1024px; height: 640px; zoom: 1.25; display: grid; grid-template-columns: 196px 1fr; }
+.side { background: #fff; border-right: 1px solid var(--line); padding: 20px 14px; }
+.logo { display: flex; align-items: center; gap: 10px; font-weight: 750; font-size: 18px; letter-spacing: -.01em; margin-bottom: 26px; }
+.nav a { display: flex; align-items: center; gap: 10px; padding: 9px 12px; border-radius: 10px; color: var(--ink2); font-size: 14px; text-decoration: none; margin-bottom: 2px; }
+.nav a.on { background: var(--blue-t); color: var(--blue); font-weight: 650; }
+.nav i { width: 16px; height: 16px; border-radius: 5px; border: 2px solid currentColor; opacity: .7; }
+.main { position: relative; overflow: hidden; }
+.top { height: 64px; display: flex; align-items: center; justify-content: space-between; padding: 0 32px; border-bottom: 1px solid var(--line); background: #fff; }
+.top h1 { font: 700 19px/1 Bricolage, Inter, sans-serif; letter-spacing: -.01em; }
+.crumb { color: var(--ink3); font-size: 13px; }
+.who { display: flex; align-items: center; gap: 10px; font-size: 13.5px; color: var(--ink2); }
+.av { width: 32px; height: 32px; border-radius: 99px; background: linear-gradient(135deg,#9db4ff,#2f5beb); color: #fff; font-weight: 700; font-size: 13px; display: grid; place-items: center; }
+.scene { position: absolute; left: 0; right: 0; top: 64px; bottom: 0; padding: 28px 32px; opacity: 0; transform: translateY(14px); transition: opacity .55s ease, transform .55s ease; pointer-events: none; }
+.scene.on { opacity: 1; transform: none; }
+.card { background: #fff; border: 1px solid var(--line); border-radius: 16px; box-shadow: 0 1px 2px rgba(11,26,58,.04), 0 12px 32px -18px rgba(11,26,58,.18); }
+.pill { display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 10px; border-radius: 99px; font-size: 12.5px; font-weight: 650; }
+.p-green { background: var(--green-t); color: var(--green); }
+.p-blue { background: var(--blue-t); color: var(--blue); }
+.p-amber { background: var(--amber-t); color: #b4520a; }
+.btn { display: inline-flex; align-items: center; justify-content: center; height: 40px; padding: 0 18px; border-radius: 99px; background: var(--ink); color: #fff; font-weight: 650; font-size: 14px; }
+.btn.blue { background: var(--blue); }
+/* scene 1 */
+.jobs { display: grid; gap: 14px; max-width: 900px; }
+.job { display: grid; grid-template-columns: 52px 1fr auto; gap: 16px; align-items: center; padding: 18px 20px; opacity: 0; transform: translateY(10px); transition: all .45s ease; }
+.on .job { opacity: 1; transform: none; }
+.on .job:nth-child(2) { transition-delay: .15s; } .on .job:nth-child(3) { transition-delay: .3s; }
+.co { width: 52px; height: 52px; border-radius: 14px; display: grid; place-items: center; font: 800 20px Bricolage, Inter; color: #fff; }
+.job h3 { font-size: 17px; font-weight: 700; letter-spacing: -.01em; }
+.meta { color: var(--ink3); font-size: 13.5px; margin-top: 2px; }
+.tags { display: flex; gap: 8px; margin-top: 10px; }
+.fit { text-align: right; }
+.fit b { display: block; font: 750 26px/1 Bricolage, Inter; color: var(--green); }
+.fit small { color: var(--ink3); font-size: 12px; }
+.job.pick { outline: 2px solid transparent; transition: outline-color .3s, box-shadow .3s, opacity .45s, transform .45s; }
+.job.pick.hot { outline-color: var(--blue); box-shadow: 0 0 0 6px rgba(47,91,235,.12), 0 18px 40px -20px rgba(47,91,235,.5); }
+.cta-row { margin-top: 14px; display: flex; justify-content: flex-end; }
+/* scene 2 */
+.split { display: grid; grid-template-columns: 1fr 1.15fr; gap: 20px; height: 100%; }
+.panel { padding: 20px 22px; }
+.panel h4 { font-size: 12px; text-transform: uppercase; letter-spacing: .1em; color: var(--ink3); margin-bottom: 12px; }
+.panel h2 { font: 700 20px/1.2 Bricolage, Inter; letter-spacing: -.01em; margin-bottom: 4px; }
+.req { padding: 10px 12px; border-radius: 10px; margin: 6px -12px; color: var(--ink2); font-size: 14.5px; transition: background .35s, color .35s; }
+.req.hit { background: var(--blue-t); color: var(--ink); }
+.req.hit::before { content: "● "; color: var(--blue); }
+.res-name { font: 700 18px Bricolage, Inter; }
+.res-sub { font-size: 12.5px; color: var(--ink3); margin-bottom: 12px; }
+.role { font-size: 13px; font-weight: 700; margin: 12px 0 4px; }
+.bl { position: relative; font-size: 13.5px; color: var(--ink2); padding: 7px 10px 7px 22px; border-radius: 10px; margin: 2px -10px; transition: background .35s; }
+.bl::before { content: ""; position: absolute; left: 10px; top: 15px; width: 5px; height: 5px; border-radius: 9px; background: var(--ink3); }
+.bl.hit { background: var(--green-t); color: var(--ink); }
+.bl .chip { height: 20px; padding: 0 8px; margin-left: 6px; font-size: 11px; vertical-align: 1px; opacity: 0; transition: opacity .3s; }
+.bl.hit .chip { opacity: 1; }
+.meter { margin-top: 16px; padding: 14px 16px; display: flex; align-items: center; gap: 16px; }
+.bar { flex: 1; height: 8px; border-radius: 9px; background: #edf0f6; overflow: hidden; }
+.bar i { display: block; height: 100%; width: 0; background: linear-gradient(90deg,#2f5beb,#14975a); transition: width 2.6s cubic-bezier(.2,.7,.2,1); }
+.on .bar i { width: 91%; }
+.score { font: 750 22px Bricolage, Inter; min-width: 70px; text-align: right; }
+/* scene 3 */
+.letter-wrap { display: grid; grid-template-columns: 1.5fr 1fr; gap: 20px; }
+.letter { padding: 24px 28px; font-size: 14px; line-height: 1.6; color: var(--ink2); min-height: 470px; }
+.letter p { margin-bottom: 12px; }
+.letter .t { white-space: pre-wrap; }
+.caret { display: inline-block; width: 2px; height: 17px; background: var(--blue); vertical-align: -3px; animation: blink 1s steps(1) infinite; }
+@keyframes blink { 50% { opacity: 0; } }
+.checks { padding: 20px 22px; align-self: start; }
+.check { display: flex; gap: 10px; align-items: flex-start; padding: 10px 0; border-bottom: 1px solid var(--line); font-size: 14px; opacity: .3; transition: opacity .4s; }
+.check:last-child { border: 0; }
+.check.ok { opacity: 1; }
+.tick { width: 20px; height: 20px; border-radius: 99px; background: var(--green); color: #fff; display: grid; place-items: center; font-size: 12px; flex: none; margin-top: 1px; }
+/* scene 4 */
+.browser { max-width: 980px; overflow: hidden; }
+.bar-top { height: 42px; display: flex; align-items: center; gap: 8px; padding: 0 16px; border-bottom: 1px solid var(--line); background: #fafbfd; }
+.dot { width: 11px; height: 11px; border-radius: 9px; background: #e3e6ee; }
+.url { margin-left: 14px; height: 26px; flex: 1; max-width: 420px; border-radius: 8px; background: #fff; border: 1px solid var(--line); font-size: 12.5px; color: var(--ink3); display: flex; align-items: center; padding: 0 10px; }
+.form { padding: 24px 30px; display: grid; grid-template-columns: 1fr 1fr; gap: 16px 22px; }
+.form h2 { grid-column: 1 / -1; font: 700 21px Bricolage, Inter; }
+.f label { display: block; font-size: 12.5px; font-weight: 650; color: var(--ink2); margin-bottom: 6px; }
+.f .in { height: 42px; border-radius: 10px; border: 1px solid #d5dae6; background: #fff; display: flex; align-items: center; padding: 0 12px; font-size: 14px; color: var(--ink); transition: border-color .3s, box-shadow .3s; overflow: hidden; white-space: nowrap; }
+.f.fill .in { border-color: var(--blue); box-shadow: 0 0 0 4px rgba(47,91,235,.1); }
+.f.done .in { border-color: #b9dcc8; }
+.f .v { opacity: 0; transition: opacity .3s; }
+.f.fill .v, .f.done .v { opacity: 1; }
+.f.wide { grid-column: 1 / -1; }
+.file { gap: 10px; }
+.file b { font-weight: 650; }
+.toast { position: absolute; right: 36px; bottom: 34px; padding: 12px 16px; display: flex; gap: 12px; align-items: center; font-size: 13.5px; }
+.spin { width: 18px; height: 18px; border-radius: 99px; border: 2.5px solid var(--blue-t); border-top-color: var(--blue); animation: sp .8s linear infinite; }
+@keyframes sp { to { transform: rotate(360deg); } }
+/* scene 5 */
+.review { position: absolute; inset: 0; background: rgba(11,26,58,.32); display: grid; place-items: center; }
+.rv { width: 560px; padding: 28px 30px; transform: scale(.96); transition: transform .5s; }
+.on .rv { transform: none; }
+.rv h2 { font: 700 24px Bricolage, Inter; letter-spacing: -.01em; }
+.rv ul { list-style: none; padding: 0; margin: 16px 0 20px; }
+.rv li { display: flex; gap: 10px; padding: 7px 0; font-size: 14.5px; color: var(--ink2); }
+.rv .actions { display: flex; align-items: center; gap: 14px; }
+.rv .btn { height: 48px; padding: 0 26px; font-size: 15.5px; }
+.note { font-size: 13px; color: var(--ink3); }
+/* cursor */
+.cursor { position: absolute; width: 22px; height: 22px; left: 0; top: 0; z-index: 50; transition: transform 1s cubic-bezier(.45,.05,.25,1); pointer-events: none; }
+.cursor svg { filter: drop-shadow(0 2px 3px rgba(0,0,0,.25)); }
+.ripple { position: absolute; z-index: 49; width: 40px; height: 40px; margin: -20px 0 0 -20px; border-radius: 99px; background: rgba(47,91,235,.35); transform: scale(0); opacity: 0; }
+.ripple.go { animation: rip .55s ease-out; }
+@keyframes rip { 0% { transform: scale(.2); opacity: 1; } 100% { transform: scale(1.6); opacity: 0; } }
+.label { position: absolute; left: 32px; bottom: 26px; z-index: 40; display: flex; align-items: center; gap: 10px; padding: 10px 16px; border-radius: 99px; background: var(--ink); color: #fff; font-size: 14px; font-weight: 600; opacity: 0; transform: translateY(8px); transition: all .4s; }
+.label.on { opacity: 1; transform: none; }
+.label span { width: 22px; height: 22px; border-radius: 99px; background: var(--blue); display: grid; place-items: center; font-size: 12px; }
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="side">
+    <div class="logo"><svg width="28" height="28" viewBox="0 0 30 30"><rect width="30" height="30" rx="8" fill="#2F5BEB"/><path d="M9 10l6 10 6-10" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/><circle cx="24" cy="6" r="4" fill="#F7862B" stroke="#fff" stroke-width="1.5"/></svg>Vantage</div>
+    <nav class="nav">
+      <a class="on" id="n-jobs"><i></i>Jobs for you</a>
+      <a id="n-res"><i></i>Resumes</a>
+      <a id="n-letters"><i></i>Cover letters</a>
+      <a id="n-apps"><i></i>Applications</a>
+      <a><i></i>Interview kit</a>
+      <a><i></i>Settings</a>
+    </nav>
+  </aside>
+  <section class="main">
+    <header class="top"><div><div class="crumb" id="crumb">Jobs</div><h1 id="title">Jobs for you</h1></div><div class="who"><div class="av">SR</div>Sam Rivera</div></header>
+
+    <!-- 1. Jobs -->
+    <div class="scene" id="s1">
+      <div class="jobs">
+        <div class="card job pick" id="pick">
+          <div class="co" style="background:#2f5beb">N</div>
+          <div><h3>Growth Marketing Manager</h3><div class="meta">Northwind · Remote (US) · Posted 2 days ago</div>
+            <div class="tags"><span class="pill p-green">✓ Sponsors visas</span><span class="pill p-blue">Greenhouse</span></div></div>
+          <div class="fit"><b>94%</b><small>fit with your targets</small></div>
+        </div>
+        <div class="card job">
+          <div class="co" style="background:#9b6bff">L</div>
+          <div><h3>Demand Generation Lead</h3><div class="meta">Lumen Analytics · Chicago, IL · Posted 5 days ago</div>
+            <div class="tags"><span class="pill p-green">✓ Sponsors visas</span><span class="pill p-blue">Workday</span></div></div>
+          <div class="fit"><b>88%</b><small>fit with your targets</small></div>
+        </div>
+        <div class="card job">
+          <div class="co" style="background:#f7862b">B</div>
+          <div><h3>Marketing Analyst</h3><div class="meta">Brightpath · Austin, TX · Posted 4 months ago</div>
+            <div class="tags"><span class="pill p-amber">⚠ Likely ghost job</span><span class="pill p-blue">Lever</span></div></div>
+          <div class="fit"><b style="color:#5a6782">81%</b><small>fit with your targets</small></div>
+        </div>
+        <div class="cta-row"><span class="btn blue" id="go">Tailor &amp; apply to Northwind</span></div>
+      </div>
+    </div>
+
+    <!-- 2. Tailor -->
+    <div class="scene" id="s2">
+      <div class="split">
+        <div class="card panel">
+          <h4>The posting</h4>
+          <h2>Growth Marketing Manager</h2>
+          <div class="meta" style="margin-bottom:14px">Northwind · Remote (US)</div>
+          <div class="req" id="r1">Own paid acquisition across LinkedIn and Google Ads</div>
+          <div class="req" id="r2">Grow qualified pipeline with target accounts</div>
+          <div class="req" id="r3">Run a weekly test-and-learn cadence</div>
+          <div class="req" id="r4">Report results to leadership in clear dashboards</div>
+          <div class="req">Partner with sales on lead quality and handoff</div>
+        </div>
+        <div class="card panel">
+          <h4>Your resume for Northwind</h4>
+          <div class="res-name">Sam Rivera</div>
+          <div class="res-sub">Growth Marketing Manager · 6+ years in B2B demand generation</div>
+          <div class="role">Senior Growth Marketing Manager · Contoso · 2021–2025</div>
+          <div class="bl" id="b2">Grew qualified pipeline 40% across 200+ target accounts.<span class="pill p-green chip">✓ From your history</span></div>
+          <div class="bl" id="b1">Ran LinkedIn and Google Ads programs on a $40K monthly budget.<span class="pill p-green chip">✓ From your history</span></div>
+          <div class="bl" id="b3">Cut cost per lead 25% by moving budget to winning audiences.<span class="pill p-green chip">✓ From your history</span></div>
+          <div class="role">Marketing Specialist · Fabrikam · 2019–2021</div>
+          <div class="bl" id="b4">Built weekly Power BI dashboards for the leadership team.<span class="pill p-green chip">✓ From your history</span></div>
+          <div class="bl">Increased inbound leads 3x through SEO and paid search.</div>
+          <div class="card meter"><div style="font-size:13.5px;font-weight:650;white-space:nowrap">Recruiter check</div><div class="bar"><i></i></div><div class="score" id="score">0.0</div></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 3. Letter -->
+    <div class="scene" id="s3">
+      <div class="letter-wrap">
+        <div class="card letter"><div class="t" id="typed"></div><span class="caret"></span></div>
+        <div class="card checks">
+          <h4 style="font-size:12px;text-transform:uppercase;letter-spacing:.1em;color:#5a6782;margin-bottom:6px">Checked before you see it</h4>
+          <div class="check" id="c1"><span class="tick">✓</span>Opens with what Northwind is hiring for</div>
+          <div class="check" id="c2"><span class="tick">✓</span>Two results with real numbers</div>
+          <div class="check" id="c3"><span class="tick">✓</span>Every claim traced to your resume</div>
+          <div class="check" id="c4"><span class="tick">✓</span>No clichés, under one page</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 4. Form -->
+    <div class="scene" id="s4">
+      <div class="card browser">
+        <div class="bar-top"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="url">careers.northwind.example/apply/growth-marketing-manager</span></div>
+        <div class="form">
+          <h2>Apply: Growth Marketing Manager</h2>
+          <div class="f" id="f1"><label>Full name</label><div class="in"><span class="v">Sam Rivera</span></div></div>
+          <div class="f" id="f2"><label>Email</label><div class="in"><span class="v">sam.rivera@example.com</span></div></div>
+          <div class="f" id="f3"><label>Resume</label><div class="in file"><span class="v">📄 <b>Sam_Rivera_Northwind.pdf</b> · written for this job</span></div></div>
+          <div class="f" id="f4"><label>Cover letter</label><div class="in file"><span class="v">📄 <b>Cover_Letter_Northwind.pdf</b></span></div></div>
+          <div class="f" id="f5"><label>Are you legally authorized to work in the US?</label><div class="in"><span class="v">Yes</span></div></div>
+          <div class="f" id="f6"><label>Will you now or in the future require sponsorship?</label><div class="in"><span class="v">Yes (from your profile)</span></div></div>
+          <div class="f wide" id="f7"><label>Why Northwind?</label><div class="in"><span class="v">Your posting says the role will own paid acquisition. That is the work I have led for six years…</span></div></div>
+        </div>
+      </div>
+      <div class="card toast" id="toast"><span class="spin"></span>Filling the company's own form · page 2 of 3</div>
+    </div>
+
+    <!-- 5. Review -->
+    <div class="scene" id="s5">
+      <div class="review">
+        <div class="card rv">
+          <span class="pill p-green">Ready for your review</span>
+          <h2 style="margin-top:12px">Northwind · Growth Marketing Manager</h2>
+          <ul>
+            <li><span class="tick">✓</span>Resume and cover letter written for this job</li>
+            <li><span class="tick">✓</span>3 pages of the application filled</li>
+            <li><span class="tick">✓</span>Your password was never seen or typed</li>
+          </ul>
+          <div class="actions"><span class="btn blue" id="submit">Submit application</span><span class="note">Nothing is sent until you press Submit.</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="label" id="label"><span id="lnum">1</span><b id="ltext">Find jobs that can hire you</b></div>
+  </section>
+</div>
+<div class="ripple" id="ripple"></div>
+<div class="cursor" id="cursor"><svg width="22" height="22" viewBox="0 0 24 24"><path d="M4 2l15 9.5-6.6 1.3L16 20l-3 1.4-3.6-7.3L4 18z" fill="#0b1a3a" stroke="#fff" stroke-width="1.5" stroke-linejoin="round"/></svg></div>
+<script>
+const $ = (id) => document.getElementById(id);
+const scenes = ["s1", "s2", "s3", "s4", "s5"];
+const show = (id) => scenes.forEach((s) => $(s).classList.toggle("on", s === id));
+const at = (ms, fn) => setTimeout(fn, ms);
+const label = (n, t) => { $("label").classList.remove("on"); at(180, () => { $("lnum").textContent = n; $("ltext").textContent = t; $("label").classList.add("on"); }); };
+const nav = (id, crumb, title) => { document.querySelectorAll(".nav a").forEach((a) => a.classList.toggle("on", a.id === id)); $("crumb").textContent = crumb; $("title").textContent = title; };
+function moveTo(el, dx = 0.5, dy = 0.5) {
+  const r = (typeof el === "string" ? $(el) : el).getBoundingClientRect();
+  const x = r.left + r.width * dx, y = r.top + r.height * dy;
+  $("cursor").style.transform = `translate(${x - 4}px, ${y - 3}px)`;
+  return [x, y];
+}
+function click(el) {
+  const [x, y] = moveTo(el);
+  at(1050, () => { const rp = $("ripple"); rp.style.left = x + "px"; rp.style.top = y + "px"; rp.classList.remove("go"); void rp.offsetWidth; rp.classList.add("go"); });
+}
+const LETTER = "Dear Northwind Hiring Team,\n\nNorthwind is hiring a Growth Marketing Manager to own paid acquisition across LinkedIn and Google Ads. That is the work I have done for the last six years in B2B demand generation.\n\nAt Contoso, I grew qualified pipeline 40% across 200+ target accounts, then cut cost per lead 25% by moving budget to the audiences that converted.\n\nIn my first months, I would run a weekly test-and-learn cadence and report results against pipeline and cost per lead…";
+function type(text, ms) {
+  const el = $("typed"); el.textContent = ""; let i = 0;
+  const step = Math.max(1, Math.round(text.length / (ms / 16)));
+  const t = setInterval(() => { i += step; el.textContent = text.slice(0, i); if (i >= text.length) clearInterval(t); }, 16);
+}
+$("cursor").style.transform = "translate(880px, 560px)";
+// Timeline (ms)
+at(100, () => { show("s1"); label(1, "Find jobs that can hire you"); });
+at(1300, () => { moveTo("pick", 0.75, 0.5); $("pick").classList.add("hot"); });
+at(2400, () => click("go"));
+at(3700, () => { show("s2"); nav("n-res", "Northwind · Growth Marketing Manager", "Tailoring your resume"); label(2, "A resume written for this job"); $("pick").classList.remove("hot"); });
+const pairs = [["r1", "b1"], ["r2", "b2"], ["r3", "b3"], ["r4", "b4"]];
+pairs.forEach(([r, b], i) => at(4500 + i * 850, () => { $(r).classList.add("hit"); at(300, () => $(b).classList.add("hit")); }));
+at(4500, () => { let v = 0; const t = setInterval(() => { v = Math.min(9.1, v + 0.12); $("score").textContent = v.toFixed(1); if (v >= 9.1) clearInterval(t); }, 32); });
+at(4600, () => moveTo("b2", 0.6, 0.5));
+at(8600, () => { show("s3"); nav("n-letters", "Northwind · Growth Marketing Manager", "Your cover letter"); label(3, "A cover letter only you could send"); type(LETTER, 3200); moveTo("typed", 0.9, 1.6); });
+["c1", "c2", "c3", "c4"].forEach((c, i) => at(9300 + i * 700, () => $(c).classList.add("ok")));
+at(12700, () => { show("s4"); nav("n-apps", "Northwind · Growth Marketing Manager", "Applying on Northwind's site"); label(4, "The company's own form, filled"); });
+["f1", "f2", "f3", "f4", "f5", "f6", "f7"].forEach((f, i) => at(13300 + i * 480, () => { if (i) $("f" + i).classList.replace("fill", "done"); $(f).classList.add("fill"); moveTo(f, 0.85, 0.75); }));
+at(16800, () => $("f7").classList.replace("fill", "done"));
+at(17200, () => { show("s5"); label(5, "You press Submit"); moveTo("submit", 0.5, 0.55); });
+</script>
+</body>
+</html>

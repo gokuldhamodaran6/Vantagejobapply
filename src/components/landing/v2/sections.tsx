@@ -8,7 +8,8 @@ import { Logo } from "@/components/brand";
 /* ---------- nav ---------- */
 
 const LINKS = [
-  { href: "#story", label: "How it works" },
+  { href: "#how", label: "How it works" },
+  { href: "#features", label: "Features" },
   { href: "#true", label: "Kept true" },
   { href: "#countries", label: "Countries" },
   { href: "#faq", label: "FAQ" },
